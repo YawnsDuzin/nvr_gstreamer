@@ -451,6 +451,38 @@ class GridViewWidget(QWidget):
         if channel:
             channel.update_camera_info(camera_id, camera_name)
 
+    def add_camera(self, camera_id: str, camera_name: str) -> ChannelWidget:
+        """
+        Add camera to next available channel
+
+        Args:
+            camera_id: Camera ID
+            camera_name: Camera name
+
+        Returns:
+            ChannelWidget or None if no channels available
+        """
+        # Find first available channel
+        for channel in self.channels:
+            if not channel.camera_id or channel.camera_id.startswith("cam_"):
+                channel.update_camera_info(camera_id, camera_name)
+                return channel
+        return None
+
+    def remove_camera(self, camera_id: str):
+        """
+        Remove camera from grid
+
+        Args:
+            camera_id: Camera ID to remove
+        """
+        for channel in self.channels:
+            if channel.camera_id == camera_id:
+                # Reset to default
+                channel.update_camera_info(f"cam_{channel.channel_index}", f"Camera {channel.channel_index + 1}")
+                channel.set_connected(False)
+                break
+
     def keyPressEvent(self, event):
         """Handle keyboard shortcuts"""
         key = event.key()
@@ -475,3 +507,7 @@ class GridViewWidget(QWidget):
             self.toggle_sequence()
 
         super().keyPressEvent(event)
+
+
+# Alias for backward compatibility
+GridView = GridViewWidget

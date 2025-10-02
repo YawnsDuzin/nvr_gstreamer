@@ -307,24 +307,104 @@ https://github.com/YawnsDuzin/nvr_gstreamer 의 깃허브 레포지토리에
 현재 프로젝트를 처음 commit, push 하는 스크립트를 작성해줘.
 아래의 요구사항을 추가해줘.
 
-1. 일반적인 .gitignore 작성
+1. 일반적으로 포함되는 파일들을 포함하여, .gitignore 작성
 2. readme.md 파일 자동 생성
 3. main 브런치로 push
 4. 현재 id/email, token 설정이 이미 되어있음.
 
-
-
 ==============================
-==============================
-==============================
-==============================
-==============================
-==============================
-
 
 "4. 재생 기능 - 녹화 파일 재생" 개발 추가로 진행해줘.
 
+[작업부분]
+구현된 주요 기능:
+1. 재생 관리자 (playback_manager.py):
+녹화 파일 스캔 및 관리
+GStreamer 기반 재생 파이프라인
+재생 제어 (재생/일시정지/정지/탐색)
+재생 속도 조절 (0.5x ~ 4x)
+파일 정보 추출 (재생시간, 크기 등)
+2. 재생 UI (playback_widget.py):
+PlaybackControlWidget: 비디오 재생 컨트롤
+재생/일시정지/정지 버튼
+시크바 (타임라인 탐색)
+재생 속도 선택
+시간 표시
+RecordingListWidget: 녹화 파일 목록
+카메라별 필터링
+날짜 범위 필터링
+파일 정보 테이블 표시
+파일 삭제 기능
+PlaybackWidget: 통합 재생 위젯
+파일 목록과 재생 컨트롤 통합
+더블클릭으로 파일 재생
+3. 통합 메인 윈도우 (main_with_playback.py):
+탭 기반 UI (라이브 뷰 / 재생 / 설정)
+스트리밍, 녹화, 재생 통합 관리
+파이프라인 모드 전환
+4. 주요 기능:
+재생 제어
+▶️ 재생/일시정지 토글
+⏹️ 정지
+타임라인 탐색 (시크바 드래그)
+재생 속도 조절 (0.5x, 1x, 1.5x, 2x, 4x)
+파일 관리
+자동 파일 스캔
+카메라별/날짜별 필터링
+파일 정보 표시 (크기, 재생시간)
+파일 삭제 기능
+사용자 경험
+직관적인 비디오 플레이어 UI
+실시간 재생 위치 업데이트
+파일 더블클릭으로 즉시 재생
+테스트 방법:
+# 재생 관리자만 테스트
+python test_playback.py --mode manager
+
+# UI 포함 전체 테스트
+python test_playback.py --mode ui
+
+# 통합 시스템 실행
+python main_with_playback.py
+시스템 아키텍처:
+라이브 스트리밍 ─┬─→ 화면 표시
+                └─→ 파일 저장 → 재생 시스템
+                                   ├─→ 파일 스캔
+                                   ├─→ 메타데이터 추출
+                                   └─→ GStreamer 재생
+재생 기능이 완벽하게 통합되어 이제 NVR 시스템에서 실시간 모니터링, 연속 녹화, 그리고 녹화된 영상 재생까지 모든 기능을 사용할 수 있습니다.
+
 ==============================
+
+PyQt5 설치되어있고, 계속 PyQt5 사용하다가, 왜 갑자기 PyQt6를 사용해??
+
+==============================
+
+itlog@NVR-PYTHON-1:~/itlog-main/program/IL_RNVR/nvr_gstreamer $ python3 main_with_playback.py
+Traceback (most recent call last):
+  File "/home/itlog/itlog-main/program/IL_RNVR/nvr_gstreamer/main_with_playback.py", line 18, in <module>
+    from ui.grid_view import GridView
+ImportError: cannot import name 'GridView' from 'ui.grid_view' (/home/itlog/itlog-main/program/IL_RNVR/nvr_gstreamer/ui/grid_view.py)
+
+==============================
+
+itlog@NVR-PYTHON-1:~/itlog-main/program/IL_RNVR/nvr_gstreamer $ python3 main_with_playback.py
+Traceback (most recent call last):
+  File "/home/itlog/itlog-main/program/IL_RNVR/nvr_gstreamer/main_with_playback.py", line 21, in <module>
+    from ui.playback_widget import PlaybackWidget
+  File "/home/itlog/itlog-main/program/IL_RNVR/nvr_gstreamer/ui/playback_widget.py", line 18, in <module>
+    from ..playback.playback_manager import PlaybackManager, PlaybackState, RecordingFile
+ImportError: attempted relative import beyond top-level package
+
+[작업 진행하다가 토큰 오버!! PM6 풀림]
+
+==============================
+==============================
+==============================
+==============================
+==============================
+==============================
+
 
 "5. 설정 관리 - 카메라 URL 저장/로드" 개발 추가로 진행해줘.
 

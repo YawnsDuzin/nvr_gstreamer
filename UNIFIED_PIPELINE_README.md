@@ -39,6 +39,8 @@ if pipeline.create_pipeline():
 
         # 파이프라인 정지
         pipeline.stop()
+
+
 ```
 
 ### 2. Pipeline Manager를 통한 사용
@@ -100,10 +102,10 @@ pipeline = UnifiedPipeline(
 
 ```
 rtspsrc → rtph264depay → h264parse → tee ─┬─→ [Streaming Branch]
-                                           │    queue → decoder → videoconvert → videoscale → videosink
-                                           │
-                                           └─→ [Recording Branch]
-                                                queue → valve → mp4mux → filesink
+                                          │    queue → decoder → videoconvert → videoscale → videosink
+                                          │
+                                          └─→ [Recording Branch]
+                                               queue → valve → mp4mux → filesink
 ```
 
 ### 주요 컴포넌트

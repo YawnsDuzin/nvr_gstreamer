@@ -389,3 +389,22 @@ class CameraDialog(QDialog):
         if self.result() == QDialog.Accepted:
             return self.camera_config
         return None
+
+    def get_camera_info(self):
+        """
+        Get camera information as dictionary (for backward compatibility)
+
+        Returns:
+            Dictionary with camera information
+        """
+        if self.result() == QDialog.Accepted and self.camera_config:
+            return {
+                'id': self.camera_config.camera_id,
+                'name': self.camera_config.name,
+                'url': self.camera_config.rtsp_url,
+                'username': self.camera_config.username,
+                'password': self.camera_config.password,
+                'auto_record': getattr(self.camera_config, 'recording_enabled', False),
+                'enabled': getattr(self.camera_config, 'enabled', True)
+            }
+        return None
