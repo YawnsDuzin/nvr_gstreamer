@@ -156,6 +156,9 @@ nvr_project_analysis_*.md
 *_analysis_*.md
 *_report_*.md
 
+# User prompts and instructions
+prompts.md
+
 # Temporary files
 tmp/
 temp/
