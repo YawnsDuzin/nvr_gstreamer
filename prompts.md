@@ -447,10 +447,74 @@ Pipeline 처리 부분을 Valve 기반 제어 방식으로 수정해줘.
 현재 코드까지 내용을 자동으로 git commet 생성해서 push 까지 처리해줘.
 
 [처리내용]
+commit fda0b02 - feat: 파이프라인 Valve 기반 제어 방식으로 개선
+- 런타임 중 모드 전환 지원
+- streaming_valve 추가로 무중단 서비스 구현
 
 ==============================
+
+실행 시, 카메라 1번은 grid_view에 표시되는데, 나머지 카메라 2~4번은 별도의 dialog 창으로 실행되는데,
+모든 카메라가 정상 연결되면, grid_view에 표시되도록 수정해줘.
+
 ==============================
+
+카메라1번 connect 시, 아래와 같은 오류가 표시되면서 프로그램이 종료되고 있어.
+그리고 2~4번 카메라는 아직도 별도의  dialog 창으로 실행되고 있어.
+
+Traceback (most recent call last):
+  File "/home/itlog/itlog-main/program/IL_RNVR/nvr_gstreamer/ui/camera_list_widget.py", line 479, in _connect_camera
+    logger.debug(f"Found window handle for {camera_item.camera_config.camera_id}: {window_handle}")
+NameError: name 'logger' is not defined
+중지됨
+
 ==============================
+
+카메라1 번은 정상적으로 gridview에 다시 표시되고 있어,
+나머지는 아직도 별도의 dialog 창에서 실행되고 오류는 아래와 같아.
+
+2025-10-13 11:17:20 | SUCCESS  | Connected to camera: Trolley Camera 1
+2025-10-13 11:17:20 | INFO     | Camera connected: cam_01
+2025-10-13 11:17:20 | INFO     | Set window handle for camera cam_01: <sip.voidptr object at 0x7fa8e30db0>
+2025-10-13 11:17:22 | INFO     | Connecting to camera: Trolley Camera 2
+2025-10-13 11:17:22 | INFO     | Pipeline manager initialized for URL: rtsp://admin:trolleycam1~@192.168.0.131:554/Streaming/Channels/102 (unified: False)
+2025-10-13 11:17:22 | INFO     | Using H264 decoder: avdec_h264
+2025-10-13 11:17:22 | INFO     | Pipeline created successfully
+2025-10-13 11:17:22 | INFO     | Pipeline started successfully
+2025-10-13 11:17:22 | SUCCESS  | Connected to camera: Trolley Camera 2
+2025-10-13 11:17:22 | INFO     | Camera connected: cam_02
+2025-10-13 11:17:25 | ERROR    | Pipeline error: gst-resource-error-quark: Output window was closed (3), ../sys/xvimage/xvimagesink.c(559): gst_xv_image_sink_handle_xevents (): /GstPipeline:pipeline1/GstXvImageSink:videosink
+2025-10-13 11:17:25 | INFO     | Stopping pipeline...
+2025-10-13 11:17:25 | INFO     | Pipeline stopped
+2025-10-13 11:17:28 | INFO     | Connecting to camera: Camera 3
+2025-10-13 11:17:28 | INFO     | Pipeline manager initialized for URL: rtsp://admin:trolleycam1~@192.168.0.131:554/Streaming/Channels/102 (unified: False)
+2025-10-13 11:17:28 | INFO     | Using H264 decoder: avdec_h264
+2025-10-13 11:17:28 | INFO     | Pipeline created successfully
+2025-10-13 11:17:28 | INFO     | Pipeline started successfully
+2025-10-13 11:17:28 | SUCCESS  | Connected to camera: Camera 3
+2025-10-13 11:17:28 | INFO     | Camera connected: cam_03
+2025-10-13 11:17:30 | ERROR    | Pipeline error: gst-resource-error-quark: Output window was closed (3), ../sys/xvimage/xvimagesink.c(559): gst_xv_image_sink_handle_xevents (): /GstPipeline:pipeline2/GstXvImageSink:videosink
+2025-10-13 11:17:30 | INFO     | Stopping pipeline...
+2025-10-13 11:17:30 | INFO     | Pipeline stopped
+2025-10-13 11:17:32 | INFO     | Connecting to camera: Camera 4
+2025-10-13 11:17:32 | INFO     | Pipeline manager initialized for URL: rtsp://admin:trolleycam1~@192.168.0.131:554/Streaming/Channels/102 (unified: False)
+2025-10-13 11:17:32 | INFO     | Using H264 decoder: avdec_h264
+2025-10-13 11:17:32 | INFO     | Pipeline created successfully
+2025-10-13 11:17:32 | INFO     | Pipeline started successfully
+2025-10-13 11:17:32 | SUCCESS  | Connected to camera: Camera 4
+2025-10-13 11:17:32 | INFO     | Camera connected: cam_04
+2025-10-13 11:17:34 | ERROR    | Pipeline error: gst-resource-error-quark: Output window was closed (3), ../sys/xvimage/xvimagesink.c(559): gst_xv_image_sink_handle_xevents (): /GstPipeline:pipeline3/GstXvImageSink:videosink
+2025-10-13 11:17:34 | INFO     | Stopping pipeline...
+2025-10-13 11:17:34 | INFO     | Pipeline stopped
+
+==============================
+
+[git]
+현재 코드까지 내용을 자동으로 git commet 생성해서 push 까지 처리해줘.
+
+==============================
+
+
+
 ==============================
 ==============================
 ==============================

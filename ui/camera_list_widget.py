@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 from PyQt5.QtGui import QIcon, QColor, QFont
+from loguru import logger
 
 # Fix imports
 import sys
@@ -69,6 +70,7 @@ class CameraListWidget(QWidget):
         self.config_manager = config_manager or ConfigManager()
         self.camera_items = {}  # camera_id -> CameraListItem
         self.camera_streams = {}  # camera_id -> CameraStream
+        self.main_window = None  # Reference to main window for grid_view access
 
         self._setup_ui()
         self._setup_context_menu()
@@ -467,10 +469,10 @@ class CameraListWidget(QWidget):
 
         camera_item = current_item
         if camera_item.camera_stream and not camera_item.camera_stream.is_connected():
-            # 윈도우 핸들 찾기 (parent의 grid_view에서)
+            # 윈도우 핸들 찾기 (main_window의 grid_view에서)
             window_handle = None
-            if hasattr(self.parent(), 'grid_view'):
-                grid_view = self.parent().grid_view
+            if self.main_window and hasattr(self.main_window, 'grid_view'):
+                grid_view = self.main_window.grid_view
                 # 해당 카메라 ID를 가진 채널 찾기
                 for channel in grid_view.channels:
                     if channel.camera_id == camera_item.camera_config.camera_id:
@@ -498,10 +500,13 @@ class CameraListWidget(QWidget):
 
     def _connect_all(self):
         """Connect all enabled cameras"""
-        # parent의 grid_view 가져오기
+        # main_window의 grid_view 가져오기
         grid_view = None
-        if hasattr(self.parent(), 'grid_view'):
-            grid_view = self.parent().grid_view
+        if self.main_window and hasattr(self.main_window, 'grid_view'):
+            grid_view = self.main_window.grid_view
+            logger.info(f"Found grid_view with {len(grid_view.channels)} channels")
+        else:
+            logger.warning("Could not find grid_view from main_window")
 
         for camera_item in self.camera_items.values():
             if camera_item.camera_config.enabled and camera_item.camera_stream:
@@ -512,11 +517,15 @@ class CameraListWidget(QWidget):
                         for channel in grid_view.channels:
                             if channel.camera_id == camera_item.camera_config.camera_id:
                                 window_handle = channel.get_window_handle()
-                                logger.debug(f"Assigning window handle to {camera_item.camera_config.camera_id}: {window_handle}")
+                                logger.info(f"Assigning window handle to {camera_item.camera_config.camera_id}: {window_handle}")
                                 break
+
+                    if not window_handle:
+                        logger.warning(f"No window handle found for {camera_item.camera_config.camera_id}")
 
                     if camera_item.camera_stream.connect(window_handle=window_handle):
                         self.camera_connected.emit(camera_item.camera_config.camera_id)
+                        logger.success(f"Connected camera: {camera_item.camera_config.camera_id}")
 
         self._update_status()
 

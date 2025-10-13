@@ -85,13 +85,15 @@ class CameraStream:
         Returns:
             True if connected successfully
         """
-        logger.info(f"Connecting to camera: {self.config.name}")
+        logger.info(f"Connecting to camera: {self.config.name} (ID: {self.config.camera_id})")
         self.status = StreamStatus.CONNECTING
 
         # 미리 할당된 윈도우 핸들이 있으면 사용, 없으면 매개변수 사용
         handle_to_use = self.window_handle if self.window_handle else window_handle
         if handle_to_use:
-            logger.info(f"Using window handle for {self.config.name}: {handle_to_use}")
+            logger.info(f"Using window handle for {self.config.name} (ID: {self.config.camera_id}): {handle_to_use}")
+        else:
+            logger.warning(f"No window handle available for {self.config.name} (ID: {self.config.camera_id})")
 
         try:
             # Create pipeline manager with window handle

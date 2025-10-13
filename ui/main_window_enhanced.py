@@ -69,6 +69,7 @@ class EnhancedMainWindow(QMainWindow):
             QDockWidget.DockWidgetClosable
         )
         self.camera_list = CameraListWidget(self.config_manager)
+        self.camera_list.main_window = self  # Set reference to main window for grid_view access
         self.camera_dock.setWidget(self.camera_list)
         self.addDockWidget(Qt.LeftDockWidgetArea, self.camera_dock)
 
@@ -261,8 +262,11 @@ class EnhancedMainWindow(QMainWindow):
         self.recording_control.recording_started.connect(self._on_recording_started)
         self.recording_control.recording_stopped.connect(self._on_recording_stopped)
 
-        # Auto-assign cameras to channels and recording control
+        # Auto-assign cameras to channels first
         self._auto_assign_cameras()
+        # Then assign window handles to camera streams
+        self._assign_window_handles_to_streams()
+        # Finally populate recording control
         self._populate_recording_control()
 
     def _setup_status_bar(self):
@@ -307,6 +311,37 @@ class EnhancedMainWindow(QMainWindow):
             channel = self.grid_view.get_channel(i)
             if channel:
                 channel.update_camera_info(camera.camera_id, camera.name)
+                logger.debug(f"Assigned {camera.camera_id} to channel {i}")
+
+    def _assign_window_handles_to_streams(self):
+        """Assign window handles from grid channels to camera streams"""
+        logger.info("Assigning window handles to camera streams...")
+
+        # 디버깅을 위해 모든 채널과 카메라 정보 출력
+        logger.debug(f"Total channels: {len(self.grid_view.channels)}")
+        logger.debug(f"Total camera streams: {len(self.camera_list.camera_streams)}")
+
+        # 먼저 모든 채널 정보 확인
+        for i, channel in enumerate(self.grid_view.channels[:16]):
+            logger.debug(f"Channel {i}: camera_id={channel.camera_id}, has_handle={channel.get_window_handle() is not None}")
+
+        # 카메라 ID를 기준으로 매칭
+        for camera_id, stream in self.camera_list.camera_streams.items():
+            # 해당 카메라 ID를 가진 채널 찾기
+            window_handle_assigned = False
+            for i, channel in enumerate(self.grid_view.channels[:16]):
+                if channel.camera_id == camera_id:
+                    window_handle = channel.get_window_handle()
+                    if window_handle:
+                        stream.window_handle = window_handle
+                        logger.success(f"✓ Assigned window handle to {camera_id} (channel {i}): {window_handle}")
+                        window_handle_assigned = True
+                    else:
+                        logger.warning(f"✗ No window handle available for {camera_id} (channel {i})")
+                    break
+
+            if not window_handle_assigned:
+                logger.warning(f"✗ Camera {camera_id} not assigned to any channel")
 
     def _on_camera_selected(self, camera_id: str):
         """Handle camera selection from list"""
@@ -342,20 +377,28 @@ class EnhancedMainWindow(QMainWindow):
         # Get camera stream
         stream = self.camera_list.get_camera_stream(camera_id)
         if not stream:
+            logger.warning(f"No stream found for camera {camera_id}")
             return
 
         # Find channel with this camera and update
+        channel_found = False
         for channel in self.grid_view.channels:
             if channel.camera_id == camera_id:
+                channel_found = True
                 # Get window handle and set it on the pipeline
                 window_handle = channel.get_window_handle()
                 if window_handle and stream.pipeline_manager:
                     # Set video sink to render in widget
                     stream.pipeline_manager.set_window_handle(window_handle)
                     logger.info(f"Set window handle for camera {camera_id}: {window_handle}")
+                else:
+                    logger.warning(f"Could not set window handle for {camera_id} - handle: {window_handle}, pipeline: {stream.pipeline_manager}")
 
                 channel.set_connected(True)
                 break
+
+        if not channel_found:
+            logger.warning(f"No channel found for camera {camera_id}")
 
     def _on_camera_disconnected(self, camera_id: str):
         """Handle camera disconnected"""
@@ -417,34 +460,17 @@ class EnhancedMainWindow(QMainWindow):
 
     def _connect_all_cameras(self):
         """Connect all cameras"""
-        # 먼저 각 카메라에 윈도우 핸들 할당
-        self._assign_window_handles_to_cameras()
+        logger.info("Connecting all cameras...")
+
+        # 윈도우 핸들이 이미 할당되어 있는지 확인하고, 없으면 재할당
+        self._assign_window_handles_to_streams()
+
         # 그 다음 연결
         self.camera_list._connect_all()
 
     def _disconnect_all_cameras(self):
         """Disconnect all cameras"""
         self.camera_list._disconnect_all()
-
-    def _assign_window_handles_to_cameras(self):
-        """각 카메라에 윈도우 핸들을 미리 할당"""
-        cameras = self.config_manager.get_enabled_cameras()
-
-        for i, camera in enumerate(cameras[:16]):  # 최대 16채널
-            channel = self.grid_view.get_channel(i)
-            if channel:
-                # 채널에 카메라 정보 업데이트
-                channel.update_camera_info(camera.camera_id, camera.name)
-
-                # 윈도우 핸들 가져오기
-                window_handle = channel.get_window_handle()
-
-                # 카메라 스트림에 윈도우 핸들 미리 설정
-                stream = self.camera_list.get_camera_stream(camera.camera_id)
-                if stream and window_handle:
-                    # 연결 전에 윈도우 핸들 저장
-                    stream.window_handle = window_handle
-                    logger.info(f"Pre-assigned window handle for {camera.camera_id}: {window_handle}")
 
     def _toggle_camera_dock(self, checked: bool):
         """Toggle camera dock visibility"""

@@ -26,11 +26,11 @@ cameras:
   # 인증 정보를 분리하는 방법 (대체 방법)
   - camera_id: cam_02
     name: Trolley Camera 2
-    rtsp_url: rtsp://192.168.0.131:554/Streaming/Channels/102
-    enabled: false
-    username: admin
-    password: trolleycam1~
-    use_hardware_decode: true
+    rtsp_url: rtsp://admin:trolleycam1~@192.168.0.131:554/Streaming/Channels/102
+    enabled: true
+    username:   # URL에 포함되어 있으므로 비워둠
+    password:   # URL에 포함되어 있으므로 비워둠
+    use_hardware_decode: false  # 소프트웨어 디코딩 사용
     recording_enabled: false
     motion_detection: false
 
@@ -38,19 +38,19 @@ cameras:
   - camera_id: cam_03
     name: Camera 3
     rtsp_url: rtsp://admin:trolleycam1~@192.168.0.131:554/Streaming/Channels/102
-    enabled: false
-    username: 
-    password: 
-    use_hardware_decode: true
+    enabled: true
+    username:
+    password:
+    use_hardware_decode: false  # 소프트웨어 디코딩 사용
     recording_enabled: false
     motion_detection: false
 
   - camera_id: cam_04
     name: Camera 4
     rtsp_url: rtsp://admin:trolleycam1~@192.168.0.131:554/Streaming/Channels/102
-    enabled: false
-    username: 
-    password: 
-    use_hardware_decode: true
+    enabled: true
+    username:
+    password:
+    use_hardware_decode: false  # 소프트웨어 디코딩 사용
     recording_enabled: false
     motion_detection: false
