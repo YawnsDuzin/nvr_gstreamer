@@ -132,14 +132,29 @@ dmypy.json
 
 # Project specific
 recordings/
+logs/
 *.mp4
 *.mkv
 *.avi
 *.h264
 *.log
+*.db
+
+# Configuration files (keep example configs)
 config.json
 config.yaml
-*.db
+!config.example.yaml
+!config.example.json
+
+# Windows specific files
+nul
+Thumbs.db
+desktop.ini
+
+# Analysis and documentation (generated files)
+nvr_project_analysis_*.md
+*_analysis_*.md
+*_report_*.md
 
 # Temporary files
 tmp/
@@ -158,6 +173,9 @@ GST_DEBUG_DUMP_DOT_DIR/
 *.jsc
 *.pro.user
 *.pro.user.*
+.qt_for_python/
+*.pyqtc
+*.qrc
 
 # Documentation build
 docs/build/
@@ -182,3 +200,29 @@ yarn.lock
 secrets.txt
 credentials.json
 auth.json
+.env.local
+.env.production
+
+# Reference and backup files
+reference/
+backup/
+old/
+deprecated/
+*.old
+*.orig
+*.backup
+
+# User settings
+.settings/
+user_settings.json
+user_config.yaml
+
+# Cache files
+.cache/
+__pycache__/
+*.pyc
+.ruff_cache/
+
+# Lock files (platform specific)
+.~lock.*
+~$*
