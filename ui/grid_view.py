@@ -301,6 +301,25 @@ class GridViewWidget(QWidget):
             rows: Number of rows
             cols: Number of columns
         """
+        from loguru import logger
+
+        # 이미 같은 레이아웃이면 스킵
+        if self.current_layout == (rows, cols):
+            logger.info(f"Already in {rows}x{cols} layout, skipping")
+            return
+
+        # Save current camera assignments (순서대로 저장)
+        saved_cameras = []
+        for channel in self.channels:
+            if channel.camera_id and channel.camera_id != f"cam_{channel.channel_index}":
+                saved_cameras.append({
+                    'camera_id': channel.camera_id,
+                    'camera_name': channel.camera_name,
+                    'is_connected': channel.is_connected
+                })
+
+        logger.info(f"Saving {len(saved_cameras)} active camera assignments")
+
         # Clear existing channels
         for channel in self.channels:
             self.grid_layout.removeWidget(channel)
@@ -316,11 +335,23 @@ class GridViewWidget(QWidget):
         channel_index = 0
         for row in range(rows):
             for col in range(cols):
-                channel = ChannelWidget(
-                    channel_index,
-                    f"cam_{channel_index}",
-                    f"Camera {channel_index + 1}"
-                )
+                # 저장된 카메라를 순서대로 재할당
+                if channel_index < len(saved_cameras):
+                    camera_info = saved_cameras[channel_index]
+                    channel = ChannelWidget(
+                        channel_index,
+                        camera_info['camera_id'],
+                        camera_info['camera_name']
+                    )
+                    # 연결 상태는 일단 false로 설정 (재연결 필요)
+                    channel.set_connected(False)
+                    logger.debug(f"Restored camera {camera_info['camera_id']} to channel {channel_index}")
+                else:
+                    channel = ChannelWidget(
+                        channel_index,
+                        f"cam_{channel_index}",
+                        f"Camera {channel_index + 1}"
+                    )
 
                 # Connect signals
                 channel.double_clicked.connect(self._on_channel_double_clicked)
@@ -330,8 +361,10 @@ class GridViewWidget(QWidget):
                 self.channels.append(channel)
                 channel_index += 1
 
-        # Emit layout changed signal
+        # Emit layout changed signal with camera info for re-connection
         self.layout_changed.emit((rows, cols))
+
+        logger.info(f"Grid layout changed to {rows}x{cols}, channels recreated with {len(saved_cameras)} cameras preserved")
 
     def _on_channel_double_clicked(self, channel_index: int):
         """Handle channel double-click"""

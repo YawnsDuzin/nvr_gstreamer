@@ -506,6 +506,10 @@ NameError: name 'logger' is not defined
 2025-10-13 11:17:34 | INFO     | Stopping pipeline...
 2025-10-13 11:17:34 | INFO     | Pipeline stopped
 
+
+[비고]
+카메라4대 gridview에 정상 출력 됨!!
+
 ==============================
 
 [git]
