@@ -52,6 +52,7 @@ class UnifiedPipeline:
         self.video_sink = None
         self.recording_bin = None
         self.tee = None
+        self.streaming_valve = None  # 스트리밍 제어용 Valve 추가
         self.recording_valve = None
         self.bus = None
 
@@ -107,12 +108,12 @@ class UnifiedPipeline:
             # RTSP 소스의 동적 패드 연결
             rtspsrc.connect("pad-added", self._on_pad_added, depay)
 
-            # 모드에 따라 브랜치 생성
-            if self.mode in [PipelineMode.STREAMING_ONLY, PipelineMode.BOTH]:
-                self._create_streaming_branch()
+            # 모든 브랜치를 항상 생성 (Valve로 제어)
+            self._create_streaming_branch()
+            self._create_recording_branch()
 
-            if self.mode in [PipelineMode.RECORDING_ONLY, PipelineMode.BOTH]:
-                self._create_recording_branch()
+            # 초기 모드 설정 적용
+            self._apply_mode_settings()
 
             # 버스 설정
             self.bus = self.pipeline.get_bus()
@@ -139,6 +140,10 @@ class UnifiedPipeline:
             stream_queue.set_property("max-size-buffers", 100)
             stream_queue.set_property("max-size-time", 0)
             stream_queue.set_property("max-size-bytes", 0)
+
+            # Valve 엘리먼트 - 스트리밍 on/off 제어
+            self.streaming_valve = Gst.ElementFactory.make("valve", "streaming_valve")
+            self.streaming_valve.set_property("drop", False)  # 초기값은 나중에 설정
 
             # 디코더
             decoder = Gst.ElementFactory.make("avdec_h264", "decoder")
@@ -171,6 +176,7 @@ class UnifiedPipeline:
 
             # 엘리먼트를 파이프라인에 추가
             self.pipeline.add(stream_queue)
+            self.pipeline.add(self.streaming_valve)
             self.pipeline.add(decoder)
             self.pipeline.add(convert)
             self.pipeline.add(scale)
@@ -179,7 +185,8 @@ class UnifiedPipeline:
             self.pipeline.add(self.video_sink)
 
             # 엘리먼트 연결
-            stream_queue.link(decoder)
+            stream_queue.link(self.streaming_valve)
+            self.streaming_valve.link(decoder)
             decoder.link(convert)
             convert.link(scale)
             scale.link(caps_filter)
@@ -343,9 +350,10 @@ class UnifiedPipeline:
             logger.warning(f"Already recording: {self.camera_name}")
             return False
 
-        if self.mode not in [PipelineMode.RECORDING_ONLY, PipelineMode.BOTH]:
-            logger.error(f"Recording not enabled in current mode: {self.mode.value}")
-            return False
+        # Valve 기반이므로 모든 모드에서 녹화 가능
+        # 단, STREAMING_ONLY 모드에서는 경고 표시
+        if self.mode == PipelineMode.STREAMING_ONLY:
+            logger.warning(f"Starting recording in STREAMING_ONLY mode - consider changing to BOTH mode")
 
         try:
             # 녹화 파일명 생성
@@ -453,14 +461,39 @@ class UnifiedPipeline:
             except Exception as e:
                 logger.error(f"Failed to update window handle: {e}")
 
-    def set_mode(self, mode: PipelineMode):
-        """파이프라인 모드 변경"""
-        if self._is_playing:
-            logger.warning("Cannot change mode while pipeline is running")
-            return False
+    def _apply_mode_settings(self):
+        """현재 모드에 따라 Valve 설정 적용"""
+        if not self.streaming_valve or not self.recording_valve:
+            logger.warning("Valves not initialized yet")
+            return
 
+        if self.mode == PipelineMode.STREAMING_ONLY:
+            self.streaming_valve.set_property("drop", False)
+            self.recording_valve.set_property("drop", True)
+            logger.debug("Mode: Streaming only - Stream ON, Recording OFF")
+
+        elif self.mode == PipelineMode.RECORDING_ONLY:
+            self.streaming_valve.set_property("drop", True)
+            self.recording_valve.set_property("drop", True)  # 녹화는 별도로 시작
+            logger.debug("Mode: Recording only - Stream OFF, Recording controlled separately")
+
+        elif self.mode == PipelineMode.BOTH:
+            self.streaming_valve.set_property("drop", False)
+            self.recording_valve.set_property("drop", True)  # 녹화는 별도로 시작
+            logger.debug("Mode: Both - Stream ON, Recording controlled separately")
+
+    def set_mode(self, mode: PipelineMode):
+        """파이프라인 모드 변경 (런타임 중 변경 가능)"""
+        old_mode = self.mode
         self.mode = mode
-        logger.info(f"Pipeline mode changed to: {mode.value}")
+
+        # 파이프라인이 실행 중이면 즉시 적용
+        if self._is_playing:
+            self._apply_mode_settings()
+            logger.info(f"Pipeline mode changed from {old_mode.value} to {mode.value} (runtime)")
+        else:
+            logger.info(f"Pipeline mode changed to {mode.value} (will apply on start)")
+
         return True
 
     def get_status(self) -> Dict:
