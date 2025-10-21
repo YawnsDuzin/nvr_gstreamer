@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Optional, Dict
 from enum import Enum
 from loguru import logger
+from utils.gstreamer_utils import get_video_sink, get_available_h264_decoder, create_video_sink_with_properties
 
 # GStreamer 초기화
 Gst.init(None)
@@ -66,6 +67,7 @@ class UnifiedPipeline:
         self.current_recording_file = None
         self.recording_start_time = None
         self.file_duration = 600  # 10분 단위 파일 분할
+
 
     def create_pipeline(self) -> bool:
         """
@@ -162,17 +164,18 @@ class UnifiedPipeline:
             final_queue.set_property("max-size-buffers", 3)
             final_queue.set_property("leaky", 2)  # downstream leaky
 
-            # 비디오 싱크
-            if os.name == 'nt':  # Windows
-                self.video_sink = Gst.ElementFactory.make("d3dvideosink", "videosink")
-            else:  # Linux/Raspberry Pi
-                # 라즈베리파이에서는 glimagesink가 더 효율적
-                self.video_sink = Gst.ElementFactory.make("glimagesink", "videosink")
-                if not self.video_sink:
-                    self.video_sink = Gst.ElementFactory.make("xvimagesink", "videosink")
+            # 비디오 싱크 (플랫폼별 자동 선택 - 공통 유틸리티 사용)
+            video_sink_name = get_video_sink()
+            self.video_sink = create_video_sink_with_properties(
+                video_sink_name,
+                sync=False,
+                force_aspect_ratio=True
+            )
 
-            self.video_sink.set_property("sync", False)
-            self.video_sink.set_property("async", False)
+            if not self.video_sink:
+                logger.error(f"Failed to create video sink: {video_sink_name}")
+                # 폴백으로 기본 비디오 싱크 생성
+                self.video_sink = Gst.ElementFactory.make("fakesink", "videosink")
 
             # 엘리먼트를 파이프라인에 추가
             self.pipeline.add(stream_queue)

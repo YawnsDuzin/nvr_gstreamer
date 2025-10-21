@@ -128,7 +128,7 @@ class GridViewWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.channels = []
-        self.current_layout = self.LAYOUT_1X1  # Always single view
+        self.current_layout = None  # Initialize as None to force initial layout
         self.fullscreen_channel = None
         self.selected_channel = None
 

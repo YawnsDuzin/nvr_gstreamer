@@ -16,6 +16,8 @@ gi.require_version('Gst', '1.0')
 gi.require_version('GstVideo', '1.0')
 from gi.repository import Gst, GLib, GstVideo
 
+from utils.gstreamer_utils import get_video_sink
+
 # GStreamer 초기화
 Gst.init(None)
 
@@ -91,6 +93,7 @@ class PlaybackPipeline:
         # 타이머
         self._position_timer = None
 
+
     def create_pipeline(self) -> bool:
         """
         재생 파이프라인 생성
@@ -104,6 +107,9 @@ class PlaybackPipeline:
                 logger.error(f"File not found: {self.file_path}")
                 return False
 
+            # 플랫폼별 비디오 싱크 선택 (공통 유틸리티 사용)
+            video_sink = get_video_sink()
+
             # 파이프라인 문자열 생성
             pipeline_str = (
                 f"filesrc location=\"{self.file_path}\" ! "
@@ -111,13 +117,8 @@ class PlaybackPipeline:
                 "videoconvert ! "
                 "videoscale ! "
                 "video/x-raw,width=1280,height=720 ! "
+                f"{video_sink} name=videosink sync=true"
             )
-
-            # 플랫폼별 비디오 싱크
-            if os.name == 'nt':  # Windows
-                pipeline_str += "d3dvideosink name=videosink sync=true"
-            else:  # Linux
-                pipeline_str += "xvimagesink name=videosink sync=true"
 
             logger.debug(f"Creating playback pipeline: {pipeline_str}")
             self.pipeline = Gst.parse_launch(pipeline_str)

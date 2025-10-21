@@ -11,6 +11,7 @@ import threading
 from typing import Optional, Callable, Dict
 from loguru import logger
 from .unified_pipeline import UnifiedPipeline, PipelineMode
+from utils.gstreamer_utils import get_video_sink, get_available_h264_decoder
 
 # Initialize GStreamer
 Gst.init(None)
@@ -50,32 +51,6 @@ class PipelineManager:
 
         logger.info(f"Pipeline manager initialized for URL: {rtsp_url} (unified: {use_unified_pipeline})")
 
-    def _get_available_decoder(self) -> str:
-        """
-        Get the best available H264 decoder
-
-        Returns:
-            Name of the decoder element
-        """
-        registry = Gst.Registry.get()
-
-        # List of decoders to try in order of preference
-        # Note: Software decoders first for better compatibility
-        decoders = [
-            "avdec_h264",      # Software decoder (libav) - most compatible
-            "openh264dec",     # OpenH264 software decoder
-            "v4l2h264dec",     # V4L2 hardware decoder (newer Raspberry Pi)
-            "omxh264dec",      # OpenMAX hardware decoder (older Raspberry Pi)
-            "h264parse"        # Last resort - just parse without decode
-        ]
-
-        for decoder in decoders:
-            if registry.find_feature(decoder, Gst.ElementFactory.__gtype__):
-                logger.info(f"Using H264 decoder: {decoder}")
-                return decoder
-
-        logger.warning("No H264 decoder found, using h264parse only")
-        return "h264parse"
 
     def create_pipeline(self, use_hardware_decode: bool = False) -> bool:
         """
@@ -88,8 +63,9 @@ class PipelineManager:
             True if pipeline created successfully
         """
         try:
-            # Get the best available decoder
-            decoder = self._get_available_decoder()
+            # Get the best available decoder and video sink from utils
+            decoder = get_available_h264_decoder()
+            video_sink = get_video_sink()
 
             # Build pipeline string with better compatibility and queue for smoother playback
             if decoder == "v4l2h264dec":
@@ -106,7 +82,7 @@ class PipelineManager:
                     "videoscale ! "
                     "video/x-raw,width=1280,height=720 ! "
                     "queue ! "
-                    "xvimagesink name=videosink sync=true force-aspect-ratio=true"
+                    f"{video_sink} name=videosink sync=true force-aspect-ratio=true"
                 )
             elif decoder == "omxh264dec":
                 # OMX decoder pipeline
@@ -121,7 +97,7 @@ class PipelineManager:
                     "videoscale ! "
                     "video/x-raw,width=1280,height=720 ! "
                     "queue ! "
-                    "xvimagesink name=videosink sync=true force-aspect-ratio=true"
+                    f"{video_sink} name=videosink sync=true force-aspect-ratio=true"
                 )
             elif decoder == "h264parse":
                 # No decoder available, just parse
@@ -129,7 +105,7 @@ class PipelineManager:
                     f"rtspsrc location={self.rtsp_url} latency=200 protocols=tcp buffer-mode=auto ! "
                     "queue ! "
                     "rtph264depay ! h264parse ! "
-                    "ximagesink name=videosink sync=true"
+                    f"{video_sink} name=videosink sync=true"
                 )
             else:
                 # Software decoder (avdec_h264, etc)
@@ -144,7 +120,7 @@ class PipelineManager:
                     "videoscale ! "
                     "video/x-raw,width=1280,height=720 ! "
                     "queue ! "
-                    "xvimagesink name=videosink sync=true force-aspect-ratio=true"
+                    f"{video_sink} name=videosink sync=true force-aspect-ratio=true"
                 )
 
             logger.debug(f"Creating pipeline: {pipeline_str}")
@@ -185,8 +161,8 @@ class PipelineManager:
             True if pipeline created successfully
         """
         try:
-            # Get the best available decoder
-            decoder = self._get_available_decoder()
+            # Get the best available decoder from utils
+            decoder = get_available_h264_decoder()
 
             # Build pipeline with appsink for frame extraction
             if decoder == "h264parse":

@@ -22,9 +22,11 @@ from ui.grid_view import GridViewWidget
 from ui.camera_list_widget import CameraListWidget
 from ui.camera_dialog import CameraDialog
 from ui.recording_control_widget import RecordingControlWidget
+from ui.playback_widget import PlaybackWidget
 from config.config_manager import ConfigManager
 from streaming.camera_stream import CameraStream
 from recording.recording_manager import RecordingManager
+from playback.playback_manager import PlaybackManager
 
 
 class EnhancedMainWindow(QMainWindow):
@@ -34,9 +36,12 @@ class EnhancedMainWindow(QMainWindow):
         super().__init__()
         self.config_manager = ConfigManager()
         self.recording_manager = RecordingManager()
+        self.playback_manager = PlaybackManager()
         self.grid_view = None
         self.camera_list = None
         self.recording_control = None
+        self.playback_widget = None
+        self.is_playback_mode = False
         self.settings = QSettings("PyNVR", "MainWindow")
 
         self._setup_ui()
@@ -83,6 +88,18 @@ class EnhancedMainWindow(QMainWindow):
         self.recording_control = RecordingControlWidget(self.recording_manager)
         self.recording_dock.setWidget(self.recording_control)
         self.addDockWidget(Qt.RightDockWidgetArea, self.recording_dock)
+
+        # Bottom panel - Playback widget (as dock widget)
+        self.playback_dock = QDockWidget("Playback", self)
+        self.playback_dock.setFeatures(
+            QDockWidget.DockWidgetMovable |
+            QDockWidget.DockWidgetFloatable |
+            QDockWidget.DockWidgetClosable
+        )
+        self.playback_widget = PlaybackWidget()
+        self.playback_dock.setWidget(self.playback_widget)
+        self.addDockWidget(Qt.BottomDockWidgetArea, self.playback_dock)
+        self.playback_dock.hide()  # 기본적으로 숨김
 
         # Main area - Grid view
         self.grid_view = GridViewWidget()
@@ -198,6 +215,12 @@ class EnhancedMainWindow(QMainWindow):
         recording_dock_action.triggered.connect(self._toggle_recording_dock)
         view_menu.addAction(recording_dock_action)
 
+        playback_dock_action = QAction("Show Playback", self)
+        playback_dock_action.setCheckable(True)
+        playback_dock_action.setChecked(False)
+        playback_dock_action.triggered.connect(self._toggle_playback_dock)
+        view_menu.addAction(playback_dock_action)
+
         # Camera menu
         camera_menu = menubar.addMenu("Camera")
 
@@ -217,6 +240,26 @@ class EnhancedMainWindow(QMainWindow):
         sequence_action.setShortcut(QKeySequence("Ctrl+S"))
         sequence_action.triggered.connect(self.grid_view.toggle_sequence)
         camera_menu.addAction(sequence_action)
+
+        # Playback menu
+        playback_menu = menubar.addMenu("Playback")
+
+        open_playback_action = QAction("Open Playback", self)
+        open_playback_action.setShortcut(QKeySequence("Ctrl+P"))
+        open_playback_action.triggered.connect(self._open_playback_mode)
+        playback_menu.addAction(open_playback_action)
+
+        close_playback_action = QAction("Close Playback", self)
+        close_playback_action.setShortcut(QKeySequence("Ctrl+Shift+P"))
+        close_playback_action.triggered.connect(self._close_playback_mode)
+        playback_menu.addAction(close_playback_action)
+
+        playback_menu.addSeparator()
+
+        refresh_recordings_action = QAction("Refresh Recordings", self)
+        refresh_recordings_action.setShortcut(QKeySequence("F5"))
+        refresh_recordings_action.triggered.connect(self._refresh_recordings)
+        playback_menu.addAction(refresh_recordings_action)
 
         # Help menu
         help_menu = menubar.addMenu("Help")
@@ -289,7 +332,16 @@ class EnhancedMainWindow(QMainWindow):
 
     def _auto_assign_cameras(self):
         """Auto-assign cameras from config to grid channels"""
+        # 디버그 로그 추가
+        logger.info(f"ConfigManager cameras list: {self.config_manager.cameras}")
+        logger.info(f"ConfigManager cameras count: {len(self.config_manager.cameras)}")
+
         cameras = self.config_manager.get_enabled_cameras()
+        logger.info(f"Enabled cameras count: {len(cameras)}")
+
+        if cameras:
+            for cam in cameras:
+                logger.info(f"Camera found: {cam.camera_id} - {cam.name} - enabled: {cam.enabled}")
 
         # Single camera setup - only use first camera
         if cameras:
@@ -298,6 +350,8 @@ class EnhancedMainWindow(QMainWindow):
             if channel:
                 channel.update_camera_info(camera.camera_id, camera.name)
                 logger.debug(f"Assigned {camera.camera_id} to single channel")
+        else:
+            logger.warning("No enabled cameras found in configuration!")
 
     def _assign_window_handles_to_streams(self):
         """Assign window handles from grid channels to camera streams"""
@@ -527,12 +581,73 @@ class EnhancedMainWindow(QMainWindow):
         """Toggle recording dock visibility"""
         self.recording_dock.setVisible(checked)
 
+    def _toggle_playback_dock(self, checked: bool):
+        """Toggle playback dock visibility"""
+        self.playback_dock.setVisible(checked)
+        if checked:
+            # 재생 독이 열릴 때 녹화 파일 스캔
+            self.playback_widget.scan_recordings()
+
     def toggle_fullscreen(self):
         """Toggle fullscreen mode"""
         if self.isFullScreen():
             self.showNormal()
         else:
             self.showFullScreen()
+
+    def _open_playback_mode(self):
+        """재생 모드 열기"""
+        logger.info("Opening playback mode...")
+
+        # 재생 독 표시
+        self.playback_dock.show()
+
+        # 라이브 스트리밍 일시 중지 (선택적)
+        if self.is_playback_mode:
+            return
+
+        self.is_playback_mode = True
+
+        # 모든 카메라 연결 해제 (재생 모드에서는 리소스 절약)
+        self.camera_list._disconnect_all()
+
+        # 녹화 파일 스캔
+        self.playback_widget.scan_recordings()
+
+        # 상태바 업데이트
+        self.status_bar.showMessage("재생 모드", 3000)
+
+        logger.info("Playback mode opened")
+
+    def _close_playback_mode(self):
+        """재생 모드 닫기"""
+        logger.info("Closing playback mode...")
+
+        if not self.is_playback_mode:
+            return
+
+        # 재생 중인 파일 정지
+        if self.playback_widget:
+            self.playback_widget.stop_playback()
+
+        # 재생 독 숨기기
+        self.playback_dock.hide()
+
+        self.is_playback_mode = False
+
+        # 카메라 재연결 (선택적)
+        # self._connect_all_cameras()
+
+        # 상태바 업데이트
+        self.status_bar.showMessage("라이브 모드", 3000)
+
+        logger.info("Playback mode closed")
+
+    def _refresh_recordings(self):
+        """녹화 파일 목록 새로고침"""
+        if self.playback_widget:
+            self.playback_widget.scan_recordings()
+            logger.info("Recordings refreshed")
 
     def _show_shortcuts(self):
         """Show keyboard shortcuts"""
@@ -550,7 +665,13 @@ class EnhancedMainWindow(QMainWindow):
 
         <b>Camera Control:</b><br>
         Ctrl+Shift+C - Connect Camera<br>
-        Ctrl+Shift+D - Disconnect Camera<br>
+        Ctrl+Shift+D - Disconnect Camera<br><br>
+
+        <b>Playback:</b><br>
+        Ctrl+P - Open Playback<br>
+        Ctrl+Shift+P - Close Playback<br>
+        F5 - Refresh Recordings<br>
+        Space - Play/Pause (in playback)<br>
         """
 
         msg = QMessageBox(self)
@@ -597,11 +718,16 @@ class EnhancedMainWindow(QMainWindow):
         if self.status_timer:
             self.status_timer.stop()
 
+        # Stop playback if active
+        if self.playback_widget:
+            self.playback_widget.cleanup()
+
         # Disconnect all cameras
         self.camera_list._disconnect_all()
 
-        # Save configuration
-        self.config_manager.save_config()
+        # NOTE: save_config() 제거됨
+        # 프로그램 종료 시 자동 저장하면 cameras가 비어있을 때 설정이 초기화되는 문제 발생
+        # 설정은 UI에서 카메라 추가/제거 시에만 저장됨
 
         event.accept()
         logger.info("Application closed")

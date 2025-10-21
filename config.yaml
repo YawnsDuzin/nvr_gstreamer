@@ -1,23 +1,19 @@
-# PyNVR Configuration File - Single Camera Setup
-
 app:
   app_name: PyNVR
   version: 0.1.0
-  default_layout: 1x1  # 단일 카메라용 레이아웃
+  default_layout: 1x1
   recording_path: recordings
   log_level: INFO
   use_hardware_acceleration: true
   max_reconnect_attempts: 3
   reconnect_delay: 5
-
 cameras:
-  # 단일 카메라 설정
-  - camera_id: cam_01
-    name: Main Camera
-    rtsp_url: rtsp://admin:trolleycam1~@192.168.0.131:554/Streaming/Channels/102
-    enabled: true
-    username:   # URL에 포함되어 있으므로 비워둠
-    password:   # URL에 포함되어 있으므로 비워둠
-    use_hardware_decode: false  # 소프트웨어 디코딩 사용
-    recording_enabled: true  # 녹화 활성화
-    motion_detection: false
+- camera_id: cam_01
+  name: Main Camera
+  rtsp_url: rtsp://admin:trolleycam1~@192.168.0.131:554/Streaming/Channels/102
+  enabled: true
+  username: null
+  password: null
+  use_hardware_decode: false
+  recording_enabled: true
+  motion_detection: false

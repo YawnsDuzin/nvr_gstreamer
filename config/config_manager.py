@@ -41,16 +41,18 @@ class CameraConfigData:
 class ConfigManager:
     """Manages application and camera configurations"""
 
-    def __init__(self, config_file: Optional[str] = None):
+    def __init__(self, config_file: Optional[str] = None, auto_save: bool = False):
         """
         Initialize configuration manager
 
         Args:
             config_file: Path to configuration file
+            auto_save: Automatically save config on changes (default: False for safety)
         """
         self.config_file = Path(config_file) if config_file else Path("config.yaml")
         self.app_config = AppConfig()
         self.cameras: List[CameraConfigData] = []
+        self.auto_save = auto_save  # 자동 저장 플래그
 
         # Create default config directory
         self.config_dir = Path("config")
@@ -86,12 +88,21 @@ class ConfigManager:
             # Load cameras
             if 'cameras' in data:
                 self.cameras = []
+                logger.debug(f"Raw cameras data from config: {data['cameras']}")
                 for camera_data in data['cameras']:
+                    logger.debug(f"Processing camera data: {camera_data}")
                     camera = CameraConfigData(**camera_data)
                     self.cameras.append(camera)
+                    logger.debug(f"Added camera: {camera.camera_id} - enabled: {camera.enabled}")
+            else:
+                logger.warning("No 'cameras' section found in configuration!")
 
             logger.info(f"Configuration loaded from {self.config_file}")
             logger.info(f"Loaded {len(self.cameras)} camera configurations")
+
+            # 로드된 모든 카메라 정보 출력
+            for cam in self.cameras:
+                logger.info(f"Loaded camera: {cam.camera_id} - {cam.name} - enabled: {cam.enabled}")
             return True
 
         except Exception as e:
@@ -113,9 +124,17 @@ class ConfigManager:
             }
 
             # Save to file
-            with open(self.config_file, 'w') as f:
+            with open(self.config_file, 'w', encoding='utf-8') as f:
                 if self.config_file.suffix == '.yaml' or self.config_file.suffix == '.yml':
-                    yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+                    # YAML 포맷 개선: 주석은 유지되지 않지만 가독성 향상
+                    yaml.dump(
+                        data,
+                        f,
+                        default_flow_style=False,
+                        sort_keys=False,
+                        allow_unicode=True,
+                        indent=2
+                    )
                 else:
                     json.dump(data, f, indent=2)
 
@@ -127,21 +146,28 @@ class ConfigManager:
             return False
 
     def create_default_config(self):
-        """Create default configuration file"""
+        """Create default configuration file (only if not exists)"""
+        # 파일이 이미 있으면 덮어쓰지 않음
+        if self.config_file.exists():
+            logger.warning(f"Config file already exists: {self.config_file}. Skipping creation.")
+            return
+
         logger.info("Creating default configuration...")
 
         # Default cameras for testing
         self.cameras = [
             CameraConfigData(
                 camera_id="cam_01",
-                name="Test Camera 1",
-                rtsp_url="rtsp://localhost:8554/test",
-                enabled=False
+                name="Main Camera",
+                rtsp_url="rtsp://admin:password@192.168.0.131:554/stream",
+                enabled=True,
+                recording_enabled=False
             )
         ]
 
         # Save default config
         self.save_config()
+        logger.info(f"Default configuration created at {self.config_file}")
 
     def add_camera(self, camera: CameraConfigData) -> bool:
         """
