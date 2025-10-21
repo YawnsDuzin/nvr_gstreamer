@@ -116,13 +116,10 @@ class ChannelWidget(StreamVideoWidget):
 
 
 class GridViewWidget(QWidget):
-    """Enhanced grid view with 4-channel support"""
+    """Grid view widget for single camera"""
 
-    # Layout modes
+    # Layout modes - only single view
     LAYOUT_1X1 = (1, 1)
-    LAYOUT_2X2 = (2, 2)
-    LAYOUT_3X3 = (3, 3)
-    LAYOUT_4X4 = (4, 4)
 
     # Signals
     channel_double_clicked = pyqtSignal(int)
@@ -131,7 +128,7 @@ class GridViewWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.channels = []
-        self.current_layout = self.LAYOUT_2X2
+        self.current_layout = self.LAYOUT_1X1  # Always single view
         self.fullscreen_channel = None
         self.selected_channel = None
 
@@ -159,8 +156,8 @@ class GridViewWidget(QWidget):
         self.layout.addWidget(self.grid_widget, 1)
         self.setLayout(self.layout)
 
-        # Create initial 2x2 grid
-        self.set_layout(2, 2)
+        # Create initial single view
+        self.set_layout(1, 1)
 
         # Apply dark theme
         self.setStyleSheet("background-color: #0a0a0a;")
@@ -179,22 +176,11 @@ class GridViewWidget(QWidget):
         layout = QHBoxLayout()
         layout.setContentsMargins(10, 5, 10, 5)
 
-        # Layout buttons
-        layout_1x1_btn = QPushButton("1x1")
-        layout_1x1_btn.clicked.connect(lambda: self.set_layout(1, 1))
-        layout.addWidget(layout_1x1_btn)
-
-        layout_2x2_btn = QPushButton("2x2")
-        layout_2x2_btn.clicked.connect(lambda: self.set_layout(2, 2))
-        layout.addWidget(layout_2x2_btn)
-
-        layout_3x3_btn = QPushButton("3x3")
-        layout_3x3_btn.clicked.connect(lambda: self.set_layout(3, 3))
-        layout.addWidget(layout_3x3_btn)
-
-        layout_4x4_btn = QPushButton("4x4")
-        layout_4x4_btn.clicked.connect(lambda: self.set_layout(4, 4))
-        layout.addWidget(layout_4x4_btn)
+        # Single camera - no layout buttons needed
+        # Just show single view indicator
+        single_view_label = QLabel("Single Camera View")
+        single_view_label.setStyleSheet("color: #888888; font-weight: bold;")
+        layout.addWidget(single_view_label)
 
         layout.addSpacing(20)
 
@@ -203,15 +189,10 @@ class GridViewWidget(QWidget):
         fullscreen_btn.clicked.connect(self.toggle_fullscreen)
         layout.addWidget(fullscreen_btn)
 
-        # Sequence button
-        sequence_btn = QPushButton("Sequence")
-        sequence_btn.clicked.connect(self.toggle_sequence)
-        layout.addWidget(sequence_btn)
-
         layout.addStretch()
 
         # Info label
-        self.info_label = QLabel("Grid: 2x2")
+        self.info_label = QLabel("Status: Ready")
         self.info_label.setStyleSheet("color: #888888;")
         layout.addWidget(self.info_label)
 
@@ -274,16 +255,8 @@ class GridViewWidget(QWidget):
     def _setup_timer(self):
         """Setup update timer for OSD"""
         # OSD 업데이트 비활성화 (깜빡임 방지)
-        # self.update_timer = QTimer()
-        # self.update_timer.timeout.connect(self._update_osd)
-        # self.update_timer.start(1000)  # Update every second
-
-        # Sequence timer
-        self.sequence_timer = QTimer()
-        self.sequence_timer.timeout.connect(self._next_sequence)
-        self.sequence_enabled = False
-        self.sequence_interval = 5000  # 5 seconds
-        self.sequence_index = 0
+        # Single camera - no sequence needed
+        pass
 
     def _update_osd(self):
         """Update OSD for all channels"""
@@ -327,9 +300,9 @@ class GridViewWidget(QWidget):
             channel.deleteLater()
         self.channels.clear()
 
-        # Update layout
+        # Update layout (always 1x1 for single camera)
         self.current_layout = (rows, cols)
-        self.info_label.setText(f"Grid: {rows}x{cols}")
+        self.info_label.setText("Status: Ready")
 
         # Create new channels
         channel_index = 0
@@ -439,23 +412,12 @@ class GridViewWidget(QWidget):
             self.show_channel_fullscreen(0)
 
     def toggle_sequence(self):
-        """Toggle sequence mode"""
-        self.sequence_enabled = not self.sequence_enabled
-
-        if self.sequence_enabled:
-            self.sequence_timer.start(self.sequence_interval)
-            self.info_label.setText("Sequence Mode Active")
-        else:
-            self.sequence_timer.stop()
-            self.exit_fullscreen()
+        """Toggle sequence mode - not used for single camera"""
+        pass
 
     def _next_sequence(self):
-        """Show next channel in sequence"""
-        if not self.channels:
-            return
-
-        self.show_channel_fullscreen(self.sequence_index)
-        self.sequence_index = (self.sequence_index + 1) % len(self.channels)
+        """Show next channel in sequence - not used for single camera"""
+        pass
 
     def get_channel(self, index: int) -> ChannelWidget:
         """

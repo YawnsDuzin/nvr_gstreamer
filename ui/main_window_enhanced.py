@@ -49,8 +49,8 @@ class EnhancedMainWindow(QMainWindow):
 
     def _setup_ui(self):
         """Setup main UI with splitter layout"""
-        self.setWindowTitle("PyNVR - Network Video Recorder (4-Channel View)")
-        self.setGeometry(100, 100, 1400, 800)
+        self.setWindowTitle("PyNVR - Network Video Recorder (Single Camera)")
+        self.setGeometry(100, 100, 1200, 700)
 
         # Central widget with splitter
         central_widget = QWidget()
@@ -95,8 +95,8 @@ class EnhancedMainWindow(QMainWindow):
         # Apply dark theme
         self._apply_dark_theme()
 
-        # Set initial layout to 2x2
-        self.grid_view.set_layout(2, 2)
+        # Set initial layout to 1x1 for single camera
+        self.grid_view.set_layout(1, 1)
 
     def _apply_dark_theme(self):
         """Apply dark theme to application"""
@@ -169,28 +169,12 @@ class EnhancedMainWindow(QMainWindow):
         # View menu
         view_menu = menubar.addMenu("View")
 
-        # Layout submenu
-        layout_menu = view_menu.addMenu("Layout")
-
-        layout_1x1 = QAction("1x1", self)
-        layout_1x1.setShortcut(QKeySequence("Alt+1"))
-        layout_1x1.triggered.connect(lambda: self.grid_view.set_layout(1, 1))
-        layout_menu.addAction(layout_1x1)
-
-        layout_2x2 = QAction("2x2", self)
-        layout_2x2.setShortcut(QKeySequence("Alt+2"))
-        layout_2x2.triggered.connect(lambda: self.grid_view.set_layout(2, 2))
-        layout_menu.addAction(layout_2x2)
-
-        layout_3x3 = QAction("3x3", self)
-        layout_3x3.setShortcut(QKeySequence("Alt+3"))
-        layout_3x3.triggered.connect(lambda: self.grid_view.set_layout(3, 3))
-        layout_menu.addAction(layout_3x3)
-
-        layout_4x4 = QAction("4x4", self)
-        layout_4x4.setShortcut(QKeySequence("Alt+4"))
-        layout_4x4.triggered.connect(lambda: self.grid_view.set_layout(4, 4))
-        layout_menu.addAction(layout_4x4)
+        # Single camera - no layout submenu needed
+        # Just keep 1x1 layout option for consistency
+        single_view = QAction("Single View", self)
+        single_view.setShortcut(QKeySequence("Alt+1"))
+        single_view.setEnabled(False)  # Already in single view
+        view_menu.addAction(single_view)
 
         view_menu.addSeparator()
 
@@ -279,7 +263,7 @@ class EnhancedMainWindow(QMainWindow):
         self.status_bar.addWidget(self.connection_label)
 
         # Layout info
-        self.layout_label = QLabel("Layout: 2x2")
+        self.layout_label = QLabel("Layout: Single Camera")
         self.status_bar.addPermanentWidget(self.layout_label)
 
         # Update timer
@@ -307,11 +291,13 @@ class EnhancedMainWindow(QMainWindow):
         """Auto-assign cameras from config to grid channels"""
         cameras = self.config_manager.get_enabled_cameras()
 
-        for i, camera in enumerate(cameras[:16]):  # Max 16 channels (4x4)
-            channel = self.grid_view.get_channel(i)
+        # Single camera setup - only use first camera
+        if cameras:
+            camera = cameras[0]
+            channel = self.grid_view.get_channel(0)
             if channel:
                 channel.update_camera_info(camera.camera_id, camera.name)
-                logger.debug(f"Assigned {camera.camera_id} to channel {i}")
+                logger.debug(f"Assigned {camera.camera_id} to single channel")
 
     def _assign_window_handles_to_streams(self):
         """Assign window handles from grid channels to camera streams"""
@@ -474,8 +460,9 @@ class EnhancedMainWindow(QMainWindow):
     def _on_layout_changed(self, layout: tuple):
         """Handle layout change"""
         rows, cols = layout
-        self.layout_label.setText(f"Layout: {rows}x{cols}")
-        logger.info(f"Layout changed to {rows}x{cols}")
+        # Single camera - always show "Single Camera"
+        self.layout_label.setText("Layout: Single Camera")
+        logger.info(f"Single camera mode - layout fixed at 1x1")
 
         # 레이아웃 변경 시 윈도우 핸들 재할당 및 파이프라인 업데이트
         self._update_window_handles_after_layout_change()
@@ -556,21 +543,14 @@ class EnhancedMainWindow(QMainWindow):
         Ctrl+Q - Exit<br>
         F11 - Toggle Fullscreen<br><br>
 
-        <b>Layout:</b><br>
-        Alt+1 - 1x1 Layout<br>
-        Alt+2 - 2x2 Layout<br>
-        Alt+3 - 3x3 Layout<br>
-        Alt+4 - 4x4 Layout<br><br>
-
-        <b>Channels:</b><br>
-        1-9 - Select Channel<br>
-        F - Toggle Channel Fullscreen<br>
-        S - Toggle Sequence Mode<br>
+        <b>View:</b><br>
+        Alt+1 - Single View<br>
+        F - Toggle Fullscreen<br>
         ESC - Exit Fullscreen<br><br>
 
         <b>Camera Control:</b><br>
-        Ctrl+Shift+C - Connect All<br>
-        Ctrl+Shift+D - Disconnect All<br>
+        Ctrl+Shift+C - Connect Camera<br>
+        Ctrl+Shift+D - Disconnect Camera<br>
         """
 
         msg = QMessageBox(self)
@@ -586,9 +566,9 @@ class EnhancedMainWindow(QMainWindow):
             "About PyNVR",
             "<b>PyNVR - Network Video Recorder</b><br>"
             "Version 0.2.0<br><br>"
-            "Enhanced 4-Channel Grid View<br>"
+            "Single Camera View<br>"
             "Built with GStreamer and PyQt5<br><br>"
-            "Designed for Raspberry Pi"
+            "Optimized for single camera recording"
         )
 
     def _load_window_state(self):
