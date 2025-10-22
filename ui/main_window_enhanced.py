@@ -70,6 +70,7 @@ class EnhancedMainWindow(QMainWindow):
 
         # Left panel - Camera list (as dock widget)
         self.camera_dock = QDockWidget("Cameras", self)
+        self.camera_dock.setObjectName("camera_dock")  # 객체 이름 설정 (저장/복원에 필요)
         self.camera_dock.setFeatures(
             QDockWidget.DockWidgetMovable |
             QDockWidget.DockWidgetFloatable |
@@ -78,10 +79,18 @@ class EnhancedMainWindow(QMainWindow):
         self.camera_list = CameraListWidget(self.config_manager)
         self.camera_list.main_window = self  # Set reference to main window for grid_view access
         self.camera_dock.setWidget(self.camera_list)
-        self.addDockWidget(Qt.LeftDockWidgetArea, self.camera_dock)
+
+        # 저장된 위치 불러오기 (기본값: 왼쪽)
+        camera_position = self.settings.value("dock/camera_position", Qt.LeftDockWidgetArea, type=int)
+        self.addDockWidget(camera_position, self.camera_dock)
+
+        # Dock 위치/표시 변경 시 자동 저장
+        self.camera_dock.dockLocationChanged.connect(lambda area: self._on_dock_location_changed("camera", area))
+        self.camera_dock.visibilityChanged.connect(lambda visible: self._on_dock_visibility_changed("camera", visible))
 
         # Right panel - Recording control (as dock widget)
         self.recording_dock = QDockWidget("Recording Control", self)
+        self.recording_dock.setObjectName("recording_dock")  # 객체 이름 설정
         self.recording_dock.setFeatures(
             QDockWidget.DockWidgetMovable |
             QDockWidget.DockWidgetFloatable |
@@ -89,10 +98,18 @@ class EnhancedMainWindow(QMainWindow):
         )
         self.recording_control = RecordingControlWidget(self.recording_manager)
         self.recording_dock.setWidget(self.recording_control)
-        self.addDockWidget(Qt.RightDockWidgetArea, self.recording_dock)
+
+        # 저장된 위치 불러오기 (기본값: 오른쪽)
+        recording_position = self.settings.value("dock/recording_position", Qt.RightDockWidgetArea, type=int)
+        self.addDockWidget(recording_position, self.recording_dock)
+
+        # Dock 위치/표시 변경 시 자동 저장
+        self.recording_dock.dockLocationChanged.connect(lambda area: self._on_dock_location_changed("recording", area))
+        self.recording_dock.visibilityChanged.connect(lambda visible: self._on_dock_visibility_changed("recording", visible))
 
         # Bottom panel - Playback widget (as dock widget)
         self.playback_dock = QDockWidget("Playback", self)
+        self.playback_dock.setObjectName("playback_dock")  # 객체 이름 설정
         self.playback_dock.setFeatures(
             QDockWidget.DockWidgetMovable |
             QDockWidget.DockWidgetFloatable |
@@ -100,8 +117,14 @@ class EnhancedMainWindow(QMainWindow):
         )
         self.playback_widget = PlaybackWidget()
         self.playback_dock.setWidget(self.playback_widget)
-        self.addDockWidget(Qt.BottomDockWidgetArea, self.playback_dock)
-        self.playback_dock.hide()  # 기본적으로 숨김
+
+        # 저장된 위치 불러오기 (기본값: 아래)
+        playback_position = self.settings.value("dock/playback_position", Qt.BottomDockWidgetArea, type=int)
+        self.addDockWidget(playback_position, self.playback_dock)
+
+        # Dock 위치/표시 변경 시 자동 저장
+        self.playback_dock.dockLocationChanged.connect(lambda area: self._on_dock_location_changed("playback", area))
+        self.playback_dock.visibilityChanged.connect(lambda visible: self._on_dock_visibility_changed("playback", visible))
 
         # Main area - Grid view
         self.grid_view = GridViewWidget()
@@ -197,24 +220,27 @@ class EnhancedMainWindow(QMainWindow):
 
         view_menu.addSeparator()
 
-        # Dock visibility
-        camera_dock_action = QAction("Show Camera List", self)
-        camera_dock_action.setCheckable(True)
-        camera_dock_action.setChecked(True)
-        camera_dock_action.triggered.connect(self._toggle_camera_dock)
-        view_menu.addAction(camera_dock_action)
+        # Dock visibility (저장된 상태 불러오기)
+        camera_visible = self.settings.value("dock/camera_visible", True, type=bool)
+        self.camera_dock_action = QAction("Show Camera List", self)
+        self.camera_dock_action.setCheckable(True)
+        self.camera_dock_action.setChecked(camera_visible)
+        self.camera_dock_action.triggered.connect(self._toggle_camera_dock)
+        view_menu.addAction(self.camera_dock_action)
 
-        recording_dock_action = QAction("Show Recording Control", self)
-        recording_dock_action.setCheckable(True)
-        recording_dock_action.setChecked(True)
-        recording_dock_action.triggered.connect(self._toggle_recording_dock)
-        view_menu.addAction(recording_dock_action)
+        recording_visible = self.settings.value("dock/recording_visible", True, type=bool)
+        self.recording_dock_action = QAction("Show Recording Control", self)
+        self.recording_dock_action.setCheckable(True)
+        self.recording_dock_action.setChecked(recording_visible)
+        self.recording_dock_action.triggered.connect(self._toggle_recording_dock)
+        view_menu.addAction(self.recording_dock_action)
 
-        playback_dock_action = QAction("Show Playback", self)
-        playback_dock_action.setCheckable(True)
-        playback_dock_action.setChecked(False)
-        playback_dock_action.triggered.connect(self._toggle_playback_dock)
-        view_menu.addAction(playback_dock_action)
+        playback_visible = self.settings.value("dock/playback_visible", False, type=bool)
+        self.playback_dock_action = QAction("Show Playback", self)
+        self.playback_dock_action.setCheckable(True)
+        self.playback_dock_action.setChecked(playback_visible)
+        self.playback_dock_action.triggered.connect(self._toggle_playback_dock)
+        view_menu.addAction(self.playback_dock_action)
 
         # Camera menu
         camera_menu = menubar.addMenu("Camera")
@@ -330,14 +356,14 @@ class EnhancedMainWindow(QMainWindow):
         self.status_bar.addWidget(self.connection_label)
 
         # Separator
-        self.status_bar.addWidget(QLabel(" | "))
+        # self.status_bar.addWidget(QLabel(" | "))
 
         # Layout info
         self.layout_label = QLabel("Layout: Single Camera")
         self.status_bar.addWidget(self.layout_label)
 
         # Separator
-        self.status_bar.addWidget(QLabel(" | "))
+        # self.status_bar.addWidget(QLabel(" | "))
 
         # System monitoring labels
         self.cpu_label = QLabel("CPU: --%")
@@ -347,11 +373,11 @@ class EnhancedMainWindow(QMainWindow):
         self.clock_label = QLabel("")
 
         self.status_bar.addWidget(self.cpu_label)
-        self.status_bar.addWidget(QLabel(" | "))
+        # self.status_bar.addWidget(QLabel(" | "))
         self.status_bar.addWidget(self.memory_label)
-        self.status_bar.addWidget(QLabel(" | "))
+        # self.status_bar.addWidget(QLabel(" | "))
         self.status_bar.addWidget(self.temp_label)
-        self.status_bar.addWidget(QLabel(" | "))
+        # self.status_bar.addWidget(QLabel(" | "))
         self.status_bar.addWidget(self.disk_label)
         self.status_bar.addPermanentWidget(self.clock_label)
 
@@ -820,8 +846,39 @@ class EnhancedMainWindow(QMainWindow):
             "Optimized for single camera recording"
         )
 
+    def _on_dock_location_changed(self, dock_name: str, area):
+        """
+        Dock 위치 변경 시 자동 저장
+
+        Args:
+            dock_name: Dock 이름 (camera, recording, playback)
+            area: 새로운 Dock 영역 (Qt.DockWidgetArea)
+        """
+        self.settings.setValue(f"dock/{dock_name}_position", area)
+        logger.debug(f"Dock '{dock_name}' position saved: {area}")
+
+    def _on_dock_visibility_changed(self, dock_name: str, visible: bool):
+        """
+        Dock 표시 여부 변경 시 자동 저장 및 메뉴 액션 동기화
+
+        Args:
+            dock_name: Dock 이름 (camera, recording, playback)
+            visible: 표시 여부
+        """
+        self.settings.setValue(f"dock/{dock_name}_visible", visible)
+        logger.debug(f"Dock '{dock_name}' visibility saved: {visible}")
+
+        # 메뉴 액션 체크 상태 동기화
+        if dock_name == "camera" and hasattr(self, 'camera_dock_action'):
+            self.camera_dock_action.setChecked(visible)
+        elif dock_name == "recording" and hasattr(self, 'recording_dock_action'):
+            self.recording_dock_action.setChecked(visible)
+        elif dock_name == "playback" and hasattr(self, 'playback_dock_action'):
+            self.playback_dock_action.setChecked(visible)
+
     def _load_window_state(self):
-        """Load window state from settings"""
+        """Load window state and dock settings from settings"""
+        # 윈도우 지오메트리 및 상태 복원
         geometry = self.settings.value("geometry")
         if geometry:
             self.restoreGeometry(geometry)
@@ -829,6 +886,17 @@ class EnhancedMainWindow(QMainWindow):
         state = self.settings.value("windowState")
         if state:
             self.restoreState(state)
+
+        # Dock 표시 여부 복원
+        camera_visible = self.settings.value("dock/camera_visible", True, type=bool)
+        recording_visible = self.settings.value("dock/recording_visible", True, type=bool)
+        playback_visible = self.settings.value("dock/playback_visible", False, type=bool)
+
+        self.camera_dock.setVisible(camera_visible)
+        self.recording_dock.setVisible(recording_visible)
+        self.playback_dock.setVisible(playback_visible)
+
+        logger.info(f"Dock visibility restored - Camera: {camera_visible}, Recording: {recording_visible}, Playback: {playback_visible}")
 
     def _save_window_state(self):
         """Save window state to settings"""
