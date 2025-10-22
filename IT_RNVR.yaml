@@ -1,0 +1,133 @@
+# Application Configuration
+app:
+  app_name: "IT_RNVR"
+  version: "1.0.0"
+  default_layout: "1x1"
+  recording_path: "recordings"
+  log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR (deprecated - use logging section)
+  use_hardware_acceleration: true
+  max_reconnect_attempts: 5
+  reconnect_delay: 5
+
+# UI Configuration
+ui:
+  theme: "dark"  # dark, light
+  default_layout: "1x1"  # 1x1, 2x2, 3x3, 4x4
+  fullscreen_on_start: false
+  show_timestamp: true
+  show_camera_name: true
+  osd_font_size: 12
+  window_state:
+    width: 1920
+    height: 1080
+    x: 0
+    y: 0
+
+# Streaming Configuration
+streaming:
+  use_hardware_acceleration: true
+  decoder_preference:  # 우선순위 순서
+    - "v4l2h264dec"    # RPi 4 HW
+    - "omxh264dec"     # RPi 3 HW
+    - "avdec_h264"     # SW fallback
+  buffer_size: 10485760  # 10MB
+  latency_ms: 200
+  tcp_timeout: 10000
+
+# Recording Configuration
+recording:
+  enabled: true
+  base_path: "./recordings"
+  file_format: "mp4"  # mp4, mkv, avi
+  rotation_minutes: 10  # 5, 10, 30, 60
+  retention_days: 30
+  max_file_size_mb: 1024
+  pre_record_seconds: 5
+  post_record_seconds: 5
+  codec: "h264"  # h264, h265
+  container_format: "mp4"
+  fragment_duration_ms: 1000
+
+# Camera Configuration (global settings)
+camera_settings:
+  max_cameras: 16
+  default_resolution: "1280x720"
+  default_fps: 25
+  auto_reconnect: true
+  max_reconnect_attempts: 5
+  reconnect_delay_seconds: 5
+  connection_timeout: 10
+
+# Camera List (individual cameras)
+cameras:
+  - camera_id: cam_01
+    name: Main Camera
+    rtsp_url: rtsp://admin:trolleycam1~@192.168.0.131:554/Streaming/Channels/102
+    enabled: true
+    username: null
+    password: null
+    use_hardware_decode: false
+    recording_enabled: true
+    motion_detection: false
+
+# Logging Configuration
+logging:
+  # 기본 설정
+  enabled: true
+  log_path: "./logs"
+
+  # 콘솔 로그 설정
+  console:
+    enabled: true
+    level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+    colorize: true
+    format: "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>"
+
+  # 파일 로그 설정
+  file:
+    enabled: true
+    level: "DEBUG"  # 파일에는 더 상세한 로그 저장
+    filename: "pynvr_{time:YYYY-MM-DD}.log"
+    format: "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} | {message}"
+
+    # 로테이션 설정
+    rotation: "1 day"  # 시간 기반: "1 day", "12 hours" / 크기 기반: "500 MB", "1 GB"
+    retention: "7 days"  # 보관 기간: "7 days", "2 weeks", "1 month"
+    compression: "zip"  # 압축 형식: "zip", "gz", "bz2", "xz", null (압축 안함)
+
+    # 파일 크기 제한
+    max_size_mb: 100  # 단일 파일 최대 크기
+    rotation_count: 10  # 유지할 로그 파일 개수
+
+  # 에러 로그 분리 (선택 사항)
+  error_log:
+    enabled: true
+    filename: "pynvr_errors_{time:YYYY-MM-DD}.log"
+    level: "ERROR"
+    rotation: "10 MB"
+    retention: "30 days"
+
+  # JSON 로그 (구조화된 로그, 선택 사항)
+  json_log:
+    enabled: false
+    filename: "pynvr_{time:YYYY-MM-DD}.json"
+    serialize: true  # Python 객체 직렬화
+
+# Performance Tuning
+performance:
+  max_cpu_percent: 80
+  max_memory_mb: 2048
+  pipeline_queue_size: 200
+  max_dropped_frames: 10
+  enable_gpu: true
+  gpu_device: "/dev/dri/renderD128"
+
+# Security Settings
+security:
+  require_authentication: false
+  session_timeout_minutes: 60
+  max_login_attempts: 3
+  password_min_length: 8
+  enable_ssl: false
+  ssl_cert_path: ""
+  ssl_key_path: ""

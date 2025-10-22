@@ -46,12 +46,13 @@ class ConfigManager:
         Initialize configuration manager
 
         Args:
-            config_file: Path to configuration file
+            config_file: Path to configuration file (default: IT_RNVR.yaml)
             auto_save: Automatically save config on changes (default: False for safety)
         """
-        self.config_file = Path(config_file) if config_file else Path("config.yaml")
+        self.config_file = Path(config_file) if config_file else Path("IT_RNVR.yaml")
         self.app_config = AppConfig()
         self.cameras: List[CameraConfigData] = []
+        self.logging_config: Dict[str, Any] = {}  # 로깅 설정 저장
         self.auto_save = auto_save  # 자동 저장 플래그
 
         # Create default config directory
@@ -74,7 +75,7 @@ class ConfigManager:
             return True
 
         try:
-            with open(self.config_file, 'r') as f:
+            with open(self.config_file, 'r', encoding='utf-8') as f:
                 if self.config_file.suffix == '.yaml' or self.config_file.suffix == '.yml':
                     data = yaml.safe_load(f)
                 else:
@@ -96,6 +97,14 @@ class ConfigManager:
                     logger.debug(f"Added camera: {camera.camera_id} - enabled: {camera.enabled}")
             else:
                 logger.warning("No 'cameras' section found in configuration!")
+
+            # Load logging configuration
+            if 'logging' in data:
+                self.logging_config = data['logging']
+                logger.debug(f"Loaded logging configuration: {self.logging_config.keys()}")
+            else:
+                logger.debug("No 'logging' section found in configuration, using defaults")
+                self.logging_config = {}
 
             logger.info(f"Configuration loaded from {self.config_file}")
             logger.info(f"Loaded {len(self.cameras)} camera configurations")
@@ -262,6 +271,15 @@ class ConfigManager:
             List of all camera configurations
         """
         return self.cameras
+
+    def get_logging_config(self) -> Dict[str, Any]:
+        """
+        Get logging configuration
+
+        Returns:
+            Logging configuration dictionary
+        """
+        return self.logging_config
 
     def export_config(self, file_path: str) -> bool:
         """
