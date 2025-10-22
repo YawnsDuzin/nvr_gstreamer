@@ -45,6 +45,7 @@ class EnhancedMainWindow(QMainWindow):
         self.is_playback_mode = False
         self.settings = QSettings("PyNVR", "MainWindow")
         self.monitor_thread = None
+        self._dock_signals_connected = False  # Dock 시그널 연결 상태 플래그
 
         self._setup_ui()
         self._setup_menus()
@@ -84,6 +85,10 @@ class EnhancedMainWindow(QMainWindow):
         camera_position = self.settings.value("dock/camera_position", Qt.LeftDockWidgetArea, type=int)
         self.addDockWidget(camera_position, self.camera_dock)
 
+        # Dock 시그널 연결 (초기화 중에는 플래그로 저장 방지)
+        self.camera_dock.dockLocationChanged.connect(lambda area: self._on_dock_location_changed("camera", area))
+        self.camera_dock.visibilityChanged.connect(lambda visible: self._on_dock_visibility_changed("camera", visible))
+
         # Right panel - Recording control (as dock widget)
         self.recording_dock = QDockWidget("Recording Control", self)
         self.recording_dock.setObjectName("recording_dock")  # 객체 이름 설정
@@ -98,6 +103,10 @@ class EnhancedMainWindow(QMainWindow):
         # 저장된 위치 불러오기 (기본값: 오른쪽)
         recording_position = self.settings.value("dock/recording_position", Qt.RightDockWidgetArea, type=int)
         self.addDockWidget(recording_position, self.recording_dock)
+
+        # Dock 시그널 연결 (초기화 중에는 플래그로 저장 방지)
+        self.recording_dock.dockLocationChanged.connect(lambda area: self._on_dock_location_changed("recording", area))
+        self.recording_dock.visibilityChanged.connect(lambda visible: self._on_dock_visibility_changed("recording", visible))
 
         # Bottom panel - Playback widget (as dock widget)
         self.playback_dock = QDockWidget("Playback", self)
@@ -114,7 +123,9 @@ class EnhancedMainWindow(QMainWindow):
         playback_position = self.settings.value("dock/playback_position", Qt.BottomDockWidgetArea, type=int)
         self.addDockWidget(playback_position, self.playback_dock)
 
-        # Dock 시그널 연결은 _setup_dock_signals()에서 초기화 완료 후에 수행
+        # Dock 시그널 연결 (초기화 중에는 플래그로 저장 방지)
+        self.playback_dock.dockLocationChanged.connect(lambda area: self._on_dock_location_changed("playback", area))
+        self.playback_dock.visibilityChanged.connect(lambda visible: self._on_dock_visibility_changed("playback", visible))
 
         # Main area - Grid view
         self.grid_view = GridViewWidget()
@@ -836,24 +847,12 @@ class EnhancedMainWindow(QMainWindow):
             "Optimized for single camera recording"
         )
 
-    def _setup_dock_signals(self):
+    def _enable_dock_signals(self):
         """
-        Dock 시그널 연결 (초기화 완료 후 호출)
-        초기 설정 시 발생하는 불필요한 시그널을 방지하기 위함
+        Dock 시그널 저장 활성화 (초기화 완료 후 호출)
         """
-        # Camera dock 시그널 연결
-        self.camera_dock.dockLocationChanged.connect(lambda area: self._on_dock_location_changed("camera", area))
-        self.camera_dock.visibilityChanged.connect(lambda visible: self._on_dock_visibility_changed("camera", visible))
-
-        # Recording dock 시그널 연결
-        self.recording_dock.dockLocationChanged.connect(lambda area: self._on_dock_location_changed("recording", area))
-        self.recording_dock.visibilityChanged.connect(lambda visible: self._on_dock_visibility_changed("recording", visible))
-
-        # Playback dock 시그널 연결
-        self.playback_dock.dockLocationChanged.connect(lambda area: self._on_dock_location_changed("playback", area))
-        self.playback_dock.visibilityChanged.connect(lambda visible: self._on_dock_visibility_changed("playback", visible))
-
-        logger.debug("Dock signals connected")
+        self._dock_signals_connected = True
+        logger.debug("Dock signals enabled for saving")
 
     def _on_dock_location_changed(self, dock_name: str, area):
         """
@@ -863,8 +862,10 @@ class EnhancedMainWindow(QMainWindow):
             dock_name: Dock 이름 (camera, recording, playback)
             area: 새로운 Dock 영역 (Qt.DockWidgetArea)
         """
-        self.settings.setValue(f"dock/{dock_name}_position", area)
-        logger.debug(f"Dock '{dock_name}' position saved: {area}")
+        # 초기화가 완료된 경우에만 저장
+        if self._dock_signals_connected:
+            self.settings.setValue(f"dock/{dock_name}_position", area)
+            logger.debug(f"Dock '{dock_name}' position saved: {area}")
 
     def _on_dock_visibility_changed(self, dock_name: str, visible: bool):
         """
@@ -874,10 +875,12 @@ class EnhancedMainWindow(QMainWindow):
             dock_name: Dock 이름 (camera, recording, playback)
             visible: 표시 여부
         """
-        self.settings.setValue(f"dock/{dock_name}_visible", visible)
-        logger.debug(f"Dock '{dock_name}' visibility saved: {visible}")
+        # 초기화가 완료된 경우에만 저장
+        if self._dock_signals_connected:
+            self.settings.setValue(f"dock/{dock_name}_visible", visible)
+            logger.debug(f"Dock '{dock_name}' visibility saved: {visible}")
 
-        # 메뉴 액션 체크 상태 동기화
+        # 메뉴 액션 체크 상태 동기화 (항상 수행)
         if dock_name == "camera" and hasattr(self, 'camera_dock_action'):
             self.camera_dock_action.setChecked(visible)
         elif dock_name == "recording" and hasattr(self, 'recording_dock_action'):
@@ -897,15 +900,15 @@ class EnhancedMainWindow(QMainWindow):
         recording_visible = self.settings.value("dock/recording_visible", True, type=bool)
         playback_visible = self.settings.value("dock/playback_visible", False, type=bool)
 
-        # 즉시 Dock 표시 상태 설정 (시그널 연결 전이므로 저장되지 않음)
+        # 즉시 Dock 표시 상태 설정 (플래그가 False이므로 저장되지 않음)
         self.camera_dock.setVisible(camera_visible)
         self.recording_dock.setVisible(recording_visible)
         self.playback_dock.setVisible(playback_visible)
 
         logger.info(f"Dock visibility restored - Camera: {camera_visible}, Recording: {recording_visible}, Playback: {playback_visible}")
 
-        # Dock 시그널 연결 (표시 상태 설정 후에 연결하여 초기화 시 불필요한 저장 방지)
-        QTimer.singleShot(200, self._setup_dock_signals)
+        # 초기화 완료 플래그 설정 (이후 사용자 변경만 저장됨)
+        QTimer.singleShot(200, self._enable_dock_signals)
 
     def _save_window_state(self):
         """Save window state to settings"""
