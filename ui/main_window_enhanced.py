@@ -84,10 +84,6 @@ class EnhancedMainWindow(QMainWindow):
         camera_position = self.settings.value("dock/camera_position", Qt.LeftDockWidgetArea, type=int)
         self.addDockWidget(camera_position, self.camera_dock)
 
-        # Dock 위치/표시 변경 시 자동 저장
-        self.camera_dock.dockLocationChanged.connect(lambda area: self._on_dock_location_changed("camera", area))
-        self.camera_dock.visibilityChanged.connect(lambda visible: self._on_dock_visibility_changed("camera", visible))
-
         # Right panel - Recording control (as dock widget)
         self.recording_dock = QDockWidget("Recording Control", self)
         self.recording_dock.setObjectName("recording_dock")  # 객체 이름 설정
@@ -102,10 +98,6 @@ class EnhancedMainWindow(QMainWindow):
         # 저장된 위치 불러오기 (기본값: 오른쪽)
         recording_position = self.settings.value("dock/recording_position", Qt.RightDockWidgetArea, type=int)
         self.addDockWidget(recording_position, self.recording_dock)
-
-        # Dock 위치/표시 변경 시 자동 저장
-        self.recording_dock.dockLocationChanged.connect(lambda area: self._on_dock_location_changed("recording", area))
-        self.recording_dock.visibilityChanged.connect(lambda visible: self._on_dock_visibility_changed("recording", visible))
 
         # Bottom panel - Playback widget (as dock widget)
         self.playback_dock = QDockWidget("Playback", self)
@@ -122,9 +114,7 @@ class EnhancedMainWindow(QMainWindow):
         playback_position = self.settings.value("dock/playback_position", Qt.BottomDockWidgetArea, type=int)
         self.addDockWidget(playback_position, self.playback_dock)
 
-        # Dock 위치/표시 변경 시 자동 저장
-        self.playback_dock.dockLocationChanged.connect(lambda area: self._on_dock_location_changed("playback", area))
-        self.playback_dock.visibilityChanged.connect(lambda visible: self._on_dock_visibility_changed("playback", visible))
+        # Dock 시그널 연결은 _setup_dock_signals()에서 초기화 완료 후에 수행
 
         # Main area - Grid view
         self.grid_view = GridViewWidget()
@@ -846,6 +836,25 @@ class EnhancedMainWindow(QMainWindow):
             "Optimized for single camera recording"
         )
 
+    def _setup_dock_signals(self):
+        """
+        Dock 시그널 연결 (초기화 완료 후 호출)
+        초기 설정 시 발생하는 불필요한 시그널을 방지하기 위함
+        """
+        # Camera dock 시그널 연결
+        self.camera_dock.dockLocationChanged.connect(lambda area: self._on_dock_location_changed("camera", area))
+        self.camera_dock.visibilityChanged.connect(lambda visible: self._on_dock_visibility_changed("camera", visible))
+
+        # Recording dock 시그널 연결
+        self.recording_dock.dockLocationChanged.connect(lambda area: self._on_dock_location_changed("recording", area))
+        self.recording_dock.visibilityChanged.connect(lambda visible: self._on_dock_visibility_changed("recording", visible))
+
+        # Playback dock 시그널 연결
+        self.playback_dock.dockLocationChanged.connect(lambda area: self._on_dock_location_changed("playback", area))
+        self.playback_dock.visibilityChanged.connect(lambda visible: self._on_dock_visibility_changed("playback", visible))
+
+        logger.debug("Dock signals connected")
+
     def _on_dock_location_changed(self, dock_name: str, area):
         """
         Dock 위치 변경 시 자동 저장
@@ -883,21 +892,20 @@ class EnhancedMainWindow(QMainWindow):
         if geometry:
             self.restoreGeometry(geometry)
 
-        # Dock 표시 여부 복원 (restoreState 전에 먼저 설정)
+        # Dock 표시 여부 복원
         camera_visible = self.settings.value("dock/camera_visible", True, type=bool)
         recording_visible = self.settings.value("dock/recording_visible", True, type=bool)
         playback_visible = self.settings.value("dock/playback_visible", False, type=bool)
 
-        # QTimer를 사용하여 UI 초기화 완료 후 Dock 표시 상태 복원
-        # restoreState()가 Dock 상태를 덮어쓰는 것을 방지
-        def restore_dock_visibility():
-            self.camera_dock.setVisible(camera_visible)
-            self.recording_dock.setVisible(recording_visible)
-            self.playback_dock.setVisible(playback_visible)
-            logger.info(f"Dock visibility restored - Camera: {camera_visible}, Recording: {recording_visible}, Playback: {playback_visible}")
+        # 즉시 Dock 표시 상태 설정 (시그널 연결 전이므로 저장되지 않음)
+        self.camera_dock.setVisible(camera_visible)
+        self.recording_dock.setVisible(recording_visible)
+        self.playback_dock.setVisible(playback_visible)
 
-        # 100ms 후에 Dock 표시 상태 복원 (UI 초기화 완료 대기)
-        QTimer.singleShot(100, restore_dock_visibility)
+        logger.info(f"Dock visibility restored - Camera: {camera_visible}, Recording: {recording_visible}, Playback: {playback_visible}")
+
+        # Dock 시그널 연결 (표시 상태 설정 후에 연결하여 초기화 시 불필요한 저장 방지)
+        QTimer.singleShot(200, self._setup_dock_signals)
 
     def _save_window_state(self):
         """Save window state to settings"""
