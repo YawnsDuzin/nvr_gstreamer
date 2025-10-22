@@ -70,19 +70,19 @@ class RecordingControlWidget(QWidget):
         layout = QVBoxLayout()
         layout.setContentsMargins(5, 5, 5, 5)
 
-        # 제목
-        title = QLabel("Recording Control")
-        title.setStyleSheet("""
-            QLabel {
-                font-size: 16px;
-                font-weight: bold;
-                padding: 5px;
-                background-color: #2a2a2a;
-                color: white;
-                border-radius: 3px;
-            }
-        """)
-        layout.addWidget(title)
+        # # 제목
+        # title = QLabel("Recording Control")
+        # title.setStyleSheet("""
+        #     QLabel {
+        #         font-size: 16px;
+        #         font-weight: bold;
+        #         padding: 5px;
+        #         background-color: #2a2a2a;
+        #         color: white;
+        #         border-radius: 3px;
+        #     }
+        # """)
+        # layout.addWidget(title)
 
         # 전체 컨트롤 그룹
         control_group = QGroupBox("Recording Controls")

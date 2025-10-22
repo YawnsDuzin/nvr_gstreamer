@@ -83,18 +83,18 @@ class CameraListWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
 
         # Header
-        header = QLabel("Cameras")
-        header.setStyleSheet("""
-            QLabel {
-                background-color: #2a2a2a;
-                color: #ffffff;
-                padding: 10px;
-                font-size: 14px;
-                font-weight: bold;
-                border-bottom: 1px solid #3a3a3a;
-            }
-        """)
-        layout.addWidget(header)
+        # header = QLabel("Cameras")
+        # header.setStyleSheet("""
+        #     QLabel {
+        #         background-color: #2a2a2a;
+        #         color: #ffffff;
+        #         padding: 10px;
+        #         font-size: 14px;
+        #         font-weight: bold;
+        #         border-bottom: 1px solid #3a3a3a;
+        #     }
+        # """)
+        # layout.addWidget(header)
 
         # Toolbar
         toolbar = self._create_toolbar()

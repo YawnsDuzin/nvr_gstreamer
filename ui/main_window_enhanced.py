@@ -48,9 +48,9 @@ class EnhancedMainWindow(QMainWindow):
 
         self._setup_ui()
         self._setup_menus()
-        self._setup_connections()
         self._setup_status_bar()
-        self._load_dock_state()
+        self._load_dock_state()  # Dock 상태를 먼저 로드
+        self._setup_connections()  # 그 다음 시그널 연결
 
         logger.info("Enhanced main window initialized")
 
@@ -120,43 +120,149 @@ class EnhancedMainWindow(QMainWindow):
         self.grid_view.set_layout(1, 1)
 
     def _apply_dark_theme(self):
-        """Apply dark theme to application"""
+        """Apply modern dark theme to application"""
         dark_style = """
+        /* Main Window */
         QMainWindow {
-            background-color: #1a1a1a;
+            background-color: #1e1e1e;
         }
+
+        /* Menu Bar */
         QMenuBar {
-            background-color: #2a2a2a;
-            color: #ffffff;
-            border-bottom: 1px solid #3a3a3a;
+            background-color: #252526;
+            color: #cccccc;
+            border-bottom: 1px solid #3c3c3c;
+            padding: 4px;
+        }
+        QMenuBar::item {
+            background-color: transparent;
+            padding: 6px 12px;
+            margin: 2px 0px;
+            border-radius: 4px;
         }
         QMenuBar::item:selected {
-            background-color: #3a3a3a;
-        }
-        QMenu {
-            background-color: #2a2a2a;
+            background-color: #37373d;
             color: #ffffff;
-            border: 1px solid #3a3a3a;
+        }
+        QMenuBar::item:pressed {
+            background-color: #094771;
+            color: #ffffff;
+        }
+
+        /* Menu */
+        QMenu {
+            background-color: #252526;
+            color: #cccccc;
+            border: 1px solid #454545;
+            border-radius: 4px;
+            padding: 4px;
+        }
+        QMenu::item {
+            padding: 8px 24px 8px 12px;
+            margin: 2px 4px;
+            border-radius: 3px;
         }
         QMenu::item:selected {
-            background-color: #3a3a3a;
+            background-color: #094771;
+            color: #ffffff;
         }
+        QMenu::separator {
+            height: 1px;
+            background-color: #3c3c3c;
+            margin: 4px 8px;
+        }
+
+        /* Status Bar */
         QStatusBar {
-            background-color: #2a2a2a;
+            background-color: #007acc;
             color: #ffffff;
-            border-top: 1px solid #3a3a3a;
+            border-top: 1px solid #005a9e;
+            font-size: 12px;
         }
-        QDockWidget {
-            background-color: #1a1a1a;
+        QStatusBar QLabel {
             color: #ffffff;
+            padding: 0px 8px;
+        }
+
+        /* Dock Widget */
+        QDockWidget {
+            background-color: #252526;
+            color: #cccccc;
+            titlebar-close-icon: url(close.png);
+            titlebar-normal-icon: url(float.png);
         }
         QDockWidget::title {
-            background-color: #2a2a2a;
-            padding: 5px;
-            border-bottom: 1px solid #3a3a3a;
+            background-color: #2d2d30;
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid #3c3c3c;
+            font-size: 13px;
+            font-weight: 600;
+            color: #cccccc;
         }
+        QDockWidget::close-button,
+        QDockWidget::float-button {
+            background-color: transparent;
+            border: none;
+            padding: 3px;
+            icon-size: 12px;
+        }
+        QDockWidget::close-button:hover,
+        QDockWidget::float-button:hover {
+            background-color: #3c3c3c;
+            border-radius: 3px;
+        }
+
+        /* Splitter */
         QSplitter::handle {
-            background-color: #3a3a3a;
+            background-color: #3c3c3c;
+        }
+        QSplitter::handle:hover {
+            background-color: #007acc;
+        }
+        QSplitter::handle:horizontal {
+            width: 2px;
+        }
+        QSplitter::handle:vertical {
+            height: 2px;
+        }
+
+        /* Scroll Bar */
+        QScrollBar:vertical {
+            background-color: #1e1e1e;
+            width: 12px;
+            border: none;
+        }
+        QScrollBar::handle:vertical {
+            background-color: #424242;
+            min-height: 30px;
+            border-radius: 6px;
+            margin: 2px;
+        }
+        QScrollBar::handle:vertical:hover {
+            background-color: #4e4e4e;
+        }
+        QScrollBar::add-line:vertical,
+        QScrollBar::sub-line:vertical {
+            height: 0px;
+        }
+        QScrollBar:horizontal {
+            background-color: #1e1e1e;
+            height: 12px;
+            border: none;
+        }
+        QScrollBar::handle:horizontal {
+            background-color: #424242;
+            min-width: 30px;
+            border-radius: 6px;
+            margin: 2px;
+        }
+        QScrollBar::handle:horizontal:hover {
+            background-color: #4e4e4e;
+        }
+        QScrollBar::add-line:horizontal,
+        QScrollBar::sub-line:horizontal {
+            width: 0px;
         }
         """
         self.setStyleSheet(dark_style)
@@ -235,26 +341,6 @@ class EnhancedMainWindow(QMainWindow):
         sequence_action.triggered.connect(self.grid_view.toggle_sequence)
         camera_menu.addAction(sequence_action)
 
-        # Playback menu
-        playback_menu = menubar.addMenu("Playback")
-
-        open_playback_action = QAction("Open Playback", self)
-        open_playback_action.setShortcut(QKeySequence("Ctrl+P"))
-        open_playback_action.triggered.connect(self._open_playback_mode)
-        playback_menu.addAction(open_playback_action)
-
-        close_playback_action = QAction("Close Playback", self)
-        close_playback_action.setShortcut(QKeySequence("Ctrl+Shift+P"))
-        close_playback_action.triggered.connect(self._close_playback_mode)
-        playback_menu.addAction(close_playback_action)
-
-        playback_menu.addSeparator()
-
-        refresh_recordings_action = QAction("Refresh Recordings", self)
-        refresh_recordings_action.setShortcut(QKeySequence("F5"))
-        refresh_recordings_action.triggered.connect(self._refresh_recordings)
-        playback_menu.addAction(refresh_recordings_action)
-
         # Setting menu
         setting_menu = menubar.addMenu("Setting")
 
@@ -298,6 +384,17 @@ class EnhancedMainWindow(QMainWindow):
         self.recording_control.recording_started.connect(self._on_recording_started)
         self.recording_control.recording_stopped.connect(self._on_recording_stopped)
 
+        # F5 키 단축키 설정 (Refresh Recordings)
+        refresh_shortcut = QAction(self)
+        refresh_shortcut.setShortcut(QKeySequence("F5"))
+        refresh_shortcut.triggered.connect(self._refresh_recordings)
+        self.addAction(refresh_shortcut)
+
+        # Dock visibility 시그널 연결 (Dock이 닫힐 때 메뉴 체크 상태 동기화)
+        self.camera_dock.visibilityChanged.connect(self._on_camera_dock_visibility_changed)
+        self.recording_dock.visibilityChanged.connect(self._on_recording_dock_visibility_changed)
+        self.playback_dock.visibilityChanged.connect(self._on_playback_dock_visibility_changed)
+
         # Auto-assign cameras to channels first
         self._auto_assign_cameras()
         # Then assign window handles to camera streams
@@ -310,33 +407,22 @@ class EnhancedMainWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
 
-        # 상태바 스타일
-        self.status_bar.setStyleSheet("""
-            QStatusBar {
-                background-color: #2a2a2a;
-                color: #ffffff;
-                border-top: 1px solid #3a3a3a;
-                padding: 2px;
-            }
-            QStatusBar QLabel {
-                color: #ffffff;
-                padding: 0px 5px;
-            }
-        """)
+        # 상태바 스타일 (메인 테마와 일관성 유지)
+        # 메인 테마의 QStatusBar 스타일이 적용되므로 별도 스타일 불필요
 
         # Connection status
         self.connection_label = QLabel("No cameras connected")
         self.status_bar.addWidget(self.connection_label)
 
         # Separator
-        self.status_bar.addWidget(QLabel(" | "))
+        # self.status_bar.addWidget(QLabel(" | "))
 
         # Layout info
         self.layout_label = QLabel("Layout: Single Camera")
         self.status_bar.addWidget(self.layout_label)
 
         # Separator
-        self.status_bar.addWidget(QLabel(" | "))
+        # self.status_bar.addWidget(QLabel(" | "))
 
         # System monitoring labels
         self.cpu_label = QLabel("CPU: --%")
@@ -346,11 +432,11 @@ class EnhancedMainWindow(QMainWindow):
         self.clock_label = QLabel("")
 
         self.status_bar.addWidget(self.cpu_label)
-        self.status_bar.addWidget(QLabel(" | "))
+        # self.status_bar.addWidget(QLabel(" | "))
         self.status_bar.addWidget(self.memory_label)
-        self.status_bar.addWidget(QLabel(" | "))
+        # self.status_bar.addWidget(QLabel(" | "))
         self.status_bar.addWidget(self.temp_label)
-        self.status_bar.addWidget(QLabel(" | "))
+        # self.status_bar.addWidget(QLabel(" | "))
         self.status_bar.addWidget(self.disk_label)
         self.status_bar.addPermanentWidget(self.clock_label)
 
@@ -721,6 +807,24 @@ class EnhancedMainWindow(QMainWindow):
         # 상태 저장
         self.settings.setValue("dock/playback_visible", checked)
 
+    def _on_camera_dock_visibility_changed(self, visible: bool):
+        """Camera dock visibility 변경 시 메뉴 액션 동기화"""
+        self.camera_dock_action.setChecked(visible)
+        # self.settings.setValue("dock/camera_visible", visible)
+        logger.debug(f"Camera dock visibility changed: {visible}")
+
+    def _on_recording_dock_visibility_changed(self, visible: bool):
+        """Recording dock visibility 변경 시 메뉴 액션 동기화"""
+        self.recording_dock_action.setChecked(visible)
+        # self.settings.setValue("dock/recording_visible", visible)
+        logger.debug(f"Recording dock visibility changed: {visible}")
+
+    def _on_playback_dock_visibility_changed(self, visible: bool):
+        """Playback dock visibility 변경 시 메뉴 액션 동기화"""
+        self.playback_dock_action.setChecked(visible)
+        # self.settings.setValue("dock/playback_visible", visible)
+        logger.debug(f"Playback dock visibility changed: {visible}")
+
     def toggle_fullscreen(self):
         """Toggle fullscreen mode"""
         if self.isFullScreen():
@@ -801,8 +905,6 @@ class EnhancedMainWindow(QMainWindow):
         Ctrl+Shift+D - Disconnect Camera<br><br>
 
         <b>Playback:</b><br>
-        Ctrl+P - Open Playback<br>
-        Ctrl+Shift+P - Close Playback<br>
         F5 - Refresh Recordings<br>
         Space - Play/Pause (in playback)<br>
         """
