@@ -878,30 +878,32 @@ class EnhancedMainWindow(QMainWindow):
 
     def _load_window_state(self):
         """Load window state and dock settings from settings"""
-        # 윈도우 지오메트리 및 상태 복원
+        # 윈도우 지오메트리 복원
         geometry = self.settings.value("geometry")
         if geometry:
             self.restoreGeometry(geometry)
 
-        state = self.settings.value("windowState")
-        if state:
-            self.restoreState(state)
-
-        # Dock 표시 여부 복원
+        # Dock 표시 여부 복원 (restoreState 전에 먼저 설정)
         camera_visible = self.settings.value("dock/camera_visible", True, type=bool)
         recording_visible = self.settings.value("dock/recording_visible", True, type=bool)
         playback_visible = self.settings.value("dock/playback_visible", False, type=bool)
 
-        self.camera_dock.setVisible(camera_visible)
-        self.recording_dock.setVisible(recording_visible)
-        self.playback_dock.setVisible(playback_visible)
+        # QTimer를 사용하여 UI 초기화 완료 후 Dock 표시 상태 복원
+        # restoreState()가 Dock 상태를 덮어쓰는 것을 방지
+        def restore_dock_visibility():
+            self.camera_dock.setVisible(camera_visible)
+            self.recording_dock.setVisible(recording_visible)
+            self.playback_dock.setVisible(playback_visible)
+            logger.info(f"Dock visibility restored - Camera: {camera_visible}, Recording: {recording_visible}, Playback: {playback_visible}")
 
-        logger.info(f"Dock visibility restored - Camera: {camera_visible}, Recording: {recording_visible}, Playback: {playback_visible}")
+        # 100ms 후에 Dock 표시 상태 복원 (UI 초기화 완료 대기)
+        QTimer.singleShot(100, restore_dock_visibility)
 
     def _save_window_state(self):
         """Save window state to settings"""
         self.settings.setValue("geometry", self.saveGeometry())
-        self.settings.setValue("windowState", self.saveState())
+        # saveState()를 제거 - Dock 상태는 개별적으로 관리됨 (위치/표시 여부)
+        # self.settings.setValue("windowState", self.saveState())
 
     def closeEvent(self, event: QCloseEvent):
         """Handle application close event"""
