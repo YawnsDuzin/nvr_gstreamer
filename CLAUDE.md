@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Python-based Network Video Recorder (NVR) system using GStreamer for video processing and PyQt5 for GUI. **Currently configured for single camera operation** with real-time streaming, continuous recording, and playback support. Optimized for embedded devices (Raspberry Pi) with unified pipeline architecture for efficient resource usage.
+Python-based Network Video Recorder (NVR) system using GStreamer for video processing and PyQt5 for GUI. Features real-time RTSP streaming, continuous recording with automatic file rotation, and playback functionality. Optimized for embedded devices (Raspberry Pi) through unified pipeline architecture that reduces CPU usage by ~50%.
 
 ## Commands
 
@@ -49,58 +49,48 @@ pip install -r requirements.txt
 
 ### Running the Application
 ```bash
-# Main application (single camera mode)
+# Main application with GUI
 python main.py
+python main.py --debug  # With debug logging
+python main.py --config custom_config.yaml  # Custom configuration
 
-# Simplified single camera launcher
-python run_single_camera.py
+# Single camera launcher (in tests/)
+python tests/run_single_camera.py
+python tests/run_single_camera.py --debug
+python tests/run_single_camera.py --recording  # Auto-start recording
+python tests/run_single_camera.py --headless  # No GUI, recording only
 
-# With debug logging
-python main.py --debug
-python run_single_camera.py --debug
-
-# Auto-start recording
-python run_single_camera.py --recording
-
-# Headless mode (no GUI, recording only)
-python run_single_camera.py --headless
-
-# With custom config
-python main.py --config custom_config.yaml
-
-# Set GStreamer debug environment for pipeline debugging
+# GStreamer debugging
 GST_DEBUG=3 python main.py
 GST_DEBUG_DUMP_DOT_DIR=/tmp python main.py  # Generates pipeline graphs
+
+# Run with mock GStreamer (Windows without GStreamer)
+python tests/test_main_with_mock.py
 ```
 
 ### Testing
 ```bash
-# Comprehensive single camera test (streaming, recording, both)
-python test_single_camera.py
+# Configuration tests
+python tests/test_config_loading.py
+python tests/test_config_preservation.py
+python tests/test_simple_config.py
 
-# Test RTSP streaming with specific camera
+# Pipeline tests (in reference/)
 python reference/test_stream.py rtsp://admin:password@192.168.0.131:554/stream
-
-# Test unified pipeline modes
-python reference/test_unified_pipeline.py --mode streaming --rtsp rtsp://admin:password@192.168.0.131:554/stream
-python reference/test_unified_pipeline.py --mode recording --rtsp rtsp://admin:password@192.168.0.131:554/stream
-python reference/test_unified_pipeline.py --mode both --rtsp rtsp://admin:password@192.168.0.131:554/stream
-python reference/test_unified_pipeline.py --mode rotation --rtsp rtsp://admin:password@192.168.0.131:554/stream
-
-# Test recording functionality
-python reference/test_recording.py
-
-# Test playback with UI
-python reference/test_playback.py --mode ui
-
-# Test valve-based mode switching
+python reference/test_unified_pipeline.py --mode streaming --rtsp rtsp://...
+python reference/test_unified_pipeline.py --mode recording --rtsp rtsp://...
+python reference/test_unified_pipeline.py --mode both --rtsp rtsp://...
 python reference/test_valve_mode_switch.py
 
-# Monitor memory usage
+# Component tests
+python reference/test_recording.py
+python reference/test_playback.py --mode ui
+
+# Memory monitoring
 python tests/memory_monitor.py
 
-# Test individual camera connection
-python -c "from streaming.camera_stream import CameraStream; cs = CameraStream('cam_01', 'rtsp://admin:password@192.168.0.131:554/stream'); cs.connect(); input('Press Enter to stop...')"
+# Direct camera connection test
+python -c "from streaming.camera_stream import CameraStream; cs = CameraStream('cam_01', 'rtsp://...'); cs.connect(); input('Press Enter...')"
 ```
 
 ## Architecture
@@ -121,25 +111,36 @@ Instead of separate pipelines for streaming and recording (which duplicates deco
 ### Key Components
 
 1. **Pipeline Management** (`streaming/`)
-   - `pipeline_manager.py`: Core GStreamer pipeline lifecycle
-   - `unified_pipeline.py`: Unified streaming+recording pipeline with valve control (514 lines, main innovation)
+   - `pipeline_manager.py`: Core GStreamer pipeline lifecycle management
+   - `unified_pipeline.py`: Unified streaming+recording pipeline with valve control (main innovation)
    - `camera_stream.py`: Individual camera stream handler with auto-reconnection
-   - Adaptive decoder selection: avdec_h264, omxh264dec (older RPi), v4l2h264dec (newer RPi)
+   - Adaptive decoder selection: avdec_h264, omxh264dec (RPi 3), v4l2h264dec (RPi 4+)
 
 2. **Recording System** (`recording/`)
-   - `recording_manager.py`: Multi-camera continuous recording with automatic file rotation
+   - `recording_manager.py`: Continuous recording with automatic file rotation
    - File organization: `recordings/{camera_id}/{date}/{camera_id}_{date}_{time}.mp4`
    - Rotation intervals: 5/10/30/60 minutes (configurable)
 
-3. **UI Components** (`ui/`)
-   - `main_window_enhanced.py`: Main single camera UI window with dockable widgets (simplified for 1x1 view)
-   - `grid_view.py`: Single camera view widget (fixed at 1x1 layout, multi-grid options removed)
-   - `video_widget.py`: Individual video display widget with window handle management
-   - Uses PyQt5 (NOT PyQt6 despite requirements.txt listing)
+3. **Playback System** (`playback/`)
+   - `playback_manager.py`: Recording file management and playback control
+   - `PlaybackPipeline`: GStreamer-based video file playback
+   - Timeline navigation with seek, speed control (0.5x-4x)
 
-4. **Configuration** (`config/`)
-   - `config_manager.py`: YAML/JSON configuration handling (307 lines)
+4. **UI Components** (`ui/`)
+   - `main_window_enhanced.py`: Main window with dockable widgets
+   - `grid_view.py`: Camera view display (currently 1x1 layout)
+   - `playback_widget.py`: Playback controls and file browser
+   - `video_widget.py`: Video display with window handle management
+   - **Note**: Uses PyQt5 (NOT PyQt6 despite requirements.txt)
+
+5. **Configuration** (`config/`)
+   - `config_manager.py`: YAML/JSON configuration handling
    - `config.yaml`: Camera settings and application configuration
+   - Configuration preservation during runtime (no auto-save on exit)
+
+6. **Utilities** (`utils/`)
+   - `gstreamer_utils.py`: Platform-specific GStreamer helpers
+   - Video sink selection based on platform (Windows/Linux/RPi)
 
 ### Pipeline Modes
 Three operating modes controlled via `PipelineMode` enum:
@@ -188,26 +189,25 @@ System optimized for Raspberry Pi:
 Critical for ensuring proper video display:
 1. Window handles must be assigned after widget creation
 2. 500ms delay required for handle reassignment
-3. In single camera mode, handle management is simplified (only one channel)
+3. Platform-specific handling for Windows/Linux
 
-### Current Configuration: Single Camera Mode
-The system is currently configured for single camera operation:
-- `config.yaml`: Contains only one enabled camera (cam_01)
-- UI: Fixed 1x1 layout (grid switching disabled)
-- Recording: Optimized for single stream
-- Test scripts: `test_single_camera.py` and `run_single_camera.py` for single camera workflows
+### Current System Mode
+The system supports both single and multi-camera operation:
+- Default configuration: Single camera (cam_01)
+- Expandable to multiple cameras via configuration
+- UI adapts based on camera count
 
 ## Development Workflow
 
 When modifying the codebase:
 1. Test changes with individual test scripts in `reference/` before integration
 2. Use `--debug` flag for verbose logging
-3. Check GStreamer pipeline graphs using `GST_DEBUG_DUMP_DOT_DIR=/tmp` environment variable
-4. For UI changes, test with single camera view (`python run_single_camera.py`)
+3. Check GStreamer pipeline graphs using `GST_DEBUG_DUMP_DOT_DIR=/tmp`
+4. For UI changes, test with main.py
 5. For recording changes, verify file rotation and directory structure
 6. For pipeline changes, test valve-based mode switching
 7. Run memory monitor to check for leaks: `python tests/memory_monitor.py`
-8. For single camera testing, use `python test_single_camera.py` to run all test scenarios
+8. Test configuration preservation with `python tests/test_config_preservation.py`
 
 ## Troubleshooting
 
@@ -284,35 +284,33 @@ def _on_bus_message(self, bus, message):
 ## Current Status
 
 ### Working Features
-- Single camera streaming with real-time display
-- Continuous recording with file rotation
-- Playback system with timeline navigation
+- Real-time RTSP streaming with low latency
+- Continuous recording with automatic file rotation
+- Playback system with timeline navigation and speed control
+- Dockable UI widgets (Camera List, Recording Control, Playback)
 - Configuration management (YAML)
 - Auto-reconnection on network failure
-- Hardware acceleration support
-- Dark theme UI with dockable widgets
-- Runtime pipeline mode switching via valves (streaming/recording/both)
+- Hardware acceleration support (RPi OMX/V4L2)
+- Dark theme UI
+- Runtime pipeline mode switching via valves
 - Memory-efficient unified pipeline architecture
 - Headless mode for recording without GUI
-- Simplified single camera launcher scripts
 
 ### Known Issues
-- PyQt5/PyQt6 dependency mismatch in requirements.txt
-- Settings management UI incomplete (feature #5 in development)
-- Some documentation in Korean (README_RECORDING.md, README_SINGLE_CAMERA.md)
-- Credentials stored in cleartext in config.yaml (security risk)
+- PyQt5/PyQt6 dependency mismatch in requirements.txt (code uses PyQt5)
+- GStreamer required on Windows (use mock_gi for testing without it)
+- Credentials stored in cleartext in config.yaml
 
-### Recent Changes (Single Camera Mode)
-- System reconfigured from multi-camera (4-channel) to single camera mode
-- UI simplified to 1x1 layout only
-- Grid layout switching options removed
-- New test and launcher scripts added: `test_single_camera.py`, `run_single_camera.py`
-- Documentation updated: `README_SINGLE_CAMERA.md`
+### Recent Updates
+- Playback functionality integrated into main window (October 2025)
+- Valve-based pipeline control for efficient mode switching
+- Configuration preservation improvements
+- File structure reorganization (docs/, tests/, utils/)
 
 ### Platform Support
 - **Primary**: Raspberry Pi (3, 4, Zero 2W)
 - **Secondary**: Linux (Ubuntu 20.04+, Debian 11+)
-- **Experimental**: Windows (limited testing, may require adjustments)
+- **Experimental**: Windows (requires GStreamer or mock)
 
 ## Korean Language Requirement
 답변 및 설명은 한글로 작성한다. (All responses and explanations should be in Korean)

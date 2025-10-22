@@ -9,7 +9,7 @@ A Network Video Recorder (NVR) system built with Python and GStreamer for RTSP s
 - **Recording Management**: Continuous recording with automatic file rotation
 - **Unified Pipeline**: Efficient single-pipeline architecture for both streaming and recording
 - **Multi-camera Support**: Handle multiple camera streams simultaneously
-- **PyQt6 GUI**: Modern and intuitive user interface
+- **PyQt5 GUI**: Modern and intuitive user interface
 - **Raspberry Pi Optimized**: Designed for resource-constrained environments
 
 ## System Architecture
@@ -26,7 +26,7 @@ RTSP Source → Decode → Tee ─┬─→ Streaming Branch (Display)
 
 - Python 3.8+
 - GStreamer 1.0
-- PyQt6
+- PyQt5
 - Additional Python packages (see requirements.txt)
 
 ## Installation

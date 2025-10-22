@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
     QSplitter, QStatusBar, QMenuBar, QMenu, QAction,
     QMessageBox, QDockWidget, QLabel
 )
-from PyQt5.QtCore import Qt, QTimer, pyqtSlot, QSettings
+from PyQt5.QtCore import Qt, QTimer, pyqtSlot, QSettings, QDateTime
 from PyQt5.QtGui import QKeySequence, QCloseEvent
 from loguru import logger
 
@@ -27,6 +27,7 @@ from config.config_manager import ConfigManager
 from streaming.camera_stream import CameraStream
 from recording.recording_manager import RecordingManager
 from playback.playback_manager import PlaybackManager
+from utils.system_monitor import SystemMonitorThread
 
 
 class EnhancedMainWindow(QMainWindow):
@@ -43,6 +44,7 @@ class EnhancedMainWindow(QMainWindow):
         self.playback_widget = None
         self.is_playback_mode = False
         self.settings = QSettings("PyNVR", "MainWindow")
+        self.monitor_thread = None
 
         self._setup_ui()
         self._setup_menus()
@@ -171,13 +173,6 @@ class EnhancedMainWindow(QMainWindow):
 
         file_menu.addSeparator()
 
-        settings_action = QAction("Settings", self)
-        settings_action.setShortcut(QKeySequence("Ctrl+,"))
-        settings_action.triggered.connect(self._show_settings)
-        file_menu.addAction(settings_action)
-
-        file_menu.addSeparator()
-
         exit_action = QAction("Exit", self)
         exit_action.setShortcut(QKeySequence("Ctrl+Q"))
         exit_action.triggered.connect(self.close)
@@ -261,6 +256,21 @@ class EnhancedMainWindow(QMainWindow):
         refresh_recordings_action.triggered.connect(self._refresh_recordings)
         playback_menu.addAction(refresh_recordings_action)
 
+        # Setting menu
+        setting_menu = menubar.addMenu("Setting")
+
+        basic_setting_action = QAction("Basic Setting", self)
+        basic_setting_action.triggered.connect(self._show_basic_setting)
+        setting_menu.addAction(basic_setting_action)
+
+        hotkey_setting_action = QAction("HotKey Setting", self)
+        hotkey_setting_action.triggered.connect(self._show_hotkey_setting)
+        setting_menu.addAction(hotkey_setting_action)
+
+        ptzkey_setting_action = QAction("PTZKey Setting", self)
+        ptzkey_setting_action.triggered.connect(self._show_ptzkey_setting)
+        setting_menu.addAction(ptzkey_setting_action)
+
         # Help menu
         help_menu = menubar.addMenu("Help")
 
@@ -297,25 +307,76 @@ class EnhancedMainWindow(QMainWindow):
         self._populate_recording_control()
 
     def _setup_status_bar(self):
-        """Setup status bar"""
+        """Setup status bar with system monitoring"""
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
+
+        # 상태바 스타일
+        self.status_bar.setStyleSheet("""
+            QStatusBar {
+                background-color: #2a2a2a;
+                color: #ffffff;
+                border-top: 1px solid #3a3a3a;
+                padding: 2px;
+            }
+            QStatusBar QLabel {
+                color: #ffffff;
+                padding: 0px 5px;
+            }
+        """)
 
         # Connection status
         self.connection_label = QLabel("No cameras connected")
         self.status_bar.addWidget(self.connection_label)
 
+        # Separator
+        self.status_bar.addWidget(QLabel(" | "))
+
         # Layout info
         self.layout_label = QLabel("Layout: Single Camera")
-        self.status_bar.addPermanentWidget(self.layout_label)
+        self.status_bar.addWidget(self.layout_label)
 
-        # Update timer
+        # Separator
+        self.status_bar.addWidget(QLabel(" | "))
+
+        # System monitoring labels
+        self.cpu_label = QLabel("CPU: --%")
+        self.memory_label = QLabel("Memory: --%")
+        self.temp_label = QLabel("Temp: --°C")
+        self.disk_label = QLabel("Disk: -- GB free")
+        self.clock_label = QLabel("")
+
+        self.status_bar.addWidget(self.cpu_label)
+        self.status_bar.addWidget(QLabel(" | "))
+        self.status_bar.addWidget(self.memory_label)
+        self.status_bar.addWidget(QLabel(" | "))
+        self.status_bar.addWidget(self.temp_label)
+        self.status_bar.addWidget(QLabel(" | "))
+        self.status_bar.addWidget(self.disk_label)
+        self.status_bar.addPermanentWidget(self.clock_label)
+
+        # 초기 시계 설정
+        self._update_clock()
+
+        # 시스템 모니터링 스레드 시작
+        self.monitor_thread = SystemMonitorThread(update_interval=5)
+        self.monitor_thread.status_updated.connect(self._update_system_status)
+        self.monitor_thread.start()
+
+        # 시계 업데이트 타이머 (1초마다)
+        self.clock_timer = QTimer()
+        self.clock_timer.timeout.connect(self._update_clock)
+        self.clock_timer.start(1000)
+
+        # Connection status update timer
         self.status_timer = QTimer()
         self.status_timer.timeout.connect(self._update_status)
         self.status_timer.start(1000)
 
+        logger.info("Status bar with system monitoring initialized")
+
     def _update_status(self):
-        """Update status bar"""
+        """Update camera connection status"""
         # Get connection stats from camera list
         connected = 0
         total = 0
@@ -329,6 +390,53 @@ class EnhancedMainWindow(QMainWindow):
             self.connection_label.setText(f"{connected}/{total} cameras connected")
         else:
             self.connection_label.setText("No cameras connected")
+
+    def _update_system_status(self, cpu: float, memory: float, temp: float, disk_free: float):
+        """
+        시스템 상태 업데이트 (모니터링 스레드에서 호출)
+
+        Args:
+            cpu: CPU 사용률 (%)
+            memory: 메모리 사용률 (%)
+            temp: 시스템 온도 (°C)
+            disk_free: 남은 디스크 공간 (GB)
+        """
+        # CPU 경고 (80% 이상)
+        if cpu >= 80:
+            self.cpu_label.setStyleSheet("color: #ff4444; font-weight: bold;")
+        else:
+            self.cpu_label.setStyleSheet("color: #ffffff;")
+        self.cpu_label.setText(f"CPU: {cpu:.1f}%")
+
+        # 메모리 경고 (85% 이상)
+        if memory >= 85:
+            self.memory_label.setStyleSheet("color: #ff4444; font-weight: bold;")
+        else:
+            self.memory_label.setStyleSheet("color: #ffffff;")
+        self.memory_label.setText(f"Memory: {memory:.1f}%")
+
+        # 온도 표시
+        if temp > 0:
+            # 온도 경고 (70°C 이상)
+            if temp >= 70:
+                self.temp_label.setStyleSheet("color: #ff4444; font-weight: bold;")
+            else:
+                self.temp_label.setStyleSheet("color: #ffffff;")
+            self.temp_label.setText(f"Temp: {temp:.1f}°C")
+        else:
+            self.temp_label.setText("Temp: N/A")
+
+        # 디스크 경고 (10GB 미만)
+        if disk_free < 10:
+            self.disk_label.setStyleSheet("color: #ff4444; font-weight: bold;")
+        else:
+            self.disk_label.setStyleSheet("color: #ffffff;")
+        self.disk_label.setText(f"Disk: {disk_free:.1f}GB free")
+
+    def _update_clock(self):
+        """시계 업데이트"""
+        current_time = QDateTime.currentDateTime().toString("yyyy-MM-dd HH:mm:ss")
+        self.clock_label.setText(f"  {current_time}")
 
     def _auto_assign_cameras(self):
         """Auto-assign cameras from config to grid channels"""
@@ -555,9 +663,29 @@ class EnhancedMainWindow(QMainWindow):
         """Show add camera dialog"""
         self.camera_list._add_camera()
 
-    def _show_settings(self):
-        """Show settings dialog"""
-        QMessageBox.information(self, "Settings", "Settings dialog not yet implemented")
+    def _show_basic_setting(self):
+        """Show basic setting dialog"""
+        QMessageBox.information(
+            self,
+            "Basic Setting",
+            "Basic Setting 기능은 아직 준비되지 않았습니다."
+        )
+
+    def _show_hotkey_setting(self):
+        """Show hotkey setting dialog"""
+        QMessageBox.information(
+            self,
+            "HotKey Setting",
+            "HotKey Setting 기능은 아직 준비되지 않았습니다."
+        )
+
+    def _show_ptzkey_setting(self):
+        """Show PTZKey setting dialog"""
+        QMessageBox.information(
+            self,
+            "PTZKey Setting",
+            "PTZKey Setting 기능은 아직 준비되지 않았습니다."
+        )
 
     def _connect_all_cameras(self):
         """Connect all cameras"""
@@ -717,6 +845,13 @@ class EnhancedMainWindow(QMainWindow):
         # Stop timers
         if self.status_timer:
             self.status_timer.stop()
+
+        if hasattr(self, 'clock_timer') and self.clock_timer:
+            self.clock_timer.stop()
+
+        # Stop system monitoring thread
+        if self.monitor_thread:
+            self.monitor_thread.stop()
 
         # Stop playback if active
         if self.playback_widget:
