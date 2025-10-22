@@ -140,7 +140,7 @@ class CameraListWidget(QWidget):
         layout.addWidget(self.status_label)
 
         self.setLayout(layout)
-        self.setMinimumWidth(250)
+        self.setMinimumWidth(350)
 
     def _create_toolbar(self):
         """Create toolbar with camera actions"""

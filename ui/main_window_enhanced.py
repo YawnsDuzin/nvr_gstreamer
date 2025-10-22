@@ -45,13 +45,12 @@ class EnhancedMainWindow(QMainWindow):
         self.is_playback_mode = False
         self.settings = QSettings("PyNVR", "MainWindow")
         self.monitor_thread = None
-        self._dock_signals_connected = False  # Dock 시그널 연결 상태 플래그
 
         self._setup_ui()
         self._setup_menus()
         self._setup_connections()
         self._setup_status_bar()
-        self._load_window_state()
+        self._load_dock_state()
 
         logger.info("Enhanced main window initialized")
 
@@ -80,14 +79,7 @@ class EnhancedMainWindow(QMainWindow):
         self.camera_list = CameraListWidget(self.config_manager)
         self.camera_list.main_window = self  # Set reference to main window for grid_view access
         self.camera_dock.setWidget(self.camera_list)
-
-        # 저장된 위치 불러오기 (기본값: 왼쪽)
-        camera_position = self.settings.value("dock/camera_position", Qt.LeftDockWidgetArea, type=int)
-        self.addDockWidget(camera_position, self.camera_dock)
-
-        # Dock 시그널 연결 (초기화 중에는 플래그로 저장 방지)
-        self.camera_dock.dockLocationChanged.connect(lambda area: self._on_dock_location_changed("camera", area))
-        self.camera_dock.visibilityChanged.connect(lambda visible: self._on_dock_visibility_changed("camera", visible))
+        self.addDockWidget(Qt.LeftDockWidgetArea, self.camera_dock)
 
         # Right panel - Recording control (as dock widget)
         self.recording_dock = QDockWidget("Recording Control", self)
@@ -99,14 +91,7 @@ class EnhancedMainWindow(QMainWindow):
         )
         self.recording_control = RecordingControlWidget(self.recording_manager)
         self.recording_dock.setWidget(self.recording_control)
-
-        # 저장된 위치 불러오기 (기본값: 오른쪽)
-        recording_position = self.settings.value("dock/recording_position", Qt.RightDockWidgetArea, type=int)
-        self.addDockWidget(recording_position, self.recording_dock)
-
-        # Dock 시그널 연결 (초기화 중에는 플래그로 저장 방지)
-        self.recording_dock.dockLocationChanged.connect(lambda area: self._on_dock_location_changed("recording", area))
-        self.recording_dock.visibilityChanged.connect(lambda visible: self._on_dock_visibility_changed("recording", visible))
+        self.addDockWidget(Qt.RightDockWidgetArea, self.recording_dock)
 
         # Bottom panel - Playback widget (as dock widget)
         self.playback_dock = QDockWidget("Playback", self)
@@ -118,14 +103,7 @@ class EnhancedMainWindow(QMainWindow):
         )
         self.playback_widget = PlaybackWidget()
         self.playback_dock.setWidget(self.playback_widget)
-
-        # 저장된 위치 불러오기 (기본값: 아래)
-        playback_position = self.settings.value("dock/playback_position", Qt.BottomDockWidgetArea, type=int)
-        self.addDockWidget(playback_position, self.playback_dock)
-
-        # Dock 시그널 연결 (초기화 중에는 플래그로 저장 방지)
-        self.playback_dock.dockLocationChanged.connect(lambda area: self._on_dock_location_changed("playback", area))
-        self.playback_dock.visibilityChanged.connect(lambda visible: self._on_dock_visibility_changed("playback", visible))
+        self.addDockWidget(Qt.BottomDockWidgetArea, self.playback_dock)
 
         # Main area - Grid view
         self.grid_view = GridViewWidget()
@@ -221,25 +199,19 @@ class EnhancedMainWindow(QMainWindow):
 
         view_menu.addSeparator()
 
-        # Dock visibility (저장된 상태 불러오기)
-        camera_visible = self.settings.value("dock/camera_visible", True, type=bool)
+        # Dock visibility
         self.camera_dock_action = QAction("Show Camera List", self)
         self.camera_dock_action.setCheckable(True)
-        self.camera_dock_action.setChecked(camera_visible)
         self.camera_dock_action.triggered.connect(self._toggle_camera_dock)
         view_menu.addAction(self.camera_dock_action)
 
-        recording_visible = self.settings.value("dock/recording_visible", True, type=bool)
         self.recording_dock_action = QAction("Show Recording Control", self)
         self.recording_dock_action.setCheckable(True)
-        self.recording_dock_action.setChecked(recording_visible)
         self.recording_dock_action.triggered.connect(self._toggle_recording_dock)
         view_menu.addAction(self.recording_dock_action)
 
-        playback_visible = self.settings.value("dock/playback_visible", False, type=bool)
         self.playback_dock_action = QAction("Show Playback", self)
         self.playback_dock_action.setCheckable(True)
-        self.playback_dock_action.setChecked(playback_visible)
         self.playback_dock_action.triggered.connect(self._toggle_playback_dock)
         view_menu.addAction(self.playback_dock_action)
 
@@ -357,14 +329,14 @@ class EnhancedMainWindow(QMainWindow):
         self.status_bar.addWidget(self.connection_label)
 
         # Separator
-        # self.status_bar.addWidget(QLabel(" | "))
+        self.status_bar.addWidget(QLabel(" | "))
 
         # Layout info
         self.layout_label = QLabel("Layout: Single Camera")
         self.status_bar.addWidget(self.layout_label)
 
         # Separator
-        # self.status_bar.addWidget(QLabel(" | "))
+        self.status_bar.addWidget(QLabel(" | "))
 
         # System monitoring labels
         self.cpu_label = QLabel("CPU: --%")
@@ -374,11 +346,11 @@ class EnhancedMainWindow(QMainWindow):
         self.clock_label = QLabel("")
 
         self.status_bar.addWidget(self.cpu_label)
-        # self.status_bar.addWidget(QLabel(" | "))
+        self.status_bar.addWidget(QLabel(" | "))
         self.status_bar.addWidget(self.memory_label)
-        # self.status_bar.addWidget(QLabel(" | "))
+        self.status_bar.addWidget(QLabel(" | "))
         self.status_bar.addWidget(self.temp_label)
-        # self.status_bar.addWidget(QLabel(" | "))
+        self.status_bar.addWidget(QLabel(" | "))
         self.status_bar.addWidget(self.disk_label)
         self.status_bar.addPermanentWidget(self.clock_label)
 
@@ -731,10 +703,14 @@ class EnhancedMainWindow(QMainWindow):
     def _toggle_camera_dock(self, checked: bool):
         """Toggle camera dock visibility"""
         self.camera_dock.setVisible(checked)
+        # 상태 저장
+        self.settings.setValue("dock/camera_visible", checked)
 
     def _toggle_recording_dock(self, checked: bool):
         """Toggle recording dock visibility"""
         self.recording_dock.setVisible(checked)
+        # 상태 저장
+        self.settings.setValue("dock/recording_visible", checked)
 
     def _toggle_playback_dock(self, checked: bool):
         """Toggle playback dock visibility"""
@@ -742,6 +718,8 @@ class EnhancedMainWindow(QMainWindow):
         if checked:
             # 재생 독이 열릴 때 녹화 파일 스캔
             self.playback_widget.scan_recordings()
+        # 상태 저장
+        self.settings.setValue("dock/playback_visible", checked)
 
     def toggle_fullscreen(self):
         """Toggle fullscreen mode"""
@@ -847,49 +825,8 @@ class EnhancedMainWindow(QMainWindow):
             "Optimized for single camera recording"
         )
 
-    def _enable_dock_signals(self):
-        """
-        Dock 시그널 저장 활성화 (초기화 완료 후 호출)
-        """
-        self._dock_signals_connected = True
-        logger.debug("Dock signals enabled for saving")
-
-    def _on_dock_location_changed(self, dock_name: str, area):
-        """
-        Dock 위치 변경 시 자동 저장
-
-        Args:
-            dock_name: Dock 이름 (camera, recording, playback)
-            area: 새로운 Dock 영역 (Qt.DockWidgetArea)
-        """
-        # 초기화가 완료된 경우에만 저장
-        if self._dock_signals_connected:
-            self.settings.setValue(f"dock/{dock_name}_position", area)
-            logger.debug(f"Dock '{dock_name}' position saved: {area}")
-
-    def _on_dock_visibility_changed(self, dock_name: str, visible: bool):
-        """
-        Dock 표시 여부 변경 시 자동 저장 및 메뉴 액션 동기화
-
-        Args:
-            dock_name: Dock 이름 (camera, recording, playback)
-            visible: 표시 여부
-        """
-        # 초기화가 완료된 경우에만 저장
-        if self._dock_signals_connected:
-            self.settings.setValue(f"dock/{dock_name}_visible", visible)
-            logger.debug(f"Dock '{dock_name}' visibility saved: {visible}")
-
-        # 메뉴 액션 체크 상태 동기화 (항상 수행)
-        if dock_name == "camera" and hasattr(self, 'camera_dock_action'):
-            self.camera_dock_action.setChecked(visible)
-        elif dock_name == "recording" and hasattr(self, 'recording_dock_action'):
-            self.recording_dock_action.setChecked(visible)
-        elif dock_name == "playback" and hasattr(self, 'playback_dock_action'):
-            self.playback_dock_action.setChecked(visible)
-
-    def _load_window_state(self):
-        """Load window state and dock settings from settings"""
+    def _load_dock_state(self):
+        """Load dock state from settings"""
         # 윈도우 지오메트리 복원
         geometry = self.settings.value("geometry")
         if geometry:
@@ -900,28 +837,36 @@ class EnhancedMainWindow(QMainWindow):
         recording_visible = self.settings.value("dock/recording_visible", True, type=bool)
         playback_visible = self.settings.value("dock/playback_visible", False, type=bool)
 
-        # 즉시 Dock 표시 상태 설정 (플래그가 False이므로 저장되지 않음)
+        # Dock 표시 상태 설정
         self.camera_dock.setVisible(camera_visible)
         self.recording_dock.setVisible(recording_visible)
         self.playback_dock.setVisible(playback_visible)
 
-        logger.info(f"Dock visibility restored - Camera: {camera_visible}, Recording: {recording_visible}, Playback: {playback_visible}")
+        # 메뉴 체크 상태 동기화
+        self.camera_dock_action.setChecked(camera_visible)
+        self.recording_dock_action.setChecked(recording_visible)
+        self.playback_dock_action.setChecked(playback_visible)
 
-        # 초기화 완료 플래그 설정 (이후 사용자 변경만 저장됨)
-        QTimer.singleShot(200, self._enable_dock_signals)
+        logger.info(f"Dock state loaded - Camera: {camera_visible}, Recording: {recording_visible}, Playback: {playback_visible}")
 
-    def _save_window_state(self):
-        """Save window state to settings"""
+    def _save_dock_state(self):
+        """Save dock state to settings"""
+        # 윈도우 지오메트리 저장
         self.settings.setValue("geometry", self.saveGeometry())
-        # saveState()를 제거 - Dock 상태는 개별적으로 관리됨 (위치/표시 여부)
-        # self.settings.setValue("windowState", self.saveState())
+
+        # 현재 Dock 표시 상태 저장
+        self.settings.setValue("dock/camera_visible", self.camera_dock.isVisible())
+        self.settings.setValue("dock/recording_visible", self.recording_dock.isVisible())
+        self.settings.setValue("dock/playback_visible", self.playback_dock.isVisible())
+
+        logger.info(f"Dock state saved - Camera: {self.camera_dock.isVisible()}, Recording: {self.recording_dock.isVisible()}, Playback: {self.playback_dock.isVisible()}")
 
     def closeEvent(self, event: QCloseEvent):
         """Handle application close event"""
         logger.info("Shutting down application...")
 
-        # Save window state
-        self._save_window_state()
+        # Dock 상태 저장
+        self._save_dock_state()
 
         # Stop timers
         if self.status_timer:

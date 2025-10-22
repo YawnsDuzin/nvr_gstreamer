@@ -42,7 +42,7 @@ class PlaybackControlWidget(QWidget):
 
         # 비디오 디스플레이 영역 (placeholder)
         self.video_widget = QWidget()
-        self.video_widget.setMinimumHeight(400)
+        self.video_widget.setMinimumHeight(300)
         self.video_widget.setStyleSheet("background-color: black;")
         layout.addWidget(self.video_widget)
 
