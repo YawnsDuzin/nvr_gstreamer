@@ -68,21 +68,90 @@ class RecordingControlWidget(QWidget):
     def _setup_ui(self):
         """UI 구성"""
         layout = QVBoxLayout()
-        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(10)
 
-        # # 제목
-        # title = QLabel("Recording Control")
-        # title.setStyleSheet("""
-        #     QLabel {
-        #         font-size: 16px;
-        #         font-weight: bold;
-        #         padding: 5px;
-        #         background-color: #2a2a2a;
-        #         color: white;
-        #         border-radius: 3px;
-        #     }
-        # """)
-        # layout.addWidget(title)
+        # 위젯 전체 스타일 설정
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #252526;
+                color: #cccccc;
+            }
+            QGroupBox {
+                background-color: #1e1e1e;
+                border: 1px solid #3c3c3c;
+                border-radius: 4px;
+                margin-top: 12px;
+                padding-top: 10px;
+                font-weight: 600;
+                color: #cccccc;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 4px 8px;
+                background-color: #2d2d30;
+                border: 1px solid #3c3c3c;
+                border-radius: 3px;
+                color: #cccccc;
+            }
+            QLabel {
+                color: #cccccc;
+                background-color: transparent;
+            }
+            QComboBox {
+                background-color: #3c3c3c;
+                color: #cccccc;
+                border: 1px solid #454545;
+                border-radius: 3px;
+                padding: 4px 8px;
+                min-width: 80px;
+            }
+            QComboBox:hover {
+                background-color: #4e4e4e;
+                border: 1px solid #007acc;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 6px solid #cccccc;
+                margin-right: 5px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #252526;
+                color: #cccccc;
+                border: 1px solid #454545;
+                selection-background-color: #094771;
+                selection-color: #ffffff;
+            }
+            QCheckBox {
+                color: #cccccc;
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border: 1px solid #454545;
+                border-radius: 3px;
+                background-color: #3c3c3c;
+            }
+            QCheckBox::indicator:hover {
+                border: 1px solid #007acc;
+                background-color: #4e4e4e;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #007acc;
+                border: 1px solid #007acc;
+            }
+            QCheckBox::indicator:checked:hover {
+                background-color: #0098ff;
+            }
+        """)
 
         # 전체 컨트롤 그룹
         control_group = QGroupBox("Recording Controls")
@@ -189,64 +258,102 @@ class RecordingControlWidget(QWidget):
 
     def _apply_style(self):
         """스타일 적용"""
-        button_style = """
-            QPushButton {
-                background-color: #3a3a3a;
-                color: white;
-                border: 1px solid #4a4a4a;
-                padding: 5px 10px;
-                border-radius: 3px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #4a4a4a;
-            }
-            QPushButton:pressed {
-                background-color: #2a2a2a;
-            }
+        # 기본 버튼 스타일
+        base_button_style = """
+            QPushButton {{
+                background-color: #3c3c3c;
+                color: #cccccc;
+                border: 1px solid #454545;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-weight: 600;
+                font-size: 13px;
+                min-height: 28px;
+            }}
+            QPushButton:hover {{
+                background-color: #4e4e4e;
+                border: 1px solid #007acc;
+                color: #ffffff;
+            }}
+            QPushButton:pressed {{
+                background-color: #007acc;
+                border: 1px solid #007acc;
+                color: #ffffff;
+            }}
+            QPushButton:disabled {{
+                background-color: #2d2d30;
+                color: #6e6e6e;
+                border: 1px solid #3c3c3c;
+            }}
         """
 
-        for btn in [self.start_all_btn, self.stop_all_btn,
-                   self.start_btn, self.stop_btn, self.pause_btn]:
-            btn.setStyleSheet(button_style)
+        # 시작 버튼 스타일 (녹색 강조)
+        start_button_style = """
+            QPushButton {{
+                background-color: #0e6027;
+                color: #ffffff;
+                border: 1px solid #0e6027;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-weight: 600;
+                font-size: 13px;
+                min-height: 28px;
+            }}
+            QPushButton:hover {{
+                background-color: #117030;
+                border: 1px solid #14803b;
+                color: #ffffff;
+            }}
+            QPushButton:pressed {{
+                background-color: #0d5222;
+                border: 1px solid #0d5222;
+                color: #ffffff;
+            }}
+            QPushButton:disabled {{
+                background-color: #2d2d30;
+                color: #6e6e6e;
+                border: 1px solid #3c3c3c;
+            }}
+        """
 
-        # 시작 버튼은 녹색 계열
-        self.start_all_btn.setStyleSheet(button_style + """
-            QPushButton {
-                background-color: #2a4a2a;
-            }
-            QPushButton:hover {
-                background-color: #3a5a3a;
-            }
-        """)
+        # 정지 버튼 스타일 (빨간색 강조)
+        stop_button_style = """
+            QPushButton {{
+                background-color: #a1260d;
+                color: #ffffff;
+                border: 1px solid #a1260d;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-weight: 600;
+                font-size: 13px;
+                min-height: 28px;
+            }}
+            QPushButton:hover {{
+                background-color: #c52a0e;
+                border: 1px solid #d13110;
+                color: #ffffff;
+            }}
+            QPushButton:pressed {{
+                background-color: #8a210b;
+                border: 1px solid #8a210b;
+                color: #ffffff;
+            }}
+            QPushButton:disabled {{
+                background-color: #2d2d30;
+                color: #6e6e6e;
+                border: 1px solid #3c3c3c;
+            }}
+        """
 
-        self.start_btn.setStyleSheet(button_style + """
-            QPushButton {
-                background-color: #2a4a2a;
-            }
-            QPushButton:hover {
-                background-color: #3a5a3a;
-            }
-        """)
+        # 일시정지 버튼 스타일 (기본 스타일)
+        pause_button_style = base_button_style
 
-        # 정지 버튼은 빨간색 계열
-        self.stop_all_btn.setStyleSheet(button_style + """
-            QPushButton {
-                background-color: #4a2a2a;
-            }
-            QPushButton:hover {
-                background-color: #5a3a3a;
-            }
-        """)
-
-        self.stop_btn.setStyleSheet(button_style + """
-            QPushButton {
-                background-color: #4a2a2a;
-            }
-            QPushButton:hover {
-                background-color: #5a3a3a;
-            }
-        """)
+        # 스타일 적용
+        self.start_all_btn.setStyleSheet(start_button_style)
+        self.start_btn.setStyleSheet(start_button_style)
+        self.stop_all_btn.setStyleSheet(stop_button_style)
+        self.stop_btn.setStyleSheet(stop_button_style)
+        self.pause_btn.setStyleSheet(pause_button_style)
 
     def _setup_timer(self):
         """업데이트 타이머 설정"""

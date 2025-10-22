@@ -183,36 +183,44 @@ class RecordingListWidget(QWidget):
         """UI 초기화"""
         layout = QVBoxLayout(self)
 
-        # 필터 섹션
+        # 필터 섹션 (모두 한 줄로)
         filter_group = QGroupBox("필터")
-        filter_layout = QVBoxLayout()
+        filter_layout = QHBoxLayout()
 
         # 카메라 선택
-        camera_layout = QHBoxLayout()
-        camera_layout.addWidget(QLabel("카메라:"))
+        camera_label = QLabel("카메라:")
+        camera_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        filter_layout.addWidget(camera_label)
         self.camera_combo = QComboBox()
         self.camera_combo.addItem("전체")
         self.camera_combo.currentTextChanged.connect(self._apply_filter)
-        camera_layout.addWidget(self.camera_combo)
-        filter_layout.addLayout(camera_layout)
+        filter_layout.addWidget(self.camera_combo)
 
-        # 날짜 범위
-        date_layout = QHBoxLayout()
-        date_layout.addWidget(QLabel("시작:"))
+        filter_layout.addSpacing(15)
+
+        # 시작 날짜
+        start_label = QLabel("시작:")
+        start_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        filter_layout.addWidget(start_label)
         self.start_date = QDateEdit()
         self.start_date.setCalendarPopup(True)
         self.start_date.setDate(QDate.currentDate().addDays(-7))
         self.start_date.dateChanged.connect(self._apply_filter)
-        date_layout.addWidget(self.start_date)
+        filter_layout.addWidget(self.start_date)
 
-        date_layout.addWidget(QLabel("종료:"))
+        filter_layout.addSpacing(10)
+
+        # 종료 날짜
+        end_label = QLabel("종료:")
+        end_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        filter_layout.addWidget(end_label)
         self.end_date = QDateEdit()
         self.end_date.setCalendarPopup(True)
         self.end_date.setDate(QDate.currentDate())
         self.end_date.dateChanged.connect(self._apply_filter)
-        date_layout.addWidget(self.end_date)
+        filter_layout.addWidget(self.end_date)
 
-        filter_layout.addLayout(date_layout)
+        filter_layout.addStretch()
 
         filter_group.setLayout(filter_layout)
         layout.addWidget(filter_group)
@@ -224,13 +232,18 @@ class RecordingListWidget(QWidget):
             "카메라", "파일명", "날짜/시간", "재생시간", "크기"
         ])
         self.file_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.file_table.setSelectionMode(QTableWidget.SingleSelection)
+        self.file_table.setEditTriggers(QTableWidget.NoEditTriggers)  # 수정 불가
         self.file_table.setAlternatingRowColors(True)
         self.file_table.itemDoubleClicked.connect(self._on_item_double_clicked)
 
         # 컬럼 너비 조정
         header = self.file_table.horizontalHeader()
-        header.setStretchLastSection(True)
-        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # 카메라
+        header.setSectionResizeMode(1, QHeaderView.Stretch)           # 파일명 (남은 공간 차지)
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # 날짜/시간
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # 재생시간
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # 크기
 
         layout.addWidget(self.file_table)
 
@@ -337,8 +350,14 @@ class RecordingListWidget(QWidget):
 
     def refresh_list(self):
         """목록 새로고침"""
-        # 부모 위젯에서 처리
-        pass
+        # 부모 위젯(PlaybackWidget)의 scan_recordings 호출
+        parent_widget = self.parent()
+        while parent_widget is not None:
+            if isinstance(parent_widget, PlaybackWidget):
+                parent_widget.scan_recordings()
+                logger.info("Recording list refreshed")
+                break
+            parent_widget = parent_widget.parent()
 
 
 class PlaybackWidget(QWidget):
@@ -357,6 +376,145 @@ class PlaybackWidget(QWidget):
         """UI 초기화"""
         layout = QHBoxLayout(self)
 
+        # 위젯 전체 스타일 설정
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #252526;
+                color: #cccccc;
+            }
+            QGroupBox {
+                background-color: #1e1e1e;
+                border: 1px solid #3c3c3c;
+                border-radius: 4px;
+                margin-top: 12px;
+                padding-top: 10px;
+                font-weight: 600;
+                color: #cccccc;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 4px 8px;
+                background-color: #2d2d30;
+                border: 1px solid #3c3c3c;
+                border-radius: 3px;
+                color: #cccccc;
+            }
+            QLabel {
+                color: #cccccc;
+                background-color: transparent;
+            }
+            QComboBox {
+                background-color: #3c3c3c;
+                color: #cccccc;
+                border: 1px solid #454545;
+                border-radius: 3px;
+                padding: 4px 8px;
+            }
+            QComboBox:hover {
+                background-color: #4e4e4e;
+                border: 1px solid #007acc;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #252526;
+                color: #cccccc;
+                border: 1px solid #454545;
+                selection-background-color: #094771;
+                selection-color: #ffffff;
+            }
+            QDateEdit {
+                background-color: #3c3c3c;
+                color: #cccccc;
+                border: 1px solid #454545;
+                border-radius: 3px;
+                padding: 4px 8px;
+            }
+            QDateEdit:hover {
+                background-color: #4e4e4e;
+                border: 1px solid #007acc;
+            }
+            QDateEdit::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QTableWidget {
+                background-color: #1e1e1e;
+                alternate-background-color: #252526;
+                color: #cccccc;
+                border: 1px solid #3c3c3c;
+                gridline-color: #3c3c3c;
+                selection-background-color: #094771;
+                selection-color: #ffffff;
+            }
+            QTableWidget::item {
+                padding: 4px;
+                border: none;
+            }
+            QTableWidget::item:hover {
+                background-color: #2d2d30;
+            }
+            QHeaderView::section {
+                background-color: #2d2d30;
+                color: #cccccc;
+                padding: 6px;
+                border: none;
+                border-right: 1px solid #3c3c3c;
+                border-bottom: 1px solid #3c3c3c;
+                font-weight: 600;
+            }
+            QHeaderView::section:hover {
+                background-color: #37373d;
+            }
+            QPushButton {
+                background-color: #3c3c3c;
+                color: #cccccc;
+                border: 1px solid #454545;
+                border-radius: 3px;
+                padding: 6px 12px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #4e4e4e;
+                border: 1px solid #007acc;
+            }
+            QPushButton:pressed {
+                background-color: #007acc;
+                color: #ffffff;
+            }
+            QSlider::groove:horizontal {
+                background-color: #3c3c3c;
+                height: 6px;
+                border-radius: 3px;
+            }
+            QSlider::handle:horizontal {
+                background-color: #007acc;
+                width: 14px;
+                height: 14px;
+                margin: -4px 0;
+                border-radius: 7px;
+            }
+            QSlider::handle:horizontal:hover {
+                background-color: #0098ff;
+            }
+            QToolBar {
+                background-color: #2d2d30;
+                border: 1px solid #3c3c3c;
+                border-radius: 3px;
+                padding: 4px;
+                spacing: 4px;
+            }
+            QToolBar QToolButton {
+                background-color: transparent;
+                color: #cccccc;
+                border: none;
+                border-radius: 3px;
+                padding: 4px 8px;
+            }
+            QToolBar QToolButton:hover {
+                background-color: #3c3c3c;
+            }
+        """)
+
         # 스플리터
         splitter = QSplitter(Qt.Horizontal)
 
@@ -369,7 +527,7 @@ class PlaybackWidget(QWidget):
         splitter.addWidget(self.playback_control)
 
         # 스플리터 비율 설정 (30:70)
-        splitter.setSizes([300, 700])
+        splitter.setSizes([400, 600])
 
         layout.addWidget(splitter)
 
