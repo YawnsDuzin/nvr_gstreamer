@@ -1304,7 +1304,7 @@ class MainWindow(QMainWindow):
             logger.warning(f"No channel found for camera {camera_id}")
 
         # Auto-start recording if enabled in camera config
-        camera_config = self.config_manager.get_camera_config(camera_id)
+        camera_config = self.config_manager.get_camera(camera_id)
         if camera_config and camera_config.recording_enabled:
             if stream.pipeline_manager:
                 logger.info(f"Auto-starting recording for camera {camera_id} (recording_enabled=true)")
