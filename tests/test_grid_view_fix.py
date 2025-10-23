@@ -13,7 +13,7 @@ from loguru import logger
 # Add current directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from ui.main_window_enhanced import EnhancedMainWindow
+from ui.main_window import MainWindow
 
 
 def test_grid_view_cameras():
@@ -27,7 +27,7 @@ def test_grid_view_cameras():
     app = QApplication(sys.argv)
 
     # 메인 윈도우 생성
-    window = EnhancedMainWindow()
+    window = MainWindow()
     window.show()
 
     logger.info("\n1. 메인 윈도우 생성 완료")

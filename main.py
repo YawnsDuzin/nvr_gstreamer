@@ -17,8 +17,7 @@ sys.path.insert(0, str(current_dir / "ui"))
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import Qt
 from loguru import logger
-# from ui.main_window import MainWindow  # Basic version
-from ui.main_window_enhanced import EnhancedMainWindow as MainWindow  # Enhanced 4-channel version
+from ui.main_window import MainWindow
 from config.config_manager import ConfigManager
 
 

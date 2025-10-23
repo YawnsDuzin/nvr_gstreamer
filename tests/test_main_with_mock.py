@@ -34,7 +34,7 @@ def test_main_with_mock():
 
     try:
         # Import MainWindow after mock_gi is loaded
-        from ui.main_window_enhanced import EnhancedMainWindow as MainWindow
+        from ui.main_window import MainWindow
 
         # Create main window
         logger.info("\n--- Creating MainWindow ---")

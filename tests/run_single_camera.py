@@ -16,7 +16,7 @@ from loguru import logger
 current_dir = Path(__file__).parent
 sys.path.insert(0, str(current_dir))
 
-from ui.main_window_enhanced import EnhancedMainWindow
+from ui.main_window import MainWindow
 from config.config_manager import ConfigManager
 
 
@@ -166,7 +166,7 @@ def main():
 
         try:
             # 메인 윈도우 생성 및 표시
-            window = EnhancedMainWindow()
+            window = MainWindow()
             window.show()
 
             logger.success("✓ 단일 카메라 NVR 시작됨")

@@ -127,7 +127,7 @@ Instead of separate pipelines for streaming and recording (which duplicates deco
    - Timeline navigation with seek, speed control (0.5x-4x)
 
 4. **UI Components** (`ui/`)
-   - `main_window_enhanced.py`: Main window with dockable widgets
+   - `main_window.py`: Main window with dockable widgets
    - `grid_view.py`: Camera view display (currently 1x1 layout)
    - `playback_widget.py`: Playback controls and file browser
    - `video_widget.py`: Video display with window handle management
@@ -237,7 +237,7 @@ When modifying the codebase:
 #### Video Not Displaying
 ```python
 # Problem: Window handles not properly assigned
-# Solution: Check window handle assignment in main_window_enhanced.py
+# Solution: Check window handle assignment in main_window.py
 # Verify 500ms delay is present for handle assignment
 # In single camera mode, only one channel (index 0) needs handle assignment
 ```

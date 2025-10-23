@@ -30,8 +30,8 @@ from playback.playback_manager import PlaybackManager
 from utils.system_monitor import SystemMonitorThread
 
 
-class EnhancedMainWindow(QMainWindow):
-    """Enhanced main application window with 4-channel grid view"""
+class MainWindow(QMainWindow):
+    """Main application window with camera grid view"""
 
     def __init__(self):
         super().__init__()
