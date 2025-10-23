@@ -1303,6 +1303,23 @@ class MainWindow(QMainWindow):
         if not channel_found:
             logger.warning(f"No channel found for camera {camera_id}")
 
+        # Auto-start recording if enabled in camera config
+        camera_config = self.config_manager.get_camera_config(camera_id)
+        if camera_config and camera_config.recording_enabled:
+            if stream.pipeline_manager:
+                logger.info(f"Auto-starting recording for camera {camera_id} (recording_enabled=true)")
+                if stream.pipeline_manager.start_recording():
+                    logger.success(f"✓ Auto-recording started for {camera_config.name}")
+                    # Update channel recording status
+                    for channel in self.grid_view.channels:
+                        if channel.camera_id == camera_id:
+                            channel.is_recording = True
+                            break
+                else:
+                    logger.error(f"✗ Failed to auto-start recording for {camera_config.name}")
+            else:
+                logger.warning(f"No pipeline manager for {camera_id}, cannot start recording")
+
     def _on_camera_disconnected(self, camera_id: str):
         """Handle camera disconnected"""
         logger.info(f"Camera disconnected: {camera_id}")
