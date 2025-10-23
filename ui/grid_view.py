@@ -33,24 +33,6 @@ class ChannelWidget(StreamVideoWidget):
         self.show_osd = True
         self.is_recording = False
 
-        # Add channel number overlay
-        self._setup_channel_overlay()
-
-    def _setup_channel_overlay(self):
-        """Setup channel number overlay"""
-        self.channel_label = QLabel(str(self.channel_index + 1), self)
-        self.channel_label.setStyleSheet("""
-            QLabel {
-                color: white;
-                background-color: rgba(0, 0, 0, 128);
-                padding: 5px 10px;
-                border-radius: 3px;
-                font-size: 16px;
-                font-weight: bold;
-            }
-        """)
-        self.channel_label.move(10, 40)
-
     def mouseDoubleClickEvent(self, event):
         """Handle double-click for fullscreen"""
         if event.button() == Qt.LeftButton:
