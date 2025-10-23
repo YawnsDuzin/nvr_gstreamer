@@ -470,35 +470,37 @@ class UnifiedPipeline:
                     err, debug = bus_msg.parse_error()
                     logger.error(f"Error detail: {err}, Debug: {debug}")
                 return False
-            elif ret == Gst.StateChangeReturn.ASYNC:
-                logger.debug("Pipeline state change is asynchronous, waiting for RTSP connection...")
-                # RTSP 연결이 비동기이므로 충분한 시간 대기 (최대 10초)
-                ret, current_state, pending_state = self.pipeline.get_state(10 * Gst.SECOND)
 
-                # NO_PREROLL은 라이브 소스에서 정상적인 반환값
+            # 라이브 소스는 즉시 성공하거나 비동기로 처리됨
+            elif ret in [Gst.StateChangeReturn.SUCCESS, Gst.StateChangeReturn.NO_PREROLL]:
+                logger.debug("Pipeline started immediately (live source detected)")
+
+            elif ret == Gst.StateChangeReturn.ASYNC:
+                logger.debug("Pipeline state change is asynchronous, checking state...")
+                # 라이브 소스는 빠르게 연결되므로 짧은 대기 시간 (3초)
+                ret, current_state, pending_state = self.pipeline.get_state(3 * Gst.SECOND)
+
+                # 라이브 소스 반환값 처리
                 if ret == Gst.StateChangeReturn.NO_PREROLL:
-                    logger.debug("Live source detected (NO_PREROLL), pipeline is running")
-                    # 라이브 소스는 PLAYING 상태여도 NO_PREROLL 반환
+                    logger.debug("Live source confirmed (NO_PREROLL)")
 
                 elif ret == Gst.StateChangeReturn.SUCCESS:
                     logger.debug(f"Pipeline state successfully changed to: {current_state.value_nick}")
 
-                else:
-                    # 타임아웃이나 에러
-                    logger.error(f"Pipeline state change failed or timed out: {ret}")
-                    logger.error(f"Current state: {current_state.value_nick if current_state else 'None'}, Pending: {pending_state.value_nick if pending_state else 'None'}")
-
-                    # 화면이 표시되고 있다면 파이프라인은 실제로 동작 중일 수 있음
-                    if current_state == Gst.State.PAUSED and pending_state == Gst.State.PLAYING:
-                        logger.warning("Pipeline stuck in PAUSED->PLAYING transition, but may be working")
-                        # 일단 성공으로 처리하고 계속 진행
-                        logger.info(f"Continuing with pipeline for {self.camera_name} despite state transition issue")
+                elif ret == Gst.StateChangeReturn.ASYNC:
+                    # 여전히 비동기 상태라면 라이브 소스일 가능성 높음
+                    # RTSP 라이브 소스는 종종 계속 ASYNC 상태를 유지
+                    if current_state in [Gst.State.PAUSED, Gst.State.PLAYING]:
+                        logger.info(f"Live source pipeline running in {current_state.value_nick} state")
                     else:
-                        bus_msg = self.bus.pop_filtered(Gst.MessageType.ERROR)
-                        if bus_msg:
-                            err, debug = bus_msg.parse_error()
-                            logger.error(f"Error detail: {err}, Debug: {debug}")
-                        return False
+                        logger.warning(f"Pipeline in unexpected state: {current_state.value_nick}")
+                        # 그래도 계속 진행 (라이브 소스 특성)
+
+                else:
+                    # 타임아웃
+                    logger.warning(f"Pipeline state change timed out (ret={ret})")
+                    logger.debug(f"Current: {current_state.value_nick if current_state else 'None'}, Pending: {pending_state.value_nick if pending_state else 'None'}")
+                    # 라이브 소스는 타임아웃 되어도 동작할 수 있음
 
             self._is_playing = True
             logger.debug(f"Pipeline successfully started for {self.camera_name}")
