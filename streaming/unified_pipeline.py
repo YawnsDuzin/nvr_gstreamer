@@ -82,12 +82,27 @@ class UnifiedPipeline:
             # 파이프라인 생성
             self.pipeline = Gst.Pipeline.new("unified-pipeline")
 
+            # 스트리밍 설정 로드
+            config = ConfigManager.get_instance()
+            streaming_config = config.get_streaming_config()
+
             # RTSP 소스
             rtspsrc = Gst.ElementFactory.make("rtspsrc", "source")
             rtspsrc.set_property("location", self.rtsp_url)
-            rtspsrc.set_property("latency", 100)
+
+            # latency_ms 설정 (기본값: 200ms)
+            latency_ms = streaming_config.get("latency_ms", 200)
+            rtspsrc.set_property("latency", latency_ms)
+            logger.debug(f"RTSP latency set to {latency_ms}ms")
+
             rtspsrc.set_property("protocols", "tcp")
-            rtspsrc.set_property("tcp-timeout", 5000000)
+
+            # tcp_timeout 설정 (기본값: 10000ms = 10초)
+            # GStreamer는 마이크로초 단위이므로 1000을 곱함
+            tcp_timeout = streaming_config.get("tcp_timeout", 10000)
+            rtspsrc.set_property("tcp-timeout", tcp_timeout * 1000)
+            logger.debug(f"TCP timeout set to {tcp_timeout}ms")
+
             rtspsrc.set_property("retry", 5)
 
             # 디페이로드 및 파서
@@ -138,20 +153,25 @@ class UnifiedPipeline:
     def _create_streaming_branch(self):
         """스트리밍 브랜치 생성"""
         try:
+            # 스트리밍 설정 로드
+            config = ConfigManager.get_instance()
+            streaming_config = config.get_streaming_config()
+
             # 스트리밍 큐
             stream_queue = Gst.ElementFactory.make("queue", "stream_queue")
             stream_queue.set_property("max-size-buffers", 100)
             stream_queue.set_property("max-size-time", 0)
-            stream_queue.set_property("max-size-bytes", 0)
+
+            # buffer_size 설정 (기본값: 10MB = 10485760 bytes)
+            buffer_size = streaming_config.get("buffer_size", 10485760)
+            stream_queue.set_property("max-size-bytes", buffer_size)
+            logger.debug(f"Stream queue buffer size set to {buffer_size} bytes ({buffer_size / 1024 / 1024:.1f}MB)")
 
             # Valve 엘리먼트 - 스트리밍 on/off 제어
             self.streaming_valve = Gst.ElementFactory.make("valve", "streaming_valve")
             self.streaming_valve.set_property("drop", False)  # 초기값은 나중에 설정
 
             # 디코더 - 설정에 따라 선택
-            config = ConfigManager.get_instance()
-            streaming_config = config.get_streaming_config()
-
             # use_hardware_acceleration 설정 확인
             use_hw_accel = streaming_config.get("use_hardware_acceleration", True)
             decoder_preference = streaming_config.get("decoder_preference", None)
