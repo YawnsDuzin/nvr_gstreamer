@@ -1305,6 +1305,10 @@ class MainWindow(QMainWindow):
 
         # Auto-start recording if enabled in camera config
         camera_config = self.config_manager.get_camera(camera_id)
+        logger.debug(f"Camera config for {camera_id}: {camera_config}")
+        if camera_config:
+            logger.debug(f"recording_enabled value: {camera_config.recording_enabled}")
+
         if camera_config and camera_config.recording_enabled:
             if stream.pipeline_manager:
                 logger.info(f"Auto-starting recording for camera {camera_id} (recording_enabled=true)")
