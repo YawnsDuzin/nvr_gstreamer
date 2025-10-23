@@ -107,6 +107,12 @@ class UnifiedPipeline:
             rtspsrc.set_property("tcp-timeout", tcp_timeout * 1000)
             logger.debug(f"TCP timeout set to {tcp_timeout}ms")
 
+            # connection_timeout 설정 (기본값: 10초)
+            # rtspsrc의 timeout 속성은 초 단위
+            connection_timeout = streaming_config.get("connection_timeout", 10)
+            rtspsrc.set_property("timeout", connection_timeout * 1000000)  # microseconds
+            logger.debug(f"Connection timeout set to {connection_timeout}s")
+
             rtspsrc.set_property("retry", 5)
 
             # 디페이로드 및 파서

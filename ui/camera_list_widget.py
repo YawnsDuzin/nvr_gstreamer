@@ -219,14 +219,17 @@ class CameraListWidget(QWidget):
         self.list_widget.addItem(item)
         self.camera_items[camera_config.camera_id] = item
 
-        # Create camera stream object
+        # Create camera stream object with reconnection settings from streaming config
+        streaming_config = self.config_manager.get_streaming_config()
         stream_config = CameraConfig(
             camera_id=camera_config.camera_id,
             name=camera_config.name,
             rtsp_url=camera_config.rtsp_url,
             username=camera_config.username,
             password=camera_config.password,
-            use_hardware_decode=camera_config.use_hardware_decode
+            use_hardware_decode=camera_config.use_hardware_decode,
+            reconnect_attempts=streaming_config.get("max_reconnect_attempts", 5),
+            reconnect_delay=streaming_config.get("reconnect_delay_seconds", 5)
         )
         stream = CameraStream(stream_config)
         self.camera_streams[camera_config.camera_id] = stream
