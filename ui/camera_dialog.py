@@ -359,9 +359,10 @@ class CameraDialog(QDialog):
                     time.sleep(2)
 
                     # Check if pipeline is playing
+                    # 테스트 모드에서는 video sink 에러를 무시하고 연결 상태만 확인
                     if pipeline.is_playing():
                         QMessageBox.information(self, "Test Connection",
-                                              "Connection successful!")
+                                              "Connection successful!\n\nRTSP stream is accessible.")
                     else:
                         QMessageBox.warning(self, "Test Connection",
                                            "Connection failed. Please check URL and credentials.")
@@ -369,8 +370,11 @@ class CameraDialog(QDialog):
                     QMessageBox.warning(self, "Test Connection",
                                        "Failed to start stream. Check URL and network.")
 
-                # Clean up
-                pipeline.stop()
+                # Clean up (에러가 있어도 정리)
+                try:
+                    pipeline.stop()
+                except:
+                    pass
             else:
                 QMessageBox.warning(self, "Test Connection",
                                    "Failed to create pipeline. Check GStreamer installation.")

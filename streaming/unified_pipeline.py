@@ -421,6 +421,17 @@ class UnifiedPipeline:
         if t == Gst.MessageType.ERROR:
             err, debug = message.parse_error()
             logger.error(f"Pipeline error: {err}, {debug}")
+
+            # Video sink 에러인 경우 (윈도우 핸들 없음 또는 테스트 모드)
+            # 에러를 로깅하지만 파이프라인은 계속 실행
+            if "videosink" in str(message.src.get_name()) or "Output window" in str(err):
+                logger.warning(f"Video sink error (ignoring): {err}")
+                # 테스트 모드나 윈도우 없는 경우 에러 무시
+                if not self.window_handle:
+                    logger.debug("No window handle - video sink error ignored")
+                    return
+
+            # 다른 중요한 에러는 파이프라인 중지
             self.stop()
         elif t == Gst.MessageType.EOS:
             logger.info("End of stream")
