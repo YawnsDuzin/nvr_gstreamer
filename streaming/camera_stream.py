@@ -96,30 +96,24 @@ class CameraStream:
             logger.warning(f"No window handle available for {self.config.name} (ID: {self.config.camera_id})")
 
         try:
-            # Create pipeline manager with UnifiedPipeline enabled
+            # Frame callback은 UnifiedPipeline에서 지원하지 않음
+            if frame_callback:
+                logger.error(f"Frame callback not supported with UnifiedPipeline for {self.config.name}")
+                raise Exception("Frame callback not supported in UnifiedPipeline")
+
+            # Create pipeline manager with UnifiedPipeline
             self.pipeline_manager = PipelineManager(
                 rtsp_url=self.rtsp_url,
-                on_frame_callback=frame_callback,
                 window_handle=handle_to_use,
-                use_unified_pipeline=True,  # UnifiedPipeline 사용
                 camera_id=self.config.camera_id,
                 camera_name=self.config.name
             )
 
-            # Create and start unified pipeline
-            if frame_callback:
-                # appsink은 아직 UnifiedPipeline에 미구현, 기존 방식 사용
-                logger.warning(f"Frame callback not supported with UnifiedPipeline, using legacy pipeline for {self.config.name}")
-                self.pipeline_manager.use_unified_pipeline = False
-                success = self.pipeline_manager.create_pipeline_with_appsink(
-                    use_hardware_decode=self.config.use_hardware_decode
-                )
-            else:
-                # UnifiedPipeline 사용 (스트리밍 전용 모드)
-                from .unified_pipeline import PipelineMode
-                success = self.pipeline_manager.create_unified_pipeline(
-                    mode=PipelineMode.STREAMING_ONLY
-                )
+            # Create unified pipeline (스트리밍 전용 모드)
+            from .unified_pipeline import PipelineMode
+            success = self.pipeline_manager.create_unified_pipeline(
+                mode=PipelineMode.STREAMING_ONLY
+            )
 
             if not success:
                 raise Exception("Failed to create pipeline")

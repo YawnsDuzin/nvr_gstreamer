@@ -177,5 +177,5 @@ class PipelineManager:
 
     def __del__(self):
         """Cleanup on deletion"""
-        if self.unified_pipeline:
+        if hasattr(self, 'unified_pipeline') and self.unified_pipeline:
             self.stop()
