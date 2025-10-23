@@ -251,6 +251,27 @@ class PipelineManager:
         Args:
             window_handle: Platform-specific window handle
         """
+        # UnifiedPipeline 사용 시 window_handle 업데이트
+        if self.use_unified_pipeline and self.unified_pipeline:
+            if self.unified_pipeline.video_sink:
+                try:
+                    # Convert PyQt window handle to integer
+                    if hasattr(window_handle, '__int__'):
+                        window_id = int(window_handle)
+                    else:
+                        window_id = window_handle
+
+                    # Use GstVideoOverlay interface method
+                    self.unified_pipeline.video_sink.set_window_handle(window_id)
+                    logger.debug(f"Set window handle for UnifiedPipeline: {window_id}")
+                    return
+                except Exception as e:
+                    logger.warning(f"Failed to set window handle for UnifiedPipeline: {e}")
+            else:
+                logger.debug("UnifiedPipeline video_sink not available yet")
+            return
+
+        # 일반 파이프라인의 경우
         if self.video_sink:
             try:
                 # Convert PyQt window handle to integer
