@@ -210,7 +210,7 @@ class UnifiedPipeline:
                 self.text_overlay = Gst.ElementFactory.make("textoverlay", "text_overlay")
 
                 # OSD 설정
-                osd_font_size = streaming_config.get("osd_font_size", 12)
+                osd_font_size = streaming_config.get("osd_font_size", 14)
                 osd_font_color = streaming_config.get("osd_font_color", [255, 255, 255])
 
                 # 폰트 설정
@@ -221,11 +221,19 @@ class UnifiedPipeline:
                 color_argb = 0xFF000000 | (r << 16) | (g << 8) | b
                 self.text_overlay.set_property("color", color_argb)
 
+                # 배경 설정 (중요! 텍스트 가독성을 위해 반투명 검은 배경 추가)
+                self.text_overlay.set_property("shaded-background", True)
+
                 # 위치 및 스타일 설정
                 self.text_overlay.set_property("valignment", "top")  # 상단 정렬
                 self.text_overlay.set_property("halignment", "left")  # 좌측 정렬
                 self.text_overlay.set_property("xpad", 10)  # 좌측 패딩
                 self.text_overlay.set_property("ypad", 10)  # 상단 패딩
+
+                # 텍스트 선명도 향상
+                self.text_overlay.set_property("line-alignment", "left")
+                self.text_overlay.set_property("draw-shadow", False)
+                self.text_overlay.set_property("draw-outline", False)
 
                 # 초기 텍스트 설정
                 text_parts = []
