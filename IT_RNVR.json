@@ -6,12 +6,12 @@
   "ui": {
     "theme": "dark",
     "show_status_bar": true,
-    "fullscreen_on_start": true,
+    "fullscreen_on_start": false,
     "window_state": {
-      "x": 0,
+      "x": 1920,
       "y": 0,
-      "width": 1920,
-      "height": 1080
+      "width": 1931,
+      "height": 1061
     },
     "dock_state": {
       "camera_visible": true,
@@ -23,12 +23,16 @@
     "default_layout": "1x1",
     "show_timestamp": true,
     "show_camera_name": true,
-    "osd_font_size": 12,
+    "osd_font_size": 14,
     "osd_font_color": [
       255,
       255,
       255
     ],
+    "osd_valignment": "top",
+    "osd_halignment": "right",
+    "osd_xpad": 20,
+    "osd_ypad": 20,
     "use_hardware_acceleration": true,
     "decoder_preference": [
       "v4l2h264dec",

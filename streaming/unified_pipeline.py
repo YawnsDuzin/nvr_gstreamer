@@ -245,11 +245,18 @@ class UnifiedPipeline:
                 # 배경 설정 (중요! 텍스트 가독성을 위해 반투명 검은 배경 추가)
                 self.text_overlay.set_property("shaded-background", True)
 
-                # 위치 및 스타일 설정
-                self.text_overlay.set_property("valignment", "top")  # 상단 정렬
-                self.text_overlay.set_property("halignment", "left")  # 좌측 정렬
-                self.text_overlay.set_property("xpad", 10)  # 좌측 패딩
-                self.text_overlay.set_property("ypad", 10)  # 상단 패딩
+                # 위치 및 스타일 설정 (IT_RNVR.json에서 로드)
+                osd_valignment = streaming_config.get("osd_valignment", "top")
+                osd_halignment = streaming_config.get("osd_halignment", "left")
+                osd_xpad = streaming_config.get("osd_xpad", 10)
+                osd_ypad = streaming_config.get("osd_ypad", 10)
+
+                self.text_overlay.set_property("valignment", osd_valignment)  # 수직 정렬
+                self.text_overlay.set_property("halignment", osd_halignment)  # 수평 정렬
+                self.text_overlay.set_property("xpad", osd_xpad)  # 좌우 패딩
+                self.text_overlay.set_property("ypad", osd_ypad)  # 상하 패딩
+
+                logger.debug(f"OSD position: {osd_valignment}/{osd_halignment}, padding: {osd_xpad}/{osd_ypad}")
 
                 # 텍스트 선명도 향상
                 self.text_overlay.set_property("line-alignment", "left")
