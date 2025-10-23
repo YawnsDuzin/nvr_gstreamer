@@ -339,24 +339,28 @@ class CameraDialog(QDialog):
         self.test_btn.setText("Testing...")
 
         try:
-            # Import and test with pipeline manager
+            # Import and test with UnifiedPipeline
             from streaming.pipeline_manager import PipelineManager
+            from streaming.unified_pipeline import PipelineMode
 
-            pipeline = PipelineManager(test_url)
-            if pipeline.create_pipeline(use_hardware_decode=self.hardware_decode_cb.isChecked()):
-                # Try to set to PLAYING state briefly
-                import gi
-                gi.require_version('Gst', '1.0')
-                from gi.repository import Gst
+            # Create pipeline manager with unified pipeline
+            pipeline = PipelineManager(
+                rtsp_url=test_url,
+                use_unified_pipeline=True,
+                camera_id="test",
+                camera_name="Test Camera"
+            )
 
-                ret = pipeline.pipeline.set_state(Gst.State.PLAYING)
-                if ret != Gst.StateChangeReturn.FAILURE:
+            # Create unified pipeline in streaming mode
+            if pipeline.create_unified_pipeline(mode=PipelineMode.STREAMING_ONLY):
+                # Start pipeline
+                if pipeline.start():
                     # Wait briefly to check if connection works
                     import time
                     time.sleep(2)
 
-                    state, _, _ = pipeline.pipeline.get_state(Gst.CLOCK_TIME_NONE)
-                    if state == Gst.State.PLAYING:
+                    # Check if pipeline is playing
+                    if pipeline.is_playing():
                         QMessageBox.information(self, "Test Connection",
                                               "Connection successful!")
                     else:
