@@ -12,6 +12,8 @@ from typing import Optional, Callable, Dict
 from loguru import logger
 from .unified_pipeline import UnifiedPipeline, PipelineMode
 from utils.gstreamer_utils import get_video_sink, get_available_h264_decoder
+from config.config_manager import ConfigManager
+from datetime import datetime
 
 # Initialize GStreamer
 Gst.init(None)
@@ -63,9 +65,46 @@ class PipelineManager:
             True if pipeline created successfully
         """
         try:
+            # Get streaming configuration for OSD
+            config = ConfigManager.get_instance()
+            streaming_config = config.get_streaming_config()
+
+            # OSD 설정
+            show_timestamp = streaming_config.get("show_timestamp", True)
+            show_camera_name = streaming_config.get("show_camera_name", True)
+            osd_enabled = show_timestamp or show_camera_name
+
             # Get the best available decoder and video sink from utils
             decoder = get_available_h264_decoder()
             video_sink = get_video_sink()
+
+            # OSD textoverlay 파라미터 생성
+            osd_element = ""
+            if osd_enabled:
+                osd_font_size = streaming_config.get("osd_font_size", 14)
+                osd_font_color = streaming_config.get("osd_font_color", [255, 255, 255])
+                r, g, b = osd_font_color[0], osd_font_color[1], osd_font_color[2]
+                color_argb = 0xFF000000 | (r << 16) | (g << 8) | b
+
+                # OSD 텍스트 생성
+                text_parts = []
+                if show_camera_name:
+                    text_parts.append(self.camera_name)
+                if show_timestamp:
+                    text_parts.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                osd_text = " | ".join(text_parts)
+
+                # textoverlay 엘리먼트 문자열
+                osd_element = (
+                    f'textoverlay text="{osd_text}" '
+                    f'font-desc="Sans Bold {osd_font_size}" '
+                    f'color={color_argb} '
+                    'shaded-background=true '
+                    'valignment=top halignment=left '
+                    'xpad=10 ypad=10 '
+                    'line-alignment=left draw-shadow=false draw-outline=false ! '
+                )
+                logger.info(f"OSD enabled: {osd_text}")
 
             # Build pipeline string with better compatibility and queue for smoother playback
             if decoder == "v4l2h264dec":
@@ -79,6 +118,7 @@ class PipelineManager:
                     f"{decoder} ! "
                     "queue ! "
                     "videoconvert ! "
+                    f"{osd_element}"  # OSD 추가
                     "videoscale ! "
                     "video/x-raw,width=1280,height=720 ! "
                     "queue ! "
@@ -94,6 +134,7 @@ class PipelineManager:
                     f"{decoder} ! "
                     "queue ! "
                     "videoconvert ! "
+                    f"{osd_element}"  # OSD 추가
                     "videoscale ! "
                     "video/x-raw,width=1280,height=720 ! "
                     "queue ! "
@@ -117,6 +158,7 @@ class PipelineManager:
                     f"{decoder} ! "
                     "queue ! "
                     "videoconvert ! "
+                    f"{osd_element}"  # OSD 추가
                     "videoscale ! "
                     "video/x-raw,width=1280,height=720 ! "
                     "queue ! "
