@@ -346,7 +346,6 @@ class CameraDialog(QDialog):
             # Create pipeline manager with unified pipeline
             pipeline = PipelineManager(
                 rtsp_url=test_url,
-                use_unified_pipeline=True,
                 camera_id="test",
                 camera_name="Test Camera"
             )
