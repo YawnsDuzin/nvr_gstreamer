@@ -57,6 +57,8 @@ class UnifiedPipeline:
         self.streaming_valve = None  # 스트리밍 제어용 Valve 추가
         self.recording_valve = None
         self.bus = None
+        self.text_overlay = None  # OSD 텍스트 오버레이
+        self._timestamp_update_timer = None  # 타임스탬프 업데이트 타이머
 
         self._is_playing = False
         self._is_recording = False
@@ -199,6 +201,47 @@ class UnifiedPipeline:
 
             # 비디오 변환
             convert = Gst.ElementFactory.make("videoconvert", "convert")
+
+            # OSD (Text Overlay) - 카메라 이름 및 타임스탬프
+            show_timestamp = streaming_config.get("show_timestamp", True)
+            show_camera_name = streaming_config.get("show_camera_name", True)
+
+            if show_timestamp or show_camera_name:
+                self.text_overlay = Gst.ElementFactory.make("textoverlay", "text_overlay")
+
+                # OSD 설정
+                osd_font_size = streaming_config.get("osd_font_size", 12)
+                osd_font_color = streaming_config.get("osd_font_color", [255, 255, 255])
+
+                # 폰트 설정
+                self.text_overlay.set_property("font-desc", f"Sans Bold {osd_font_size}")
+
+                # 텍스트 색상 (ARGB 형식)
+                r, g, b = osd_font_color[0], osd_font_color[1], osd_font_color[2]
+                color_argb = 0xFF000000 | (r << 16) | (g << 8) | b
+                self.text_overlay.set_property("color", color_argb)
+
+                # 위치 및 스타일 설정
+                self.text_overlay.set_property("valignment", "top")  # 상단 정렬
+                self.text_overlay.set_property("halignment", "left")  # 좌측 정렬
+                self.text_overlay.set_property("xpad", 10)  # 좌측 패딩
+                self.text_overlay.set_property("ypad", 10)  # 상단 패딩
+
+                # 초기 텍스트 설정
+                text_parts = []
+                if show_camera_name:
+                    text_parts.append(self.camera_name)
+                if show_timestamp:
+                    text_parts.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+                initial_text = " | ".join(text_parts)
+                self.text_overlay.set_property("text", initial_text)
+
+                logger.info(f"OSD enabled - Camera: {show_camera_name}, Timestamp: {show_timestamp}")
+            else:
+                self.text_overlay = None
+                logger.debug("OSD disabled")
+
             scale = Gst.ElementFactory.make("videoscale", "scale")
 
             # 캡슐 필터 (해상도 설정)
@@ -229,6 +272,8 @@ class UnifiedPipeline:
             self.pipeline.add(self.streaming_valve)
             self.pipeline.add(decoder)
             self.pipeline.add(convert)
+            if self.text_overlay:
+                self.pipeline.add(self.text_overlay)
             self.pipeline.add(scale)
             self.pipeline.add(caps_filter)
             self.pipeline.add(final_queue)
@@ -238,7 +283,15 @@ class UnifiedPipeline:
             stream_queue.link(self.streaming_valve)
             self.streaming_valve.link(decoder)
             decoder.link(convert)
-            convert.link(scale)
+
+            # OSD가 활성화된 경우 convert → textoverlay → scale
+            # OSD가 비활성화된 경우 convert → scale
+            if self.text_overlay:
+                convert.link(self.text_overlay)
+                self.text_overlay.link(scale)
+            else:
+                convert.link(scale)
+
             scale.link(caps_filter)
             caps_filter.link(final_queue)
             final_queue.link(self.video_sink)
@@ -363,6 +416,15 @@ class UnifiedPipeline:
             self._thread.daemon = True
             self._thread.start()
 
+            # OSD 타임스탬프 업데이트 시작
+            if self.text_overlay:
+                config = ConfigManager.get_instance()
+                streaming_config = config.get_streaming_config()
+                show_timestamp = streaming_config.get("show_timestamp", True)
+
+                if show_timestamp:
+                    self._start_timestamp_update()
+
             logger.info(f"Pipeline started for {self.camera_name}")
             return True
 
@@ -374,6 +436,9 @@ class UnifiedPipeline:
         """파이프라인 정지"""
         if self.pipeline and self._is_playing:
             logger.info(f"Stopping pipeline for {self.camera_name}")
+
+            # 타임스탬프 업데이트 타이머 정지
+            self._stop_timestamp_update()
 
             # 녹화 중이면 먼저 정지
             if self._is_recording:
@@ -562,3 +627,41 @@ class UnifiedPipeline:
                 status["recording_duration"] = int(time.time() - self.recording_start_time)
 
         return status
+
+    def _start_timestamp_update(self):
+        """타임스탬프 업데이트 타이머 시작"""
+        def update_timestamp():
+            if self._is_playing and self.text_overlay:
+                config = ConfigManager.get_instance()
+                streaming_config = config.get_streaming_config()
+
+                show_camera_name = streaming_config.get("show_camera_name", True)
+                show_timestamp = streaming_config.get("show_timestamp", True)
+
+                text_parts = []
+                if show_camera_name:
+                    text_parts.append(self.camera_name)
+                if show_timestamp:
+                    text_parts.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+                new_text = " | ".join(text_parts)
+                self.text_overlay.set_property("text", new_text)
+
+                # 다음 업데이트 스케줄 (1초마다)
+                if self._is_playing:
+                    self._timestamp_update_timer = threading.Timer(1.0, update_timestamp)
+                    self._timestamp_update_timer.daemon = True
+                    self._timestamp_update_timer.start()
+
+        # 첫 업데이트 시작
+        self._timestamp_update_timer = threading.Timer(1.0, update_timestamp)
+        self._timestamp_update_timer.daemon = True
+        self._timestamp_update_timer.start()
+        logger.debug("OSD timestamp update started")
+
+    def _stop_timestamp_update(self):
+        """타임스탬프 업데이트 타이머 정지"""
+        if self._timestamp_update_timer:
+            self._timestamp_update_timer.cancel()
+            self._timestamp_update_timer = None
+            logger.debug("OSD timestamp update stopped")
