@@ -1190,61 +1190,53 @@ class MainWindow(QMainWindow):
                 logger.warning(f"✗ Camera {camera_id} not assigned to any channel")
 
     def _update_window_handles_after_layout_change(self):
-        """레이아웃 변경 후 윈도우 핸들 재할당 및 파이프라인 업데이트"""
+        """레이아웃 변경 후 윈도우 핸들 재할당 (파이프라인 재시작 없이)"""
         logger.info("Updating window handles after layout change...")
 
         # 먼저 카메라를 새 채널에 재할당
         cameras = self.config_manager.get_enabled_cameras()
 
-        # 연결된 스트림 임시 저장
+        # 연결된 스트림 저장 (파이프라인 유지)
         connected_streams = {}
         for camera in cameras[:len(self.grid_view.channels)]:
             stream = self.camera_list.get_camera_stream(camera.camera_id)
             if stream and stream.is_connected():
                 connected_streams[camera.camera_id] = stream
-                logger.info(f"Temporarily storing connected stream: {camera.camera_id}")
+                logger.debug(f"Found connected stream: {camera.camera_id}")
 
-        # 모든 스트림 정지 (레이아웃 변경 중)
-        for camera_id, stream in connected_streams.items():
-            if stream.pipeline_manager:
-                logger.info(f"Stopping pipeline for layout change: {camera_id}")
-                stream.disconnect()
-
-        # UI 업데이트를 위해 QTimer 사용 (비동기 처리)
+        # UI 업데이트를 위해 QTimer 사용 (짧은 지연 - 위젯 생성 완료 대기)
         from PyQt5.QtCore import QTimer
 
-        def reconnect_streams():
-            # 새 채널에 카메라 재할당 및 파이프라인 재시작
+        def update_window_handles():
+            # 새 채널에 카메라 재할당 및 윈도우 핸들만 업데이트
             for i, camera in enumerate(cameras[:len(self.grid_view.channels)]):
                 channel = self.grid_view.get_channel(i)
                 if channel:
                     # 채널에 카메라 정보 업데이트
                     channel.update_camera_info(camera.camera_id, camera.name)
 
-                    # 이전에 연결되어 있던 스트림이면 재연결
+                    # 이전에 연결되어 있던 스트림이면 윈도우 핸들만 변경 (재연결 없음)
                     if camera.camera_id in connected_streams:
                         stream = connected_streams[camera.camera_id]
                         # 새 윈도우 핸들 가져오기
                         new_window_handle = channel.get_window_handle()
 
                         if new_window_handle:
-                            # 스트림에 윈도우 핸들 설정하고 재연결
+                            # 파이프라인 재시작 없이 윈도우 핸들만 업데이트
                             stream.window_handle = new_window_handle
-                            logger.info(f"Reconnecting camera {camera.camera_id} with new window handle")
+                            if stream.pipeline_manager:
+                                stream.pipeline_manager.set_window_handle(new_window_handle)
+                                logger.info(f"Updated window handle for {camera.camera_id} (no reconnect)")
 
-                            # 파이프라인 재시작
-                            if stream.connect():
-                                channel.set_connected(True)
-                                logger.success(f"✓ Reconnected {camera.camera_id} after layout change")
-                            else:
-                                logger.error(f"✗ Failed to reconnect {camera.camera_id} after layout change")
+                            # 채널 상태 업데이트
+                            channel.set_connected(True)
                         else:
                             logger.warning(f"No window handle available for {camera.camera_id}")
 
-            logger.success("Layout change completed - streams reconnected")
+            logger.success("Layout change completed - window handles updated without reconnection")
 
-        # 500ms 후에 재연결 시작 (파이프라인 정리 완료 대기)
-        QTimer.singleShot(500, reconnect_streams)
+        # 100ms 후에 핸들 업데이트 (위젯 생성 완료 대기만)
+        QTimer.singleShot(100, update_window_handles)
 
     def _on_camera_selected(self, camera_id: str):
         """Handle camera selection from list"""
