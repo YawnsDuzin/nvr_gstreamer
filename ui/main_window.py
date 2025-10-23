@@ -1208,35 +1208,45 @@ class MainWindow(QMainWindow):
         from PyQt5.QtCore import QTimer
 
         def update_window_handles():
-            # 새 채널에 카메라 재할당 및 윈도우 핸들만 업데이트
+            """윈도우 핸들만 업데이트 (파이프라인 PAUSE → 핸들 변경 → PLAY)"""
+            updated_count = 0
+
+            # 새 채널에 카메라 재할당 및 윈도우 핸들 업데이트
             for i, camera in enumerate(cameras[:len(self.grid_view.channels)]):
                 channel = self.grid_view.get_channel(i)
                 if channel:
                     # 채널에 카메라 정보 업데이트
                     channel.update_camera_info(camera.camera_id, camera.name)
 
-                    # 이전에 연결되어 있던 스트림이면 윈도우 핸들만 변경 (재연결 없음)
+                    # 이전에 연결되어 있던 스트림이면 윈도우 핸들만 변경
                     if camera.camera_id in connected_streams:
                         stream = connected_streams[camera.camera_id]
                         # 새 윈도우 핸들 가져오기
                         new_window_handle = channel.get_window_handle()
 
                         if new_window_handle:
-                            # 파이프라인 재시작 없이 윈도우 핸들만 업데이트
+                            # CameraStream과 PipelineManager에 윈도우 핸들 업데이트
                             stream.window_handle = new_window_handle
+
+                            # PipelineManager의 set_window_handle은 자동으로
+                            # PAUSED → 핸들 변경 → PLAYING 처리
                             if stream.pipeline_manager:
                                 stream.pipeline_manager.set_window_handle(new_window_handle)
-                                logger.info(f"Updated window handle for {camera.camera_id} (no reconnect)")
+                                logger.debug(f"✓ Updated window handle for {camera.camera_id}")
+                                updated_count += 1
 
                             # 채널 상태 업데이트
                             channel.set_connected(True)
                         else:
                             logger.warning(f"No window handle available for {camera.camera_id}")
 
-            logger.success("Layout change completed - window handles updated without reconnection")
+            if updated_count > 0:
+                logger.success(f"Layout change completed - {updated_count} window handle(s) updated")
+            else:
+                logger.info("Layout change completed - no connected streams to update")
 
-        # 100ms 후에 핸들 업데이트 (위젯 생성 완료 대기만)
-        QTimer.singleShot(100, update_window_handles)
+        # 200ms 후에 핸들 업데이트 (위젯 완전히 렌더링될 때까지 대기)
+        QTimer.singleShot(200, update_window_handles)
 
     def _on_camera_selected(self, camera_id: str):
         """Handle camera selection from list"""
