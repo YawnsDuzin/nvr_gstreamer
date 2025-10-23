@@ -130,9 +130,13 @@ class UnifiedPipeline:
             # RTSP 소스의 동적 패드 연결
             rtspsrc.connect("pad-added", self._on_pad_added, depay)
 
-            # 모든 브랜치를 항상 생성 (Valve로 제어)
-            self._create_streaming_branch()
-            self._create_recording_branch()
+            # 스트리밍 브랜치는 항상 생성 (STREAMING_ONLY, BOTH 모드)
+            if self.mode in [PipelineMode.STREAMING_ONLY, PipelineMode.BOTH]:
+                self._create_streaming_branch()
+
+            # 녹화 브랜치는 필요한 경우에만 생성 (RECORDING_ONLY, BOTH 모드)
+            if self.mode in [PipelineMode.RECORDING_ONLY, PipelineMode.BOTH]:
+                self._create_recording_branch()
 
             # 초기 모드 설정 적용
             self._apply_mode_settings()
@@ -653,31 +657,43 @@ class UnifiedPipeline:
     def _verify_pipeline_elements(self) -> bool:
         """파이프라인 엘리먼트 검증"""
         try:
-            # 필수 엘리먼트 확인
-            essential_elements = [
+            # 기본 필수 엘리먼트 (모든 모드 공통)
+            basic_elements = [
                 ("source", "rtspsrc"),
                 ("depay", "rtph264depay"),
                 ("parse", "h264parse"),
-                ("tee", "tee"),
-                ("stream_queue", "queue"),
-                ("streaming_valve", "valve"),
-                ("decoder", "decoder"),
-                ("convert", "videoconvert"),
-                ("scale", "videoscale"),
-                ("videosink", "video sink")
+                ("tee", "tee")
             ]
 
-            for name, description in essential_elements:
+            for name, description in basic_elements:
                 element = self.pipeline.get_by_name(name)
                 if not element:
-                    # videosink은 이름이 다를 수 있음
-                    if name == "videosink" and self.video_sink:
-                        continue
-                    logger.error(f"Essential element '{name}' ({description}) not found in pipeline")
+                    logger.error(f"Basic element '{name}' ({description}) not found in pipeline")
                     return False
                 logger.debug(f"Verified element: {name} ({element.get_factory().get_name()})")
 
-            # 특정 모드에서만 필요한 엘리먼트
+            # 스트리밍 모드에서 필요한 엘리먼트
+            if self.mode in [PipelineMode.STREAMING_ONLY, PipelineMode.BOTH]:
+                streaming_elements = [
+                    ("stream_queue", "streaming queue"),
+                    ("streaming_valve", "streaming valve"),
+                    ("decoder", "decoder"),
+                    ("convert", "videoconvert"),
+                    ("scale", "videoscale")
+                ]
+                for name, description in streaming_elements:
+                    element = self.pipeline.get_by_name(name)
+                    if not element:
+                        logger.error(f"Streaming element '{name}' ({description}) not found")
+                        return False
+                    logger.debug(f"Verified element: {name} ({element.get_factory().get_name()})")
+
+                # videosink 체크 (이름이 다를 수 있음)
+                if not self.video_sink:
+                    logger.error("Video sink not found in streaming mode")
+                    return False
+
+            # 녹화 모드에서 필요한 엘리먼트
             if self.mode in [PipelineMode.RECORDING_ONLY, PipelineMode.BOTH]:
                 recording_elements = [
                     ("record_queue", "recording queue"),
@@ -690,6 +706,7 @@ class UnifiedPipeline:
                     if not element:
                         logger.error(f"Recording element '{name}' ({description}) not found")
                         return False
+                    logger.debug(f"Verified element: {name} ({element.get_factory().get_name()})")
 
             logger.debug("Pipeline element verification successful")
             return True
@@ -700,24 +717,31 @@ class UnifiedPipeline:
 
     def _apply_mode_settings(self):
         """현재 모드에 따라 Valve 설정 적용"""
-        if not self.streaming_valve or not self.recording_valve:
-            logger.warning("Valves not initialized yet")
-            return
 
         if self.mode == PipelineMode.STREAMING_ONLY:
-            self.streaming_valve.set_property("drop", False)
-            self.recording_valve.set_property("drop", True)
-            logger.debug("Mode: Streaming only - Stream ON, Recording OFF")
+            if self.streaming_valve:
+                self.streaming_valve.set_property("drop", False)
+                logger.debug("Mode: Streaming only - Stream ON")
+            else:
+                logger.warning("Streaming valve not initialized for STREAMING_ONLY mode")
 
         elif self.mode == PipelineMode.RECORDING_ONLY:
-            self.streaming_valve.set_property("drop", True)
-            self.recording_valve.set_property("drop", True)  # 녹화는 별도로 시작
-            logger.debug("Mode: Recording only - Stream OFF, Recording controlled separately")
+            if self.streaming_valve:
+                self.streaming_valve.set_property("drop", True)
+            if self.recording_valve:
+                self.recording_valve.set_property("drop", True)  # 녹화는 별도로 시작
+                logger.debug("Mode: Recording only - Stream OFF, Recording controlled separately")
+            else:
+                logger.warning("Recording valve not initialized for RECORDING_ONLY mode")
 
         elif self.mode == PipelineMode.BOTH:
-            self.streaming_valve.set_property("drop", False)
-            self.recording_valve.set_property("drop", True)  # 녹화는 별도로 시작
-            logger.debug("Mode: Both - Stream ON, Recording controlled separately")
+            if self.streaming_valve:
+                self.streaming_valve.set_property("drop", False)
+            if self.recording_valve:
+                self.recording_valve.set_property("drop", True)  # 녹화는 별도로 시작
+                logger.debug("Mode: Both - Stream ON, Recording controlled separately")
+            else:
+                logger.warning("One or more valves not initialized for BOTH mode")
 
     def set_mode(self, mode: PipelineMode):
         """파이프라인 모드 변경 (런타임 중 변경 가능)"""
