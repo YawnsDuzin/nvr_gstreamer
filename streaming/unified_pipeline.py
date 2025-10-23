@@ -147,6 +147,11 @@ class UnifiedPipeline:
                 self.bus.enable_sync_message_emission()
                 self.bus.connect("sync-message::element", self._on_sync_message)
 
+            # 파이프라인 엘리먼트 검증
+            if not self._verify_pipeline_elements():
+                logger.error("Pipeline element verification failed")
+                return False
+
             logger.info(f"Unified pipeline created for {self.camera_name} (mode: {self.mode.value})")
             return True
 
@@ -429,12 +434,55 @@ class UnifiedPipeline:
             return False
 
         try:
-            ret = self.pipeline.set_state(Gst.State.PLAYING)
+            logger.debug(f"Starting pipeline for {self.camera_name}")
+
+            # 파이프라인 상태를 단계적으로 변경
+            ret = self.pipeline.set_state(Gst.State.READY)
             if ret == Gst.StateChangeReturn.FAILURE:
-                logger.error("Failed to start pipeline")
+                logger.error("Failed to set pipeline to READY state")
+                # 에러 메시지 확인
+                bus_msg = self.bus.pop_filtered(Gst.MessageType.ERROR)
+                if bus_msg:
+                    err, debug = bus_msg.parse_error()
+                    logger.error(f"Error detail: {err}, Debug: {debug}")
                 return False
 
+            # PAUSED 상태로 전환
+            ret = self.pipeline.set_state(Gst.State.PAUSED)
+            if ret == Gst.StateChangeReturn.FAILURE:
+                logger.error("Failed to set pipeline to PAUSED state")
+                bus_msg = self.bus.pop_filtered(Gst.MessageType.ERROR)
+                if bus_msg:
+                    err, debug = bus_msg.parse_error()
+                    logger.error(f"Error detail: {err}, Debug: {debug}")
+                return False
+
+            # PLAYING 상태로 전환
+            ret = self.pipeline.set_state(Gst.State.PLAYING)
+            if ret == Gst.StateChangeReturn.FAILURE:
+                logger.error("Failed to set pipeline to PLAYING state")
+                bus_msg = self.bus.pop_filtered(Gst.MessageType.ERROR)
+                if bus_msg:
+                    err, debug = bus_msg.parse_error()
+                    logger.error(f"Error detail: {err}, Debug: {debug}")
+                return False
+            elif ret == Gst.StateChangeReturn.ASYNC:
+                logger.debug("Pipeline state change is asynchronous, waiting...")
+                # 비동기 상태 변경 대기 (최대 5초)
+                ret, current_state, pending_state = self.pipeline.get_state(5 * Gst.SECOND)
+                if ret != Gst.StateChangeReturn.SUCCESS:
+                    logger.error(f"Pipeline state change failed or timed out: {ret}")
+                    logger.error(f"Current state: {current_state.value_nick if current_state else 'None'}, Pending: {pending_state.value_nick if pending_state else 'None'}")
+                    bus_msg = self.bus.pop_filtered(Gst.MessageType.ERROR)
+                    if bus_msg:
+                        err, debug = bus_msg.parse_error()
+                        logger.error(f"Error detail: {err}, Debug: {debug}")
+                    return False
+                else:
+                    logger.debug(f"Pipeline state successfully changed to: {current_state.value_nick}")
+
             self._is_playing = True
+            logger.debug(f"Pipeline successfully started for {self.camera_name}")
 
             # 메인 루프 시작
             self._main_loop = GLib.MainLoop()
@@ -601,6 +649,54 @@ class UnifiedPipeline:
                 logger.debug(f"Window handle updated: {window_handle}")
             except Exception as e:
                 logger.error(f"Failed to update window handle: {e}")
+
+    def _verify_pipeline_elements(self) -> bool:
+        """파이프라인 엘리먼트 검증"""
+        try:
+            # 필수 엘리먼트 확인
+            essential_elements = [
+                ("source", "rtspsrc"),
+                ("depay", "rtph264depay"),
+                ("parse", "h264parse"),
+                ("tee", "tee"),
+                ("stream_queue", "queue"),
+                ("streaming_valve", "valve"),
+                ("decoder", "decoder"),
+                ("convert", "videoconvert"),
+                ("scale", "videoscale"),
+                ("videosink", "video sink")
+            ]
+
+            for name, description in essential_elements:
+                element = self.pipeline.get_by_name(name)
+                if not element:
+                    # videosink은 이름이 다를 수 있음
+                    if name == "videosink" and self.video_sink:
+                        continue
+                    logger.error(f"Essential element '{name}' ({description}) not found in pipeline")
+                    return False
+                logger.debug(f"Verified element: {name} ({element.get_factory().get_name()})")
+
+            # 특정 모드에서만 필요한 엘리먼트
+            if self.mode in [PipelineMode.RECORDING_ONLY, PipelineMode.BOTH]:
+                recording_elements = [
+                    ("record_queue", "recording queue"),
+                    ("recording_valve", "recording valve"),
+                    ("muxer", "mp4mux"),
+                    ("filesink", "file sink")
+                ]
+                for name, description in recording_elements:
+                    element = self.pipeline.get_by_name(name)
+                    if not element:
+                        logger.error(f"Recording element '{name}' ({description}) not found")
+                        return False
+
+            logger.debug("Pipeline element verification successful")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error during pipeline verification: {e}")
+            return False
 
     def _apply_mode_settings(self):
         """현재 모드에 따라 Valve 설정 적용"""
