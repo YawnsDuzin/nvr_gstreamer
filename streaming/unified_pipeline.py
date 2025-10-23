@@ -81,6 +81,8 @@ class UnifiedPipeline:
             True if successful
         """
         try:
+            logger.debug(f"Creating unified pipeline for {self.camera_name} (mode: {self.mode.value})")
+
             # 파이프라인 생성
             self.pipeline = Gst.Pipeline.new("unified-pipeline")
 
@@ -150,6 +152,8 @@ class UnifiedPipeline:
 
         except Exception as e:
             logger.error(f"Failed to create unified pipeline: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return False
 
     def _create_streaming_branch(self):
@@ -193,11 +197,19 @@ class UnifiedPipeline:
                 )
                 logger.info(f"Hardware acceleration disabled - using software decoder: {decoder_name}")
 
+            # h264parse는 디코더가 아니므로 avdec_h264를 사용
+            if decoder_name == "h264parse":
+                logger.warning("No hardware decoder available, using software decoder avdec_h264")
+                decoder_name = "avdec_h264"
+
             decoder = Gst.ElementFactory.make(decoder_name, "decoder")
 
             if not decoder:
-                logger.warning(f"Failed to create decoder '{decoder_name}', falling back to avdec_h264")
+                logger.error(f"Failed to create decoder '{decoder_name}', falling back to avdec_h264")
                 decoder = Gst.ElementFactory.make("avdec_h264", "decoder")
+
+            if not decoder:
+                raise Exception(f"Failed to create any H.264 decoder (tried: {decoder_name}, avdec_h264)")
 
             # 비디오 변환
             convert = Gst.ElementFactory.make("videoconvert", "convert")
@@ -313,6 +325,9 @@ class UnifiedPipeline:
 
         except Exception as e:
             logger.error(f"Failed to create streaming branch: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            raise  # 상위로 예외 전파
 
     def _create_recording_branch(self):
         """녹화 브랜치 생성"""
@@ -358,6 +373,9 @@ class UnifiedPipeline:
 
         except Exception as e:
             logger.error(f"Failed to create recording branch: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            raise  # 상위로 예외 전파
 
     def _on_pad_added(self, src, pad, depay):
         """RTSP 소스의 동적 패드 연결"""
