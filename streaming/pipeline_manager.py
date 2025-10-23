@@ -42,8 +42,6 @@ class PipelineManager:
         """
         Set the window handle for video rendering
 
-        If pipeline is playing, temporarily pauses to update window handle
-
         Args:
             window_handle: Platform-specific window handle
         """
@@ -56,33 +54,12 @@ class PipelineManager:
                     else:
                         window_id = window_handle
 
-                    # 파이프라인이 재생 중이면 PAUSED로 전환
-                    was_playing = self.is_playing()
-                    if was_playing:
-                        logger.debug("Pausing pipeline to update window handle...")
-                        self.unified_pipeline.pipeline.set_state(Gst.State.PAUSED)
-                        # 상태 변경 완료 대기 (짧게)
-                        self.unified_pipeline.pipeline.get_state(0.5 * Gst.SECOND)
-
                     # Use GstVideoOverlay interface method
-                    from gi.repository import GstVideo
-                    GstVideo.VideoOverlay.set_window_handle(self.unified_pipeline.video_sink, window_id)
+                    self.unified_pipeline.video_sink.set_window_handle(window_id)
                     logger.debug(f"Set window handle for UnifiedPipeline: {window_id}")
-
-                    # 다시 PLAYING 상태로 복구
-                    if was_playing:
-                        logger.debug("Resuming pipeline playback...")
-                        self.unified_pipeline.pipeline.set_state(Gst.State.PLAYING)
-
                     return
                 except Exception as e:
                     logger.warning(f"Failed to set window handle for UnifiedPipeline: {e}")
-                    # 재생 중이었다면 다시 PLAYING으로 복구 시도
-                    if was_playing:
-                        try:
-                            self.unified_pipeline.pipeline.set_state(Gst.State.PLAYING)
-                        except:
-                            pass
             else:
                 logger.debug("UnifiedPipeline video_sink not available yet")
         else:
