@@ -89,6 +89,7 @@ class ConfigManager:
         self.ui_config = UIConfig()
         self.cameras: List[CameraConfigData] = []
         self.logging_config: Dict[str, Any] = {}  # 로깅 설정 저장
+        self.streaming_config: Dict[str, Any] = {}  # 스트리밍 설정 저장
         self.auto_save = auto_save  # 자동 저장 플래그
 
         # Create default config directory
@@ -179,6 +180,14 @@ class ConfigManager:
             else:
                 logger.debug("No 'ui' section found in configuration, using defaults")
                 self.ui_config = UIConfig()
+
+            # Load streaming configuration
+            if 'streaming' in data:
+                self.streaming_config = data['streaming']
+                logger.debug(f"Loaded streaming configuration: {self.streaming_config.keys()}")
+            else:
+                logger.debug("No 'streaming' section found in configuration, using defaults")
+                self.streaming_config = {}
 
             logger.info(f"Configuration loaded from {self.config_file}")
             logger.info(f"Loaded {len(self.cameras)} camera configurations")
@@ -361,6 +370,15 @@ class ConfigManager:
             Logging configuration dictionary
         """
         return self.logging_config
+
+    def get_streaming_config(self) -> Dict[str, Any]:
+        """
+        Get streaming configuration
+
+        Returns:
+            Streaming configuration dictionary
+        """
+        return self.streaming_config
 
     def save_ui_config(self) -> bool:
         """

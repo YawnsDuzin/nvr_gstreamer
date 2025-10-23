@@ -16,6 +16,7 @@ from typing import Optional, Dict
 from enum import Enum
 from loguru import logger
 from utils.gstreamer_utils import get_video_sink, get_available_h264_decoder, create_video_sink_with_properties
+from config.config_manager import ConfigManager
 
 # GStreamer 초기화
 Gst.init(None)
@@ -147,8 +148,34 @@ class UnifiedPipeline:
             self.streaming_valve = Gst.ElementFactory.make("valve", "streaming_valve")
             self.streaming_valve.set_property("drop", False)  # 초기값은 나중에 설정
 
-            # 디코더
-            decoder = Gst.ElementFactory.make("avdec_h264", "decoder")
+            # 디코더 - 설정에 따라 선택
+            config = ConfigManager.get_instance()
+            streaming_config = config.get_streaming_config()
+
+            # use_hardware_acceleration 설정 확인
+            use_hw_accel = streaming_config.get("use_hardware_acceleration", True)
+            decoder_preference = streaming_config.get("decoder_preference", None)
+
+            if use_hw_accel:
+                # 하드웨어 가속 사용: 설정된 우선순위 또는 자동 선택
+                decoder_name = get_available_h264_decoder(
+                    prefer_hardware=True,
+                    decoder_preference=decoder_preference
+                )
+                logger.info(f"Hardware acceleration enabled - selected decoder: {decoder_name}")
+            else:
+                # 소프트웨어 디코더 강제 사용
+                decoder_name = get_available_h264_decoder(
+                    prefer_hardware=False,
+                    decoder_preference=None
+                )
+                logger.info(f"Hardware acceleration disabled - using software decoder: {decoder_name}")
+
+            decoder = Gst.ElementFactory.make(decoder_name, "decoder")
+
+            if not decoder:
+                logger.warning(f"Failed to create decoder '{decoder_name}', falling back to avdec_h264")
+                decoder = Gst.ElementFactory.make("avdec_h264", "decoder")
 
             # 비디오 변환
             convert = Gst.ElementFactory.make("videoconvert", "convert")
