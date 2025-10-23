@@ -58,16 +58,31 @@ class EnhancedMainWindow(QMainWindow):
         self._load_dock_state()  # Dock 상태를 먼저 로드
         self._setup_connections()  # 그 다음 시그널 연결
 
+        # fullscreen_on_start 설정 적용 (모든 UI 설정 완료 후)
+        if self.config_manager.ui_config.fullscreen_on_start:
+            self.showFullScreen()
+            logger.info("Window shown in fullscreen mode")
+
         logger.info("Enhanced main window initialized")
 
     def _setup_ui(self):
         """Setup main UI with splitter layout"""
         self.setWindowTitle(f"{self.app_display_name} - Network Video Recorder (Single Camera)")
 
-        # YAML 설정에서 window_state 가져오기
-        ws = self.config_manager.ui_config.window_state
-        self.setGeometry(ws.get('x', 100), ws.get('y', 100),
-                        ws.get('width', 1200), ws.get('height', 700))
+        # UI 설정에서 window_state 및 fullscreen_on_start 가져오기
+        ui_config = self.config_manager.ui_config
+        ws = ui_config.window_state
+
+        if ui_config.fullscreen_on_start:
+            # 전체화면으로 시작
+            logger.info("Starting in fullscreen mode (fullscreen_on_start=true)")
+            # 먼저 기본 geometry 설정 (전체화면 전에 필요)
+            self.setGeometry(100, 100, 1024, 768)
+        else:
+            # window_state 설정값 적용
+            self.setGeometry(ws.get('x', 100), ws.get('y', 100),
+                            ws.get('width', 1200), ws.get('height', 700))
+            logger.info(f"Starting with window state: x={ws.get('x', 100)}, y={ws.get('y', 100)}, w={ws.get('width', 1200)}, h={ws.get('height', 700)}")
 
         # Central widget with splitter
         central_widget = QWidget()
@@ -991,6 +1006,18 @@ class EnhancedMainWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
 
+        # 타이머와 스레드 변수 초기화 (closeEvent에서 참조되므로 항상 필요)
+        self.status_timer = None
+        self.clock_timer = None
+        self.monitor_thread = None
+
+        # show_status_bar 설정에 따라 표시/숨김
+        ui_config = self.config_manager.ui_config
+        if not ui_config.show_status_bar:
+            self.status_bar.hide()
+            logger.info("Status bar hidden (show_status_bar=false)")
+            return
+
         # 상태바 스타일 (메인 테마와 일관성 유지)
         # 메인 테마의 QStatusBar 스타일이 적용되므로 별도 스타일 불필요
 
@@ -1523,7 +1550,7 @@ class EnhancedMainWindow(QMainWindow):
         logger.info(f"Dock state loaded from YAML - Camera: {camera_visible}, Recording: {recording_visible}, Playback: {playback_visible}")
 
     def _save_dock_state(self):
-        """Save dock state to YAML configuration"""
+        """Save dock state to JSON configuration"""
         # 현재 윈도우 위치/크기 저장
         geometry = self.geometry()
         self.config_manager.update_ui_window_state(
@@ -1540,10 +1567,10 @@ class EnhancedMainWindow(QMainWindow):
             playback_visible=self.playback_dock.isVisible()
         )
 
-        # YAML 파일에 저장
+        # JSON 파일에 저장
         self.config_manager.save_ui_config()
 
-        logger.info(f"UI state saved to YAML - Window: {geometry.x()},{geometry.y()} {geometry.width()}x{geometry.height()}, Docks: Camera={self.camera_dock.isVisible()}, Recording={self.recording_dock.isVisible()}, Playback={self.playback_dock.isVisible()}")
+        logger.info(f"UI state saved to JSON - Window: {geometry.x()},{geometry.y()} {geometry.width()}x{geometry.height()}, Docks: Camera={self.camera_dock.isVisible()}, Recording={self.recording_dock.isVisible()}, Playback={self.playback_dock.isVisible()}")
 
     def closeEvent(self, event: QCloseEvent):
         """Handle application close event"""

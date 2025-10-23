@@ -22,9 +22,9 @@ class AppConfig:
 @dataclass
 class UIConfig:
     """UI configuration"""
-    theme: str = "dark"  # dark, light
-    fullscreen_on_start: bool = False
+    theme: str = "dark"  # dark, light    
     show_status_bar: bool = True
+    fullscreen_on_start: bool = False
     window_state: Dict[str, int] = field(default_factory=lambda: {
         "width": 1920,
         "height": 1080,
