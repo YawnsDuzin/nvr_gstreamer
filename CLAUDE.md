@@ -52,7 +52,7 @@ pip install -r requirements.txt
 # Main application with GUI
 python main.py
 python main.py --debug  # With debug logging
-python main.py --config custom_config.yaml  # Custom configuration
+python main.py --config custom_config.json  # Custom configuration (JSON format)
 
 # Single camera launcher (in tests/)
 python tests/run_single_camera.py
@@ -134,9 +134,10 @@ Instead of separate pipelines for streaming and recording (which duplicates deco
    - **Note**: Uses PyQt5 (NOT PyQt6 despite requirements.txt)
 
 5. **Configuration** (`config/`)
-   - `config_manager.py`: YAML/JSON configuration handling
-   - `config.yaml`: Camera settings and application configuration
-   - Configuration preservation during runtime (no auto-save on exit)
+   - `config_manager.py`: **Singleton pattern** JSON configuration handler
+   - `IT_RNVR.json`: All application settings (app, ui, cameras, recording, logging, etc.)
+   - UI state (window position, dock visibility) auto-saved on exit to JSON
+   - ConfigManager uses singleton pattern - single instance shared across entire application
 
 6. **Utilities** (`utils/`)
    - `gstreamer_utils.py`: Platform-specific GStreamer helpers
@@ -151,13 +152,33 @@ Three operating modes controlled via `PipelineMode` enum:
 Mode switching happens at runtime using valve elements without service interruption.
 
 ### Design Patterns
+- **Singleton Pattern**: ConfigManager ensures single instance across entire application (config loaded only once)
 - **Manager Pattern**: PipelineManager, RecordingManager, PlaybackManager for lifecycle management
 - **State Pattern**: RecordingStatus, PlaybackState, PipelineMode enums for state tracking
 - **Observer Pattern**: GStreamer bus messages, Qt signals/slots for event handling
-- **Dataclass Pattern**: Configuration objects (AppConfig, CameraConfigData) for structured data
+- **Dataclass Pattern**: Configuration objects (AppConfig, UIConfig, CameraConfigData) for structured data
 - **Tee + Valve Pattern**: Unified pipeline for resource-efficient streaming and recording
 
 ## Important Notes
+
+### Configuration System (Updated: 2025-10)
+**CRITICAL**: Configuration management has been updated:
+- **Format**: JSON (IT_RNVR.json) - migrated from YAML for easier partial updates
+- **Singleton Pattern**: ConfigManager uses singleton pattern - always use `ConfigManager.get_instance()`
+- **Auto-save**: UI state (window geometry, dock visibility) saved automatically on exit
+- **Partial Updates**: JSON allows updating specific sections (e.g., only `ui` section) without rewriting entire file
+- **Usage**:
+  ```python
+  # Correct - get singleton instance
+  config = ConfigManager.get_instance()
+
+  # Also works - returns same instance
+  config = ConfigManager()
+
+  # Update UI state
+  config.update_ui_window_state(x, y, width, height)
+  config.save_ui_config()  # Updates only 'ui' section in JSON
+  ```
 
 ### PyQt Version Mismatch
 **CRITICAL**: There's a PyQt version mismatch:
@@ -246,9 +267,9 @@ GST_DEBUG=3 python main.py
 # Solution: Test RTSP URL directly
 gst-launch-1.0 rtspsrc location=rtsp://admin:password@192.168.0.131:554/stream ! decodebin ! autovideosink
 
-# Check auto-reconnection settings in config.yaml
-# max_reconnect_attempts: 5
-# reconnect_delay: 5
+# Check auto-reconnection settings in IT_RNVR.json
+# camera_settings.max_reconnect_attempts: 5
+# camera_settings.reconnect_delay_seconds: 5
 ```
 
 #### Memory Leaks
@@ -288,10 +309,11 @@ def _on_bus_message(self, bus, message):
 - Continuous recording with automatic file rotation
 - Playback system with timeline navigation and speed control
 - Dockable UI widgets (Camera List, Recording Control, Playback)
-- Configuration management (YAML)
+- **JSON-based configuration with singleton pattern** (migrated from YAML)
+- UI state persistence (window geometry, dock visibility)
 - Auto-reconnection on network failure
 - Hardware acceleration support (RPi OMX/V4L2)
-- Dark theme UI
+- Dark/Light theme support
 - Runtime pipeline mode switching via valves
 - Memory-efficient unified pipeline architecture
 - Headless mode for recording without GUI
@@ -299,12 +321,14 @@ def _on_bus_message(self, bus, message):
 ### Known Issues
 - PyQt5/PyQt6 dependency mismatch in requirements.txt (code uses PyQt5)
 - GStreamer required on Windows (use mock_gi for testing without it)
-- Credentials stored in cleartext in config.yaml
+- Credentials stored in cleartext in IT_RNVR.json
 
-### Recent Updates
-- Playback functionality integrated into main window (October 2025)
+### Recent Updates (2025-10)
+- **Configuration system migrated from YAML to JSON** for easier partial updates
+- **ConfigManager implemented as singleton** - config loaded only once, shared across app
+- **UI state auto-save**: Window position/size and dock visibility saved to JSON on exit
+- Playback functionality integrated into main window
 - Valve-based pipeline control for efficient mode switching
-- Configuration preservation improvements
 - File structure reorganization (docs/, tests/, utils/)
 
 ### Platform Support

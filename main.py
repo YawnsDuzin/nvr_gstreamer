@@ -33,9 +33,9 @@ def setup_logging(debug: bool = False, config_file: str = None):
     # Remove default logger
     logger.remove()
 
-    # Load configuration
+    # Load configuration (singleton)
     try:
-        config_manager = ConfigManager(config_file=config_file)
+        config_manager = ConfigManager.get_instance(config_file=config_file)
         logging_config = config_manager.get_logging_config()
     except Exception as e:
         print(f"Warning: Failed to load logging config: {e}. Using defaults.")
@@ -157,10 +157,14 @@ def main():
         logger.error("Missing required dependencies. Exiting...")
         sys.exit(1)
 
+    # Get configuration singleton instance (already initialized in setup_logging)
+    config_manager = ConfigManager.get_instance()
+    app_display_name = f"{config_manager.app_config.app_name}/{config_manager.app_config.version}"
+
     # Create Qt application
     app = QApplication(sys.argv)
-    app.setApplicationName("PyNVR")
-    app.setOrganizationName("PyNVR")
+    app.setApplicationName(app_display_name)
+    app.setOrganizationName(config_manager.app_config.app_name)
 
     # Enable high DPI scaling
     if hasattr(Qt, 'AA_EnableHighDpiScaling'):

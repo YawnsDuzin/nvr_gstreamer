@@ -5,23 +5,37 @@ Handles application configuration and camera settings
 
 import json
 import yaml
+import re
 from pathlib import Path
 from typing import Dict, List, Any, Optional
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from loguru import logger
 
 
 @dataclass
 class AppConfig:
     """Application configuration"""
-    app_name: str = "PyNVR"
-    version: str = "0.1.0"
-    default_layout: str = "2x2"
-    recording_path: str = "recordings"
-    log_level: str = "INFO"
-    use_hardware_acceleration: bool = True
-    max_reconnect_attempts: int = 3
-    reconnect_delay: int = 5
+    app_name: str = "IT_RNVR"
+    version: str = "1.0.0"
+
+
+@dataclass
+class UIConfig:
+    """UI configuration"""
+    theme: str = "dark"  # dark, light
+    fullscreen_on_start: bool = False
+    show_status_bar: bool = True
+    window_state: Dict[str, int] = field(default_factory=lambda: {
+        "width": 1920,
+        "height": 1080,
+        "x": 0,
+        "y": 0
+    })
+    dock_state: Dict[str, bool] = field(default_factory=lambda: {
+        "camera_visible": True,
+        "recording_visible": True,
+        "playback_visible": False
+    })
 
 
 @dataclass
@@ -39,18 +53,40 @@ class CameraConfigData:
 
 
 class ConfigManager:
-    """Manages application and camera configurations"""
+    """
+    Singleton class for managing application and camera configurations
+
+    Usage:
+        config_manager = ConfigManager.get_instance()
+        # or
+        config_manager = ConfigManager()  # Also returns singleton instance
+    """
+    _instance: Optional['ConfigManager'] = None
+    _initialized: bool = False
+
+    def __new__(cls, *_args, **_kwargs):
+        """
+        Create or return singleton instance
+        """
+        if cls._instance is None:
+            cls._instance = super(ConfigManager, cls).__new__(cls)
+        return cls._instance
 
     def __init__(self, config_file: Optional[str] = None, auto_save: bool = False):
         """
-        Initialize configuration manager
+        Initialize configuration manager (only once for singleton)
 
         Args:
-            config_file: Path to configuration file (default: IT_RNVR.yaml)
+            config_file: Path to configuration file (default: IT_RNVR.json)
             auto_save: Automatically save config on changes (default: False for safety)
         """
-        self.config_file = Path(config_file) if config_file else Path("IT_RNVR.yaml")
+        # 이미 초기화되었으면 다시 초기화하지 않음
+        if ConfigManager._initialized:
+            return
+
+        self.config_file = Path(config_file) if config_file else Path("IT_RNVR.json")
         self.app_config = AppConfig()
+        self.ui_config = UIConfig()
         self.cameras: List[CameraConfigData] = []
         self.logging_config: Dict[str, Any] = {}  # 로깅 설정 저장
         self.auto_save = auto_save  # 자동 저장 플래그
@@ -61,6 +97,35 @@ class ConfigManager:
 
         # Load configuration
         self.load_config()
+
+        # 초기화 완료 플래그 설정
+        ConfigManager._initialized = True
+        logger.info("ConfigManager singleton instance initialized")
+
+    @classmethod
+    def get_instance(cls, config_file: Optional[str] = None, auto_save: bool = False) -> 'ConfigManager':
+        """
+        Get singleton instance of ConfigManager
+
+        Args:
+            config_file: Path to configuration file (only used on first call)
+            auto_save: Automatically save config on changes (only used on first call)
+
+        Returns:
+            ConfigManager singleton instance
+        """
+        if cls._instance is None:
+            cls._instance = ConfigManager(config_file=config_file, auto_save=auto_save)
+        return cls._instance
+
+    @classmethod
+    def reset_instance(cls):
+        """
+        Reset singleton instance (mainly for testing)
+        """
+        cls._instance = None
+        cls._initialized = False
+        logger.debug("ConfigManager singleton instance reset")
 
     def load_config(self) -> bool:
         """
@@ -106,6 +171,15 @@ class ConfigManager:
                 logger.debug("No 'logging' section found in configuration, using defaults")
                 self.logging_config = {}
 
+            # Load UI configuration
+            if 'ui' in data:
+                ui_data = data['ui']
+                self.ui_config = UIConfig(**ui_data)
+                logger.debug(f"Loaded UI configuration: theme={self.ui_config.theme}")
+            else:
+                logger.debug("No 'ui' section found in configuration, using defaults")
+                self.ui_config = UIConfig()
+
             logger.info(f"Configuration loaded from {self.config_file}")
             logger.info(f"Loaded {len(self.cameras)} camera configurations")
 
@@ -118,9 +192,12 @@ class ConfigManager:
             logger.error(f"Failed to load configuration: {e}")
             return False
 
-    def save_config(self) -> bool:
+    def save_config(self, save_ui: bool = False) -> bool:
         """
         Save configuration to file
+
+        Args:
+            save_ui: Include UI configuration (default: False to preserve YAML comments)
 
         Returns:
             True if saved successfully
@@ -131,6 +208,10 @@ class ConfigManager:
                 'app': asdict(self.app_config),
                 'cameras': [asdict(camera) for camera in self.cameras]
             }
+
+            # UI 설정 포함 여부
+            if save_ui:
+                data['ui'] = asdict(self.ui_config)
 
             # Save to file
             with open(self.config_file, 'w', encoding='utf-8') as f:
@@ -145,7 +226,7 @@ class ConfigManager:
                         indent=2
                     )
                 else:
-                    json.dump(data, f, indent=2)
+                    json.dump(data, f, indent=2, ensure_ascii=False)
 
             logger.info(f"Configuration saved to {self.config_file}")
             return True
@@ -280,6 +361,71 @@ class ConfigManager:
             Logging configuration dictionary
         """
         return self.logging_config
+
+    def save_ui_config(self) -> bool:
+        """
+        Save only UI configuration to JSON file
+        JSON 파일에서 ui 섹션만 부분 업데이트
+
+        Returns:
+            True if saved successfully
+        """
+        try:
+            if not self.config_file.exists():
+                logger.error(f"Config file not found: {self.config_file}")
+                return False
+
+            # 기존 JSON 파일 로드
+            with open(self.config_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+
+            # UI 설정만 업데이트
+            data['ui'] = asdict(self.ui_config)
+
+            # JSON 파일에 저장 (들여쓰기 2칸, 가독성 좋게)
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+
+            logger.debug(f"UI configuration saved to {self.config_file}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to save UI configuration: {e}")
+            return False
+
+    def update_ui_window_state(self, x: int, y: int, width: int, height: int):
+        """
+        Update window state in UI configuration
+
+        Args:
+            x: Window X position
+            y: Window Y position
+            width: Window width
+            height: Window height
+        """
+        self.ui_config.window_state = {
+            "x": x,
+            "y": y,
+            "width": width,
+            "height": height
+        }
+        logger.debug(f"Updated window state: x={x}, y={y}, w={width}, h={height}")
+
+    def update_ui_dock_state(self, camera_visible: bool, recording_visible: bool, playback_visible: bool):
+        """
+        Update dock visibility state in UI configuration
+
+        Args:
+            camera_visible: Camera dock visibility
+            recording_visible: Recording dock visibility
+            playback_visible: Playback dock visibility
+        """
+        self.ui_config.dock_state = {
+            "camera_visible": camera_visible,
+            "recording_visible": recording_visible,
+            "playback_visible": playback_visible
+        }
+        logger.debug(f"Updated dock state: camera={camera_visible}, recording={recording_visible}, playback={playback_visible}")
 
     def export_config(self, file_path: str) -> bool:
         """

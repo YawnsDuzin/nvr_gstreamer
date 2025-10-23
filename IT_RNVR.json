@@ -1,0 +1,127 @@
+{
+  "app": {
+    "app_name": "IT_RNVR",
+    "version": "1.0.0"
+  },
+  "ui": {
+    "theme": "dark",
+    "fullscreen_on_start": false,
+    "show_status_bar": true,
+    "window_state": {
+      "x": 1920,
+      "y": 0,
+      "width": 1920,
+      "height": 1080
+    },
+    "dock_state": {
+      "camera_visible": true,
+      "recording_visible": true,
+      "playback_visible": true
+    }
+  },
+  "streaming": {
+    "default_layout": "1x1",
+    "show_timestamp": true,
+    "show_camera_name": true,
+    "osd_font_size": 12,
+    "osd_font_color": [
+      255,
+      255,
+      255
+    ],
+    "use_hardware_acceleration": true,
+    "decoder_preference": [
+      "v4l2h264dec",
+      "omxh264dec",
+      "avdec_h264"
+    ],
+    "buffer_size": 10485760,
+    "latency_ms": 200,
+    "tcp_timeout": 10000
+  },
+  "camera_settings": {
+    "max_cameras": 16,
+    "default_resolution": "1280x720",
+    "default_fps": 25,
+    "auto_reconnect": true,
+    "max_reconnect_attempts": 5,
+    "reconnect_delay_seconds": 5,
+    "connection_timeout": 10
+  },
+  "cameras": [
+    {
+      "camera_id": "cam_01",
+      "name": "Main Camera",
+      "rtsp_url": "rtsp://admin:trolleycam1~@192.168.0.131:554/Streaming/Channels/102",
+      "enabled": true,
+      "username": null,
+      "password": null,
+      "use_hardware_decode": false,
+      "recording_enabled": true,
+      "motion_detection": false
+    }
+  ],
+  "recording": {
+    "enabled": true,
+    "base_path": "./recordings",
+    "file_format": "mp4",
+    "rotation_minutes": 10,
+    "retention_days": 30,
+    "max_file_size_mb": 1024,
+    "pre_record_seconds": 5,
+    "post_record_seconds": 5,
+    "codec": "h264",
+    "container_format": "mp4",
+    "fragment_duration_ms": 1000
+  },
+  "logging": {
+    "enabled": true,
+    "log_path": "./logs",
+    "console": {
+      "enabled": true,
+      "level": "INFO",
+      "colorize": true,
+      "format": "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>"
+    },
+    "file": {
+      "enabled": true,
+      "level": "DEBUG",
+      "filename": "pynvr_{time:YYYY-MM-DD}.log",
+      "format": "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} | {message}",
+      "rotation": "1 day",
+      "retention": "7 days",
+      "compression": "zip",
+      "max_size_mb": 100,
+      "rotation_count": 10
+    },
+    "error_log": {
+      "enabled": true,
+      "filename": "pynvr_errors_{time:YYYY-MM-DD}.log",
+      "level": "ERROR",
+      "rotation": "10 MB",
+      "retention": "30 days"
+    },
+    "json_log": {
+      "enabled": false,
+      "filename": "pynvr_{time:YYYY-MM-DD}.json",
+      "serialize": true
+    }
+  },
+  "performance": {
+    "max_cpu_percent": 80,
+    "max_memory_mb": 2048,
+    "pipeline_queue_size": 200,
+    "max_dropped_frames": 10,
+    "enable_gpu": true,
+    "gpu_device": "/dev/dri/renderD128"
+  },
+  "security": {
+    "require_authentication": false,
+    "session_timeout_minutes": 60,
+    "max_login_attempts": 3,
+    "password_min_length": 8,
+    "enable_ssl": false,
+    "ssl_cert_path": "",
+    "ssl_key_path": ""
+  }
+}

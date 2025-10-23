@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
     QSplitter, QStatusBar, QMenuBar, QMenu, QAction,
     QMessageBox, QDockWidget, QLabel
 )
-from PyQt5.QtCore import Qt, QTimer, pyqtSlot, QSettings, QDateTime
+from PyQt5.QtCore import Qt, QTimer, pyqtSlot, QDateTime
 from PyQt5.QtGui import QKeySequence, QCloseEvent
 from loguru import logger
 
@@ -35,7 +35,8 @@ class EnhancedMainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.config_manager = ConfigManager()
+        # Get singleton instance
+        self.config_manager = ConfigManager.get_instance()
         self.recording_manager = RecordingManager()
         self.playback_manager = PlaybackManager()
         self.grid_view = None
@@ -43,7 +44,12 @@ class EnhancedMainWindow(QMainWindow):
         self.recording_control = None
         self.playback_widget = None
         self.is_playback_mode = False
-        self.settings = QSettings("PyNVR", "MainWindow")
+
+        # Get app name and version from config
+        self.app_name = self.config_manager.app_config.app_name
+        self.app_version = self.config_manager.app_config.version
+        self.app_display_name = f"{self.app_name}/{self.app_version}"
+
         self.monitor_thread = None
 
         self._setup_ui()
@@ -56,8 +62,12 @@ class EnhancedMainWindow(QMainWindow):
 
     def _setup_ui(self):
         """Setup main UI with splitter layout"""
-        self.setWindowTitle("PyNVR - Network Video Recorder (Single Camera)")
-        self.setGeometry(100, 100, 1200, 700)
+        self.setWindowTitle(f"{self.app_display_name} - Network Video Recorder (Single Camera)")
+
+        # YAML 설정에서 window_state 가져오기
+        ws = self.config_manager.ui_config.window_state
+        self.setGeometry(ws.get('x', 100), ws.get('y', 100),
+                        ws.get('width', 1200), ws.get('height', 700))
 
         # Central widget with splitter
         central_widget = QWidget()
@@ -113,11 +123,22 @@ class EnhancedMainWindow(QMainWindow):
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
 
-        # Apply dark theme
-        self._apply_dark_theme()
+        # Apply theme from config
+        self._apply_theme()
 
         # Set initial layout to 1x1 for single camera
         self.grid_view.set_layout(1, 1)
+
+    def _apply_theme(self):
+        """Apply theme based on UI configuration"""
+        ui_config = self.config_manager.ui_config
+
+        if ui_config.theme == "light":
+            self._apply_light_theme()
+        else:  # default to dark
+            self._apply_dark_theme()
+
+        logger.info(f"Applied theme: {ui_config.theme}")
 
     def _apply_dark_theme(self):
         """Apply modern dark theme to application"""
@@ -264,8 +285,571 @@ class EnhancedMainWindow(QMainWindow):
         QScrollBar::sub-line:horizontal {
             width: 0px;
         }
+
+        /* List Widget (Camera List, Playback List) */
+        QListWidget {
+            background-color: #1a1a1a;
+            color: #ffffff;
+            border: none;
+            outline: none;
+        }
+        QListWidget::item {
+            padding: 8px;
+            border-bottom: 1px solid #2a2a2a;
+        }
+        QListWidget::item:selected {
+            background-color: #3a3a3a;
+        }
+        QListWidget::item:hover {
+            background-color: #2a2a2a;
+        }
+
+        /* Push Button */
+        QPushButton {
+            background-color: #3a3a3a;
+            color: #ffffff;
+            border: 1px solid #4a4a4a;
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+        QPushButton:hover {
+            background-color: #4a4a4a;
+        }
+        QPushButton:pressed {
+            background-color: #2a2a2a;
+        }
+        QPushButton:disabled {
+            background-color: #2a2a2a;
+            color: #666666;
+        }
+
+        /* Labels */
+        QLabel {
+            color: #cccccc;
+        }
+
+        /* Group Box */
+        QGroupBox {
+            background-color: #252526;
+            border: 1px solid #3c3c3c;
+            border-radius: 4px;
+            margin-top: 10px;
+            padding-top: 10px;
+            color: #cccccc;
+            font-weight: bold;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin;
+            subcontrol-position: top left;
+            padding: 0 5px;
+            color: #cccccc;
+        }
+
+        /* Combo Box */
+        QComboBox {
+            background-color: #3a3a3a;
+            color: #ffffff;
+            border: 1px solid #4a4a4a;
+            border-radius: 3px;
+            padding: 5px;
+        }
+        QComboBox:hover {
+            border-color: #007acc;
+        }
+        QComboBox::drop-down {
+            border: none;
+            padding-right: 5px;
+        }
+        QComboBox QAbstractItemView {
+            background-color: #2a2a2a;
+            color: #ffffff;
+            selection-background-color: #094771;
+            selection-color: #ffffff;
+            border: 1px solid #4a4a4a;
+        }
+
+        /* Line Edit */
+        QLineEdit {
+            background-color: #3a3a3a;
+            color: #ffffff;
+            border: 1px solid #4a4a4a;
+            border-radius: 3px;
+            padding: 5px;
+        }
+        QLineEdit:focus {
+            border-color: #007acc;
+        }
+
+        /* Date Edit */
+        QDateEdit {
+            background-color: #3a3a3a;
+            color: #ffffff;
+            border: 1px solid #4a4a4a;
+            border-radius: 3px;
+            padding: 5px;
+        }
+        QDateEdit:hover {
+            border-color: #007acc;
+        }
+        QDateEdit::drop-down {
+            border: none;
+            padding-right: 5px;
+        }
+
+        /* Spin Box */
+        QSpinBox, QDoubleSpinBox {
+            background-color: #3a3a3a;
+            color: #ffffff;
+            border: 1px solid #4a4a4a;
+            border-radius: 3px;
+            padding: 5px;
+        }
+        QSpinBox:hover, QDoubleSpinBox:hover {
+            border-color: #007acc;
+        }
+
+        /* Check Box */
+        QCheckBox {
+            color: #cccccc;
+            spacing: 5px;
+        }
+        QCheckBox::indicator {
+            width: 18px;
+            height: 18px;
+            border: 1px solid #4a4a4a;
+            border-radius: 3px;
+            background-color: #3a3a3a;
+        }
+        QCheckBox::indicator:hover {
+            border-color: #007acc;
+        }
+        QCheckBox::indicator:checked {
+            background-color: #007acc;
+            border-color: #007acc;
+        }
+
+        /* Slider */
+        QSlider::groove:horizontal {
+            height: 6px;
+            background: #3c3c3c;
+            border-radius: 3px;
+        }
+        QSlider::handle:horizontal {
+            background: #007acc;
+            width: 14px;
+            height: 14px;
+            margin: -4px 0;
+            border-radius: 7px;
+        }
+        QSlider::handle:horizontal:hover {
+            background: #1c97ea;
+        }
+
+        /* Table Widget */
+        QTableWidget {
+            background-color: #1e1e1e;
+            alternate-background-color: #252526;
+            color: #cccccc;
+            gridline-color: #3c3c3c;
+            border: 1px solid #3c3c3c;
+        }
+        QTableWidget::item {
+            padding: 4px;
+        }
+        QTableWidget::item:selected {
+            background-color: #094771;
+            color: #ffffff;
+        }
+        QTableWidget::item:hover {
+            background-color: #2d2d30;
+        }
+        QHeaderView::section {
+            background-color: #2d2d30;
+            color: #cccccc;
+            padding: 5px;
+            border: 1px solid #3c3c3c;
+            font-weight: bold;
+        }
+
+        /* Tool Tip */
+        QToolTip {
+            background-color: #2a2a2a;
+            color: #ffffff;
+            border: 1px solid #4a4a4a;
+            padding: 3px;
+        }
+
+        /* Widget (Generic panels) */
+        QWidget {
+            background-color: #252526;
+            color: #cccccc;
+        }
+
+        /* Video Display Widget */
+        QWidget#videoWidget {
+            background-color: #000000;
+            border: 1px solid #3c3c3c;
+        }
         """
         self.setStyleSheet(dark_style)
+
+    def _apply_light_theme(self):
+        """Apply modern light theme to application"""
+        light_style = """
+        /* Main Window */
+        QMainWindow {
+            background-color: #f3f3f3;
+        }
+
+        /* Menu Bar */
+        QMenuBar {
+            background-color: #ffffff;
+            color: #1e1e1e;
+            border-bottom: 1px solid #e0e0e0;
+            padding: 4px;
+        }
+        QMenuBar::item {
+            background-color: transparent;
+            padding: 6px 12px;
+            margin: 2px 0px;
+            border-radius: 4px;
+        }
+        QMenuBar::item:selected {
+            background-color: #e5e5e5;
+            color: #000000;
+        }
+        QMenuBar::item:pressed {
+            background-color: #0078d4;
+            color: #ffffff;
+        }
+
+        /* Menu */
+        QMenu {
+            background-color: #ffffff;
+            color: #1e1e1e;
+            border: 1px solid #cccccc;
+            border-radius: 4px;
+            padding: 4px;
+        }
+        QMenu::item {
+            padding: 8px 24px 8px 12px;
+            margin: 2px 4px;
+            border-radius: 3px;
+        }
+        QMenu::item:selected {
+            background-color: #0078d4;
+            color: #ffffff;
+        }
+        QMenu::separator {
+            height: 1px;
+            background-color: #e0e0e0;
+            margin: 4px 8px;
+        }
+
+        /* Status Bar */
+        QStatusBar {
+            background-color: #0078d4;
+            color: #ffffff;
+            border-top: 1px solid #005a9e;
+            font-size: 12px;
+        }
+        QStatusBar QLabel {
+            color: #ffffff;
+            padding: 0px 8px;
+        }
+
+        /* Dock Widget */
+        QDockWidget {
+            background-color: #ffffff;
+            color: #1e1e1e;
+        }
+        QDockWidget::title {
+            background-color: #f5f5f5;
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+            font-size: 13px;
+            font-weight: 600;
+            color: #1e1e1e;
+        }
+        QDockWidget::close-button,
+        QDockWidget::float-button {
+            background-color: transparent;
+            border: none;
+            padding: 3px;
+            icon-size: 12px;
+        }
+        QDockWidget::close-button:hover,
+        QDockWidget::float-button:hover {
+            background-color: #e0e0e0;
+            border-radius: 3px;
+        }
+
+        /* Splitter */
+        QSplitter::handle {
+            background-color: #e0e0e0;
+        }
+        QSplitter::handle:hover {
+            background-color: #0078d4;
+        }
+        QSplitter::handle:horizontal {
+            width: 2px;
+        }
+        QSplitter::handle:vertical {
+            height: 2px;
+        }
+
+        /* Scroll Bar */
+        QScrollBar:vertical {
+            background-color: #f3f3f3;
+            width: 12px;
+            border: none;
+        }
+        QScrollBar::handle:vertical {
+            background-color: #cdcdcd;
+            min-height: 30px;
+            border-radius: 6px;
+            margin: 2px;
+        }
+        QScrollBar::handle:vertical:hover {
+            background-color: #a6a6a6;
+        }
+        QScrollBar::add-line:vertical,
+        QScrollBar::sub-line:vertical {
+            height: 0px;
+        }
+        QScrollBar:horizontal {
+            background-color: #f3f3f3;
+            height: 12px;
+            border: none;
+        }
+        QScrollBar::handle:horizontal {
+            background-color: #cdcdcd;
+            min-width: 30px;
+            border-radius: 6px;
+            margin: 2px;
+        }
+        QScrollBar::handle:horizontal:hover {
+            background-color: #a6a6a6;
+        }
+        QScrollBar::add-line:horizontal,
+        QScrollBar::sub-line:horizontal {
+            width: 0px;
+        }
+
+        /* List Widget (Camera List, Playback List) */
+        QListWidget {
+            background-color: #ffffff;
+            color: #1e1e1e;
+            border: 1px solid #e0e0e0;
+            outline: none;
+        }
+        QListWidget::item {
+            padding: 8px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        QListWidget::item:selected {
+            background-color: #e5e5e5;
+            color: #000000;
+        }
+        QListWidget::item:hover {
+            background-color: #f5f5f5;
+        }
+
+        /* Push Button */
+        QPushButton {
+            background-color: #ffffff;
+            color: #1e1e1e;
+            border: 1px solid #cccccc;
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+        QPushButton:hover {
+            background-color: #f0f0f0;
+            border-color: #999999;
+        }
+        QPushButton:pressed {
+            background-color: #0078d4;
+            color: #ffffff;
+            border-color: #0078d4;
+        }
+        QPushButton:disabled {
+            background-color: #f3f3f3;
+            color: #a0a0a0;
+            border-color: #e0e0e0;
+        }
+
+        /* Labels */
+        QLabel {
+            color: #1e1e1e;
+        }
+
+        /* Group Box */
+        QGroupBox {
+            background-color: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            margin-top: 10px;
+            padding-top: 10px;
+            color: #1e1e1e;
+            font-weight: bold;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin;
+            subcontrol-position: top left;
+            padding: 0 5px;
+            color: #1e1e1e;
+        }
+
+        /* Combo Box */
+        QComboBox {
+            background-color: #ffffff;
+            color: #1e1e1e;
+            border: 1px solid #cccccc;
+            border-radius: 3px;
+            padding: 5px;
+        }
+        QComboBox:hover {
+            border-color: #999999;
+        }
+        QComboBox::drop-down {
+            border: none;
+            padding-right: 5px;
+        }
+        QComboBox QAbstractItemView {
+            background-color: #ffffff;
+            color: #1e1e1e;
+            selection-background-color: #0078d4;
+            selection-color: #ffffff;
+            border: 1px solid #cccccc;
+        }
+
+        /* Line Edit */
+        QLineEdit {
+            background-color: #ffffff;
+            color: #1e1e1e;
+            border: 1px solid #cccccc;
+            border-radius: 3px;
+            padding: 5px;
+        }
+        QLineEdit:focus {
+            border-color: #0078d4;
+        }
+
+        /* Date Edit */
+        QDateEdit {
+            background-color: #ffffff;
+            color: #1e1e1e;
+            border: 1px solid #cccccc;
+            border-radius: 3px;
+            padding: 5px;
+        }
+        QDateEdit:hover {
+            border-color: #999999;
+        }
+        QDateEdit::drop-down {
+            border: none;
+            padding-right: 5px;
+        }
+
+        /* Spin Box */
+        QSpinBox, QDoubleSpinBox {
+            background-color: #ffffff;
+            color: #1e1e1e;
+            border: 1px solid #cccccc;
+            border-radius: 3px;
+            padding: 5px;
+        }
+        QSpinBox:hover, QDoubleSpinBox:hover {
+            border-color: #999999;
+        }
+
+        /* Check Box */
+        QCheckBox {
+            color: #1e1e1e;
+            spacing: 5px;
+        }
+        QCheckBox::indicator {
+            width: 18px;
+            height: 18px;
+            border: 1px solid #cccccc;
+            border-radius: 3px;
+            background-color: #ffffff;
+        }
+        QCheckBox::indicator:hover {
+            border-color: #999999;
+        }
+        QCheckBox::indicator:checked {
+            background-color: #0078d4;
+            border-color: #0078d4;
+        }
+
+        /* Slider */
+        QSlider::groove:horizontal {
+            height: 6px;
+            background: #e0e0e0;
+            border-radius: 3px;
+        }
+        QSlider::handle:horizontal {
+            background: #0078d4;
+            width: 14px;
+            height: 14px;
+            margin: -4px 0;
+            border-radius: 7px;
+        }
+        QSlider::handle:horizontal:hover {
+            background: #005a9e;
+        }
+
+        /* Table Widget */
+        QTableWidget {
+            background-color: #ffffff;
+            alternate-background-color: #f9f9f9;
+            color: #1e1e1e;
+            gridline-color: #e0e0e0;
+            border: 1px solid #e0e0e0;
+        }
+        QTableWidget::item {
+            padding: 4px;
+        }
+        QTableWidget::item:selected {
+            background-color: #0078d4;
+            color: #ffffff;
+        }
+        QTableWidget::item:hover {
+            background-color: #e8e8e8;
+        }
+        QHeaderView::section {
+            background-color: #f5f5f5;
+            color: #1e1e1e;
+            padding: 5px;
+            border: 1px solid #e0e0e0;
+            font-weight: bold;
+        }
+
+        /* Tool Tip */
+        QToolTip {
+            background-color: #ffffff;
+            color: #1e1e1e;
+            border: 1px solid #cccccc;
+            padding: 3px;
+        }
+
+        /* Widget (Generic panels) */
+        QWidget {
+            background-color: #ffffff;
+            color: #1e1e1e;
+        }
+
+        /* Video Display Widget */
+        QWidget#videoWidget {
+            background-color: #000000;
+            border: 1px solid #cccccc;
+        }
+        """
+        self.setStyleSheet(light_style)
 
     def _setup_menus(self):
         """Setup menu bar"""
@@ -789,14 +1373,10 @@ class EnhancedMainWindow(QMainWindow):
     def _toggle_camera_dock(self, checked: bool):
         """Toggle camera dock visibility"""
         self.camera_dock.setVisible(checked)
-        # 상태 저장
-        self.settings.setValue("dock/camera_visible", checked)
 
     def _toggle_recording_dock(self, checked: bool):
         """Toggle recording dock visibility"""
         self.recording_dock.setVisible(checked)
-        # 상태 저장
-        self.settings.setValue("dock/recording_visible", checked)
 
     def _toggle_playback_dock(self, checked: bool):
         """Toggle playback dock visibility"""
@@ -804,25 +1384,20 @@ class EnhancedMainWindow(QMainWindow):
         if checked:
             # 재생 독이 열릴 때 녹화 파일 스캔
             self.playback_widget.scan_recordings()
-        # 상태 저장
-        self.settings.setValue("dock/playback_visible", checked)
 
     def _on_camera_dock_visibility_changed(self, visible: bool):
         """Camera dock visibility 변경 시 메뉴 액션 동기화"""
         self.camera_dock_action.setChecked(visible)
-        # self.settings.setValue("dock/camera_visible", visible)
         logger.debug(f"Camera dock visibility changed: {visible}")
 
     def _on_recording_dock_visibility_changed(self, visible: bool):
         """Recording dock visibility 변경 시 메뉴 액션 동기화"""
         self.recording_dock_action.setChecked(visible)
-        # self.settings.setValue("dock/recording_visible", visible)
         logger.debug(f"Recording dock visibility changed: {visible}")
 
     def _on_playback_dock_visibility_changed(self, visible: bool):
         """Playback dock visibility 변경 시 메뉴 액션 동기화"""
         self.playback_dock_action.setChecked(visible)
-        # self.settings.setValue("dock/playback_visible", visible)
         logger.debug(f"Playback dock visibility changed: {visible}")
 
     def toggle_fullscreen(self):
@@ -919,25 +1494,21 @@ class EnhancedMainWindow(QMainWindow):
         """Show about dialog"""
         QMessageBox.about(
             self,
-            "About PyNVR",
-            "<b>PyNVR - Network Video Recorder</b><br>"
-            "Version 0.2.0<br><br>"
+            f"About {self.app_name}",
+            f"<b>{self.app_name} - Network Video Recorder</b><br>"
+            f"Version {self.app_version}<br><br>"
             "Single Camera View<br>"
             "Built with GStreamer and PyQt5<br><br>"
             "Optimized for single camera recording"
         )
 
     def _load_dock_state(self):
-        """Load dock state from settings"""
-        # 윈도우 지오메트리 복원
-        geometry = self.settings.value("geometry")
-        if geometry:
-            self.restoreGeometry(geometry)
-
-        # Dock 표시 여부 복원
-        camera_visible = self.settings.value("dock/camera_visible", True, type=bool)
-        recording_visible = self.settings.value("dock/recording_visible", True, type=bool)
-        playback_visible = self.settings.value("dock/playback_visible", False, type=bool)
+        """Load dock state from YAML configuration"""
+        # Dock 표시 여부 복원 (YAML에서 로드)
+        dock_state = self.config_manager.ui_config.dock_state
+        camera_visible = dock_state.get("camera_visible", True)
+        recording_visible = dock_state.get("recording_visible", True)
+        playback_visible = dock_state.get("playback_visible", False)
 
         # Dock 표시 상태 설정
         self.camera_dock.setVisible(camera_visible)
@@ -949,19 +1520,30 @@ class EnhancedMainWindow(QMainWindow):
         self.recording_dock_action.setChecked(recording_visible)
         self.playback_dock_action.setChecked(playback_visible)
 
-        logger.info(f"Dock state loaded - Camera: {camera_visible}, Recording: {recording_visible}, Playback: {playback_visible}")
+        logger.info(f"Dock state loaded from YAML - Camera: {camera_visible}, Recording: {recording_visible}, Playback: {playback_visible}")
 
     def _save_dock_state(self):
-        """Save dock state to settings"""
-        # 윈도우 지오메트리 저장
-        self.settings.setValue("geometry", self.saveGeometry())
+        """Save dock state to YAML configuration"""
+        # 현재 윈도우 위치/크기 저장
+        geometry = self.geometry()
+        self.config_manager.update_ui_window_state(
+            x=geometry.x(),
+            y=geometry.y(),
+            width=geometry.width(),
+            height=geometry.height()
+        )
 
         # 현재 Dock 표시 상태 저장
-        self.settings.setValue("dock/camera_visible", self.camera_dock.isVisible())
-        self.settings.setValue("dock/recording_visible", self.recording_dock.isVisible())
-        self.settings.setValue("dock/playback_visible", self.playback_dock.isVisible())
+        self.config_manager.update_ui_dock_state(
+            camera_visible=self.camera_dock.isVisible(),
+            recording_visible=self.recording_dock.isVisible(),
+            playback_visible=self.playback_dock.isVisible()
+        )
 
-        logger.info(f"Dock state saved - Camera: {self.camera_dock.isVisible()}, Recording: {self.recording_dock.isVisible()}, Playback: {self.playback_dock.isVisible()}")
+        # YAML 파일에 저장
+        self.config_manager.save_ui_config()
+
+        logger.info(f"UI state saved to YAML - Window: {geometry.x()},{geometry.y()} {geometry.width()}x{geometry.height()}, Docks: Camera={self.camera_dock.isVisible()}, Recording={self.recording_dock.isVisible()}, Playback={self.playback_dock.isVisible()}")
 
     def closeEvent(self, event: QCloseEvent):
         """Handle application close event"""

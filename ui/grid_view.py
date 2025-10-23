@@ -159,19 +159,14 @@ class GridViewWidget(QWidget):
         # Create initial single view
         self.set_layout(1, 1)
 
-        # Apply dark theme
-        self.setStyleSheet("background-color: #0a0a0a;")
+        # Use theme from main window - no hardcoded style
 
     def _create_controls_bar(self):
         """Create controls bar"""
         controls = QWidget()
         controls.setFixedHeight(40)
-        controls.setStyleSheet("""
-            QWidget {
-                background-color: #1a1a1a;
-                border-bottom: 1px solid #333333;
-            }
-        """)
+        # Use theme from main window - no hardcoded style
+        controls.setStyleSheet("border-bottom: 1px solid #3c3c3c;")  # Keep only border
 
         layout = QHBoxLayout()
         layout.setContentsMargins(10, 5, 10, 5)
@@ -179,7 +174,7 @@ class GridViewWidget(QWidget):
         # Single camera - no layout buttons needed
         # Just show single view indicator
         single_view_label = QLabel("Single Camera View")
-        single_view_label.setStyleSheet("color: #888888; font-weight: bold;")
+        single_view_label.setStyleSheet("font-weight: bold;")  # Keep only font weight
         layout.addWidget(single_view_label)
 
         layout.addSpacing(20)
@@ -193,47 +188,19 @@ class GridViewWidget(QWidget):
 
         # Info label
         self.info_label = QLabel("Status: Ready")
-        self.info_label.setStyleSheet("color: #888888;")
+        # Use theme from main window - no hardcoded color
         layout.addWidget(self.info_label)
 
         controls.setLayout(layout)
 
-        # Style buttons
-        button_style = """
-            QPushButton {
-                background-color: #2a2a2a;
-                color: #ffffff;
-                border: 1px solid #3a3a3a;
-                padding: 5px 15px;
-                border-radius: 3px;
-            }
-            QPushButton:hover {
-                background-color: #3a3a3a;
-            }
-            QPushButton:pressed {
-                background-color: #1a1a1a;
-            }
-        """
-        for i in range(layout.count()):
-            widget = layout.itemAt(i).widget()
-            if isinstance(widget, QPushButton):
-                widget.setStyleSheet(button_style)
+        # Use theme from main window - no hardcoded button style
 
         return controls
 
     def _setup_context_menu(self):
         """Setup context menu for channels"""
         self.context_menu = QMenu(self)
-        self.context_menu.setStyleSheet("""
-            QMenu {
-                background-color: #2a2a2a;
-                color: #ffffff;
-                border: 1px solid #3a3a3a;
-            }
-            QMenu::item:selected {
-                background-color: #3a3a3a;
-            }
-        """)
+        # Use theme from main window - no hardcoded style
 
         # Add actions
         self.fullscreen_action = QAction("Fullscreen", self)

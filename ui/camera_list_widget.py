@@ -67,7 +67,8 @@ class CameraListWidget(QWidget):
 
     def __init__(self, config_manager: ConfigManager = None, parent=None):
         super().__init__(parent)
-        self.config_manager = config_manager or ConfigManager()
+        # Get singleton instance if not provided
+        self.config_manager = config_manager or ConfigManager.get_instance()
         self.camera_items = {}  # camera_id -> CameraListItem
         self.camera_streams = {}  # camera_id -> CameraStream
         self.main_window = None  # Reference to main window for grid_view access
@@ -102,24 +103,7 @@ class CameraListWidget(QWidget):
 
         # Camera list
         self.list_widget = QListWidget()
-        self.list_widget.setStyleSheet("""
-            QListWidget {
-                background-color: #1a1a1a;
-                color: #ffffff;
-                border: none;
-                outline: none;
-            }
-            QListWidget::item {
-                padding: 8px;
-                border-bottom: 1px solid #2a2a2a;
-            }
-            QListWidget::item:selected {
-                background-color: #3a3a3a;
-            }
-            QListWidget::item:hover {
-                background-color: #2a2a2a;
-            }
-        """)
+        # Use theme from main window - no hardcoded style
         self.list_widget.itemClicked.connect(self._on_item_clicked)
         self.list_widget.itemDoubleClicked.connect(self._on_item_double_clicked)
         self.list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -129,14 +113,8 @@ class CameraListWidget(QWidget):
 
         # Status bar
         self.status_label = QLabel("0 cameras configured")
-        self.status_label.setStyleSheet("""
-            QLabel {
-                background-color: #2a2a2a;
-                color: #888888;
-                padding: 5px;
-                border-top: 1px solid #3a3a3a;
-            }
-        """)
+        # Use theme from main window - no hardcoded style
+        self.status_label.setStyleSheet("padding: 5px;")  # Keep padding only
         layout.addWidget(self.status_label)
 
         self.setLayout(layout)
@@ -145,12 +123,7 @@ class CameraListWidget(QWidget):
     def _create_toolbar(self):
         """Create toolbar with camera actions"""
         toolbar = QWidget()
-        toolbar.setStyleSheet("""
-            QWidget {
-                background-color: #2a2a2a;
-                border-bottom: 1px solid #3a3a3a;
-            }
-        """)
+        # Use theme from main window - no hardcoded style
 
         layout = QHBoxLayout()
         layout.setContentsMargins(5, 5, 5, 5)
@@ -188,43 +161,13 @@ class CameraListWidget(QWidget):
 
         toolbar.setLayout(layout)
 
-        # Style buttons
-        button_style = """
-            QPushButton {
-                background-color: #3a3a3a;
-                color: #ffffff;
-                border: 1px solid #4a4a4a;
-                padding: 5px 10px;
-                border-radius: 3px;
-                font-size: 12px;
-            }
-            QPushButton:hover {
-                background-color: #4a4a4a;
-            }
-            QPushButton:pressed {
-                background-color: #2a2a2a;
-            }
-        """
-        for i in range(layout.count()):
-            widget = layout.itemAt(i).widget()
-            if isinstance(widget, QPushButton):
-                widget.setStyleSheet(button_style)
-
+        # Use theme from main window - no hardcoded button styles
         return toolbar
 
     def _setup_context_menu(self):
         """Setup context menu for camera items"""
         self.context_menu = QMenu(self)
-        self.context_menu.setStyleSheet("""
-            QMenu {
-                background-color: #2a2a2a;
-                color: #ffffff;
-                border: 1px solid #3a3a3a;
-            }
-            QMenu::item:selected {
-                background-color: #3a3a3a;
-            }
-        """)
+        # Use theme from main window - no hardcoded style
 
         # Connect/Disconnect
         self.connect_action = QAction("Connect", self)

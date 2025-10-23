@@ -43,7 +43,8 @@ class PlaybackControlWidget(QWidget):
         # 비디오 디스플레이 영역 (placeholder)
         self.video_widget = QWidget()
         self.video_widget.setMinimumHeight(300)
-        self.video_widget.setStyleSheet("background-color: black;")
+        self.video_widget.setObjectName("videoWidget")  # Set object name for styling
+        # Background color will be set by main window theme
         layout.addWidget(self.video_widget)
 
         # 시크바
@@ -376,144 +377,7 @@ class PlaybackWidget(QWidget):
         """UI 초기화"""
         layout = QHBoxLayout(self)
 
-        # 위젯 전체 스타일 설정
-        self.setStyleSheet("""
-            QWidget {
-                background-color: #252526;
-                color: #cccccc;
-            }
-            QGroupBox {
-                background-color: #1e1e1e;
-                border: 1px solid #3c3c3c;
-                border-radius: 4px;
-                margin-top: 12px;
-                padding-top: 10px;
-                font-weight: 600;
-                color: #cccccc;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top left;
-                padding: 4px 8px;
-                background-color: #2d2d30;
-                border: 1px solid #3c3c3c;
-                border-radius: 3px;
-                color: #cccccc;
-            }
-            QLabel {
-                color: #cccccc;
-                background-color: transparent;
-            }
-            QComboBox {
-                background-color: #3c3c3c;
-                color: #cccccc;
-                border: 1px solid #454545;
-                border-radius: 3px;
-                padding: 4px 8px;
-            }
-            QComboBox:hover {
-                background-color: #4e4e4e;
-                border: 1px solid #007acc;
-            }
-            QComboBox QAbstractItemView {
-                background-color: #252526;
-                color: #cccccc;
-                border: 1px solid #454545;
-                selection-background-color: #094771;
-                selection-color: #ffffff;
-            }
-            QDateEdit {
-                background-color: #3c3c3c;
-                color: #cccccc;
-                border: 1px solid #454545;
-                border-radius: 3px;
-                padding: 4px 8px;
-            }
-            QDateEdit:hover {
-                background-color: #4e4e4e;
-                border: 1px solid #007acc;
-            }
-            QDateEdit::drop-down {
-                border: none;
-                width: 20px;
-            }
-            QTableWidget {
-                background-color: #1e1e1e;
-                alternate-background-color: #252526;
-                color: #cccccc;
-                border: 1px solid #3c3c3c;
-                gridline-color: #3c3c3c;
-                selection-background-color: #094771;
-                selection-color: #ffffff;
-            }
-            QTableWidget::item {
-                padding: 4px;
-                border: none;
-            }
-            QTableWidget::item:hover {
-                background-color: #2d2d30;
-            }
-            QHeaderView::section {
-                background-color: #2d2d30;
-                color: #cccccc;
-                padding: 6px;
-                border: none;
-                border-right: 1px solid #3c3c3c;
-                border-bottom: 1px solid #3c3c3c;
-                font-weight: 600;
-            }
-            QHeaderView::section:hover {
-                background-color: #37373d;
-            }
-            QPushButton {
-                background-color: #3c3c3c;
-                color: #cccccc;
-                border: 1px solid #454545;
-                border-radius: 3px;
-                padding: 6px 12px;
-                font-weight: 500;
-            }
-            QPushButton:hover {
-                background-color: #4e4e4e;
-                border: 1px solid #007acc;
-            }
-            QPushButton:pressed {
-                background-color: #007acc;
-                color: #ffffff;
-            }
-            QSlider::groove:horizontal {
-                background-color: #3c3c3c;
-                height: 6px;
-                border-radius: 3px;
-            }
-            QSlider::handle:horizontal {
-                background-color: #007acc;
-                width: 14px;
-                height: 14px;
-                margin: -4px 0;
-                border-radius: 7px;
-            }
-            QSlider::handle:horizontal:hover {
-                background-color: #0098ff;
-            }
-            QToolBar {
-                background-color: #2d2d30;
-                border: 1px solid #3c3c3c;
-                border-radius: 3px;
-                padding: 4px;
-                spacing: 4px;
-            }
-            QToolBar QToolButton {
-                background-color: transparent;
-                color: #cccccc;
-                border: none;
-                border-radius: 3px;
-                padding: 4px 8px;
-            }
-            QToolBar QToolButton:hover {
-                background-color: #3c3c3c;
-            }
-        """)
+        # Use theme from main window - no hardcoded style
 
         # 스플리터
         splitter = QSplitter(Qt.Horizontal)
