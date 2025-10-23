@@ -380,6 +380,25 @@ class ConfigManager:
         """
         return self.streaming_config
 
+    def get_default_layout(self) -> tuple:
+        """
+        Get default grid layout from streaming configuration
+
+        Returns:
+            Tuple of (rows, cols) for grid layout. Defaults to (1, 1)
+        """
+        layout_str = self.streaming_config.get("default_layout", "1x1")
+        try:
+            rows, cols = map(int, layout_str.split('x'))
+            # Validate layout (max 4x4)
+            if rows < 1 or rows > 4 or cols < 1 or cols > 4:
+                logger.warning(f"Invalid layout '{layout_str}', using default 1x1")
+                return (1, 1)
+            return (rows, cols)
+        except (ValueError, AttributeError) as e:
+            logger.warning(f"Failed to parse layout '{layout_str}': {e}, using default 1x1")
+            return (1, 1)
+
     def save_ui_config(self) -> bool:
         """
         Save only UI configuration to JSON file

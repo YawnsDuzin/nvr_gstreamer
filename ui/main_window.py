@@ -141,8 +141,10 @@ class MainWindow(QMainWindow):
         # Apply theme from config
         self._apply_theme()
 
-        # Set initial layout to 1x1 for single camera
-        self.grid_view.set_layout(1, 1)
+        # Load default layout from streaming config
+        rows, cols = self.config_manager.get_default_layout()
+        self.grid_view.set_layout(rows, cols)
+        logger.info(f"Set initial grid layout to {rows}x{cols} from config")
 
     def _apply_theme(self):
         """Apply theme based on UI configuration"""

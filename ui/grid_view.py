@@ -116,10 +116,13 @@ class ChannelWidget(StreamVideoWidget):
 
 
 class GridViewWidget(QWidget):
-    """Grid view widget for single camera"""
+    """Grid view widget for multiple cameras with flexible layouts"""
 
-    # Layout modes - only single view
+    # Layout modes - support multi-camera grids
     LAYOUT_1X1 = (1, 1)
+    LAYOUT_2X2 = (2, 2)
+    LAYOUT_3X3 = (3, 3)
+    LAYOUT_4X4 = (4, 4)
 
     # Signals
     channel_double_clicked = pyqtSignal(int)
@@ -171,11 +174,21 @@ class GridViewWidget(QWidget):
         layout = QHBoxLayout()
         layout.setContentsMargins(10, 5, 10, 5)
 
-        # Single camera - no layout buttons needed
-        # Just show single view indicator
-        single_view_label = QLabel("Single Camera View")
-        single_view_label.setStyleSheet("font-weight: bold;")  # Keep only font weight
-        layout.addWidget(single_view_label)
+        # Layout selector label
+        layout_label = QLabel("Layout:")
+        layout_label.setStyleSheet("font-weight: bold;")
+        layout.addWidget(layout_label)
+
+        # Layout buttons
+        self.layout_buttons = {}
+        for layout_name, layout_size in [("1x1", (1, 1)), ("2x2", (2, 2)),
+                                          ("3x3", (3, 3)), ("4x4", (4, 4))]:
+            btn = QPushButton(layout_name)
+            btn.setFixedSize(50, 28)
+            btn.setCheckable(True)
+            btn.clicked.connect(lambda checked, size=layout_size: self.set_layout(*size))
+            layout.addWidget(btn)
+            self.layout_buttons[layout_size] = btn
 
         layout.addSpacing(20)
 
@@ -267,9 +280,14 @@ class GridViewWidget(QWidget):
             channel.deleteLater()
         self.channels.clear()
 
-        # Update layout (always 1x1 for single camera)
+        # Update layout
         self.current_layout = (rows, cols)
-        self.info_label.setText("Status: Ready")
+        self.info_label.setText(f"Grid: {rows}x{cols}")
+
+        # Update layout button states
+        if hasattr(self, 'layout_buttons'):
+            for layout_size, btn in self.layout_buttons.items():
+                btn.setChecked(layout_size == (rows, cols))
 
         # Create new channels
         channel_index = 0
