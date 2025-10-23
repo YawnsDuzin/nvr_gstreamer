@@ -339,11 +339,16 @@ class PipelineManager:
 
     def start(self) -> bool:
         """
-        Start the pipeline
+        Start the pipeline (automatically detects unified or regular pipeline)
 
         Returns:
             True if started successfully
         """
+        # UnifiedPipeline 사용 중이면 start_unified() 호출
+        if self.use_unified_pipeline and self.unified_pipeline:
+            return self.start_unified()
+
+        # 일반 파이프라인 시작
         if not self.pipeline:
             logger.error("Pipeline not created. Call create_pipeline first.")
             return False
@@ -371,7 +376,13 @@ class PipelineManager:
             return False
 
     def stop(self):
-        """Stop the pipeline"""
+        """Stop the pipeline (automatically detects unified or regular pipeline)"""
+        # UnifiedPipeline 사용 중이면 stop_unified() 호출
+        if self.use_unified_pipeline and self.unified_pipeline:
+            self.stop_unified()
+            return
+
+        # 일반 파이프라인 정지
         if self.pipeline and self._is_playing:
             logger.info("Stopping pipeline...")
 
@@ -461,7 +472,12 @@ class PipelineManager:
         return state.value_nick
 
     def is_playing(self) -> bool:
-        """Check if pipeline is playing"""
+        """Check if pipeline is playing (automatically detects unified or regular pipeline)"""
+        # UnifiedPipeline 사용 중이면 unified pipeline 상태 확인
+        if self.use_unified_pipeline and self.unified_pipeline:
+            return self.unified_pipeline._is_playing
+
+        # 일반 파이프라인 상태
         return self._is_playing
 
     def create_unified_pipeline(self, mode: PipelineMode = PipelineMode.BOTH) -> bool:
