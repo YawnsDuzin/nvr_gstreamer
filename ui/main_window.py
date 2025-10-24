@@ -1307,15 +1307,22 @@ class MainWindow(QMainWindow):
         camera_config = self.config_manager.get_camera(camera_id)
         if camera_config and camera_config.recording_enabled:
             logger.info(f"recording_enabled=true for {camera_id}, starting recording automatically")
-            
+
             # Start recording
             if stream.pipeline_manager and stream.pipeline_manager.start_recording():
                 logger.success(f"✓ Auto-recording started for {camera_config.name}")
+
                 # Update channel recording status
                 for channel in self.grid_view.channels:
                     if channel.camera_id == camera_id:
                         channel.set_recording(True)
                         break
+
+                # Update recording control widget UI
+                if camera_id in self.recording_control.camera_items:
+                    self.recording_control.camera_items[camera_id].set_recording(True)
+                    logger.debug(f"Updated recording control widget for {camera_id}")
+
                 # Emit signal for recording control widget
                 self.recording_control.recording_started.emit(camera_id)
             else:
@@ -1360,20 +1367,32 @@ class MainWindow(QMainWindow):
     def _on_recording_started(self, camera_id: str):
         """Handle recording started"""
         logger.info(f"Recording started for camera: {camera_id}")
+
         # Update channel indicator
         for channel in self.grid_view.channels:
             if channel.camera_id == camera_id:
                 channel.set_recording(True)
                 break
 
+        # Update recording control widget UI
+        if camera_id in self.recording_control.camera_items:
+            self.recording_control.camera_items[camera_id].set_recording(True)
+            logger.debug(f"Updated recording control widget for {camera_id} (started)")
+
     def _on_recording_stopped(self, camera_id: str):
         """Handle recording stopped"""
         logger.info(f"Recording stopped for camera: {camera_id}")
+
         # Update channel indicator
         for channel in self.grid_view.channels:
             if channel.camera_id == camera_id:
                 channel.set_recording(False)
                 break
+
+        # Update recording control widget UI
+        if camera_id in self.recording_control.camera_items:
+            self.recording_control.camera_items[camera_id].set_recording(False)
+            logger.debug(f"Updated recording control widget for {camera_id} (stopped)")
 
     def _add_camera(self):
         """Show add camera dialog"""

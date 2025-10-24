@@ -339,7 +339,10 @@ class RecordingControlWidget(QWidget):
         # 녹화 상태 업데이트
         for camera_id, item in self.camera_items.items():
             is_recording = self.is_recording(camera_id)
-            item.set_recording(is_recording)
+            # 상태가 변경되었을 때만 업데이트
+            if item.is_recording != is_recording:
+                item.set_recording(is_recording)
+                logger.debug(f"Recording status updated for {camera_id}: {is_recording}")
 
         # 디스크 사용량 업데이트 (기본값 표시)
         from pathlib import Path
