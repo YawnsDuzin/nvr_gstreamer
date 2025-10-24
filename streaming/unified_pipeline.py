@@ -64,6 +64,7 @@ class UnifiedPipeline:
         self._is_recording = False
         self._main_loop = None
         self._thread = None
+        self._rotation_timer = None  # 파일 회전 타이머 추적
 
         # 녹화 설정
         self.recording_dir = Path("recordings") / camera_id
@@ -122,6 +123,8 @@ class UnifiedPipeline:
             # Tee 엘리먼트 - 스트림 분기점
             self.tee = Gst.ElementFactory.make("tee", "tee")
             self.tee.set_property("allow-not-linked", True)
+            # 데이터 흐름 개선을 위한 설정
+            self.tee.set_property("pull-mode", 1)  # GST_TEE_PULL_MODE_SINGLE
 
             # 엘리먼트를 파이프라인에 추가
             self.pipeline.add(rtspsrc)
@@ -178,15 +181,13 @@ class UnifiedPipeline:
             config = ConfigManager.get_instance()
             streaming_config = config.get_streaming_config()
 
-            # 스트리밍 큐
+            # 스트리밍 큐 - 낮은 지연시간을 위한 설정
             stream_queue = Gst.ElementFactory.make("queue", "stream_queue")
-            stream_queue.set_property("max-size-buffers", 100)
-            stream_queue.set_property("max-size-time", 0)
-
-            # buffer_size 설정 (기본값: 10MB = 10485760 bytes)
-            buffer_size = streaming_config.get("buffer_size", 10485760)
-            stream_queue.set_property("max-size-bytes", buffer_size)
-            logger.debug(f"Stream queue buffer size set to {buffer_size} bytes ({buffer_size / 1024 / 1024:.1f}MB)")
+            stream_queue.set_property("max-size-buffers", 5)  # 버퍼 개수 감소
+            stream_queue.set_property("max-size-time", 1 * Gst.SECOND)  # 1초 버퍼
+            stream_queue.set_property("max-size-bytes", 0)  # 바이트 제한 없음
+            stream_queue.set_property("leaky", 2)  # downstream leaky
+            logger.debug("Stream queue configured for low latency")
 
             # Valve 엘리먼트 - 스트리밍 on/off 제어
             self.streaming_valve = Gst.ElementFactory.make("valve", "streaming_valve")
@@ -291,23 +292,33 @@ class UnifiedPipeline:
             caps = Gst.Caps.from_string("video/x-raw,width=1280,height=720")
             caps_filter.set_property("caps", caps)
 
-            # 최종 큐
+            # 최종 큐 - 비디오 싱크 전 버퍼링
             final_queue = Gst.ElementFactory.make("queue", "final_queue")
-            final_queue.set_property("max-size-buffers", 3)
+            final_queue.set_property("max-size-buffers", 2)  # 최소 버퍼
+            final_queue.set_property("max-size-time", 0)
+            final_queue.set_property("max-size-bytes", 0)
             final_queue.set_property("leaky", 2)  # downstream leaky
 
             # 비디오 싱크 (플랫폼별 자동 선택 - 공통 유틸리티 사용)
             video_sink_name = get_video_sink()
             self.video_sink = create_video_sink_with_properties(
                 video_sink_name,
-                sync=False,
-                force_aspect_ratio=True
+                sync=False,  # 비동기 렌더링
+                force_aspect_ratio=True,
+                max_lateness=20 * Gst.MSECOND,  # 20ms 최대 지연
+                qos=True  # QoS 활성화
             )
 
             if not self.video_sink:
                 logger.error(f"Failed to create video sink: {video_sink_name}")
                 # 폴백으로 기본 비디오 싱크 생성
-                self.video_sink = Gst.ElementFactory.make("fakesink", "videosink")
+                self.video_sink = Gst.ElementFactory.make("autovideosink", "videosink")
+                if self.video_sink:
+                    self.video_sink.set_property("sync", False)
+                else:
+                    self.video_sink = Gst.ElementFactory.make("fakesink", "videosink")
+                    self.video_sink.set_property("sync", False)
+                    self.video_sink.set_property("silent", True)
 
             # 엘리먼트를 파이프라인에 추가
             self.pipeline.add(stream_queue)
@@ -357,23 +368,42 @@ class UnifiedPipeline:
             # 녹화 디렉토리 생성
             self.recording_dir.mkdir(parents=True, exist_ok=True)
 
-            # 녹화 큐
+            # 녹화 큐 - 안정성을 위한 설정
             record_queue = Gst.ElementFactory.make("queue", "record_queue")
-            record_queue.set_property("max-size-buffers", 200)
-            record_queue.set_property("max-size-time", 0)
-            record_queue.set_property("max-size-bytes", 0)
+            record_queue.set_property("max-size-buffers", 0)  # 버퍼 개수 제한 없음
+            record_queue.set_property("max-size-time", 5 * Gst.SECOND)  # 5초 버퍼
+            record_queue.set_property("max-size-bytes", 50 * 1024 * 1024)  # 50MB 버퍼
+            record_queue.set_property("leaky", 0)  # no leaky (녹화 데이터 보존)
 
             # Valve 엘리먼트 - 녹화 on/off 제어
             self.recording_valve = Gst.ElementFactory.make("valve", "recording_valve")
             self.recording_valve.set_property("drop", True)  # 초기에는 녹화 중지
 
-            # Muxer (MP4)
+            # Muxer (MP4) - 녹화 최적화 설정
             muxer = Gst.ElementFactory.make("mp4mux", "muxer")
-            muxer.set_property("fragment-duration", 1000)  # 1초 단위 프래그먼트
+            
+            # 설정에서 fragment_duration_ms 로드 (기본값: 1000ms)
+            config = ConfigManager.get_instance()
+            try:
+                with open(config.config_file, 'r', encoding='utf-8') as f:
+                    import json
+                    full_config = json.load(f)
+                    recording_config = full_config.get('recording', {})
+                    fragment_duration = recording_config.get('fragment_duration_ms', 1000)
+            except Exception:
+                fragment_duration = 1000
+                
+            muxer.set_property("fragment-duration", fragment_duration)
             muxer.set_property("streamable", True)
+            muxer.set_property("faststart", True)  # 빠른 시작
+            muxer.set_property("movie-timescale", 90000)  # 타임스케일 설정
 
             # 파일 싱크
             self.file_sink = Gst.ElementFactory.make("filesink", "filesink")
+            
+            # 기본 파일명 설정 (녹화 시작 시 실제 파일명으로 변경됨)
+            temp_file = self.recording_dir / f"{self.camera_id}_temp.mp4"
+            self.file_sink.set_property("location", str(temp_file))
 
             # 엘리먼트를 파이프라인에 추가
             self.pipeline.add(record_queue)
@@ -448,8 +478,8 @@ class UnifiedPipeline:
             self.stop()
         elif t == Gst.MessageType.EOS:
             logger.info("End of stream")
-            if self._is_recording:
-                self._rotate_recording_file()
+            # EOS는 녹화 중지나 파일 회전에서 발생할 수 있음
+            # 녹화 중지 시에는 회전하지 않음
         elif t == Gst.MessageType.STATE_CHANGED:
             if message.src == self.pipeline:
                 old_state, new_state, pending_state = message.parse_state_changed()
@@ -597,8 +627,15 @@ class UnifiedPipeline:
 
             self.current_recording_file = str(date_dir / f"{self.camera_id}_{timestamp}.mp4")
 
+            # file_sink를 NULL 상태로 변경하여 파일명 안전하게 변경
+            self.file_sink.set_state(Gst.State.NULL)
+            self.file_sink.get_state(Gst.CLOCK_TIME_NONE)
+            
             # 파일 싱크 설정
             self.file_sink.set_property("location", self.current_recording_file)
+            
+            # file_sink를 다시 PLAYING 상태로 변경
+            self.file_sink.set_state(Gst.State.PLAYING)
 
             # Valve 열기 (녹화 시작)
             self.recording_valve.set_property("drop", False)
@@ -606,7 +643,8 @@ class UnifiedPipeline:
             self._is_recording = True
             self.recording_start_time = time.time()
 
-            # 파일 회전 타이머 시작
+            # 파일 회전 타이머 시작 (기존 타이머가 있으면 정지)
+            self._stop_rotation_timer()
             self._schedule_file_rotation()
 
             logger.success(f"Recording started: {self.current_recording_file}")
@@ -623,17 +661,22 @@ class UnifiedPipeline:
             return False
 
         try:
+            # 먼저 녹화 상태를 false로 설정 (타이머 중지를 위해)
+            self._is_recording = False
+            self.recording_start_time = None
+            
+            # 파일 회전 타이머 정지
+            self._stop_rotation_timer()
+            
             # Valve 닫기 (녹화 중지)
             if self.recording_valve:
                 self.recording_valve.set_property("drop", True)
 
-            # EOS 이벤트 전송
+            # EOS 이벤트 전송하여 파일 완료
             if self.file_sink:
                 pad = self.file_sink.get_static_pad("sink")
                 if pad:
                     pad.send_event(Gst.Event.new_eos())
-
-            self._is_recording = False
 
             logger.info(f"Recording stopped: {self.current_recording_file}")
             return True
@@ -649,14 +692,27 @@ class UnifiedPipeline:
 
         logger.info(f"Rotating recording file for {self.camera_name}")
 
-        # 현재 녹화 정지
-        self.stop_recording()
-
-        # 짧은 대기
-        time.sleep(0.5)
-
-        # 새 파일로 녹화 시작
-        self.start_recording()
+        try:
+            # 새 파일명 생성
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            date_dir = self.recording_dir / datetime.now().strftime("%Y%m%d")
+            date_dir.mkdir(exist_ok=True)
+            
+            old_file = self.current_recording_file
+            self.current_recording_file = str(date_dir / f"{self.camera_id}_{timestamp}.mp4")
+            
+            # 파일 싱크 위치 변경 (GStreamer가 자동으로 새 파일 생성)
+            self.file_sink.set_property("location", self.current_recording_file)
+            
+            # 녹화 시작 시간 업데이트
+            self.recording_start_time = time.time()
+            
+            logger.info(f"Rotated from {old_file} to {self.current_recording_file}")
+            
+        except Exception as e:
+            logger.error(f"Failed to rotate recording file: {e}")
+            # 회전 실패 시 녹화 중지
+            self.stop_recording()
 
     def _schedule_file_rotation(self):
         """파일 회전 스케줄링"""
@@ -665,18 +721,24 @@ class UnifiedPipeline:
                 elapsed = time.time() - self.recording_start_time
                 if elapsed >= self.file_duration:
                     self._rotate_recording_file()
-                    self.recording_start_time = time.time()
 
-                # 다음 체크 스케줄
+                # 다음 체크 스케줄 (녹화 중일 때만)
                 if self._is_recording:
-                    timer = threading.Timer(10.0, check_rotation)
-                    timer.daemon = True
-                    timer.start()
+                    self._rotation_timer = threading.Timer(10.0, check_rotation)
+                    self._rotation_timer.daemon = True
+                    self._rotation_timer.start()
 
         # 첫 체크 스케줄
-        timer = threading.Timer(10.0, check_rotation)
-        timer.daemon = True
-        timer.start()
+        self._rotation_timer = threading.Timer(10.0, check_rotation)
+        self._rotation_timer.daemon = True
+        self._rotation_timer.start()
+        
+    def _stop_rotation_timer(self):
+        """파일 회전 타이머 정지"""
+        if self._rotation_timer:
+            self._rotation_timer.cancel()
+            self._rotation_timer = None
+            logger.debug("File rotation timer stopped")
 
     def _run_main_loop(self):
         """메인 루프 실행"""

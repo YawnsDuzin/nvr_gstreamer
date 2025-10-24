@@ -11,7 +11,7 @@
       "x": 1920,
       "y": 0,
       "width": 1931,
-      "height": 1092
+      "height": 1061
     },
     "dock_state": {
       "camera_visible": true,
@@ -55,9 +55,7 @@
       "enabled": true,
       "username": null,
       "password": null,
-      "use_hardware_decode": false,
-      "recording_enabled": true,
-      "motion_detection": false
+      "recording_enabled": true
     }
   ],
   "recording": {

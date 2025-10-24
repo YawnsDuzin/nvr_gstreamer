@@ -1305,24 +1305,21 @@ class MainWindow(QMainWindow):
 
         # Auto-start recording if enabled in camera config
         camera_config = self.config_manager.get_camera(camera_id)
-        logger.debug(f"Camera config for {camera_id}: {camera_config}")
-        if camera_config:
-            logger.debug(f"recording_enabled value: {camera_config.recording_enabled}")
-
         if camera_config and camera_config.recording_enabled:
-            if stream.pipeline_manager:
-                logger.info(f"Auto-starting recording for camera {camera_id} (recording_enabled=true)")
-                if stream.pipeline_manager.start_recording():
-                    logger.success(f"✓ Auto-recording started for {camera_config.name}")
-                    # Update channel recording status
-                    for channel in self.grid_view.channels:
-                        if channel.camera_id == camera_id:
-                            channel.is_recording = True
-                            break
-                else:
-                    logger.error(f"✗ Failed to auto-start recording for {camera_config.name}")
+            logger.info(f"recording_enabled=true for {camera_id}, starting recording automatically")
+            
+            # Start recording
+            if stream.pipeline_manager and stream.pipeline_manager.start_recording():
+                logger.success(f"✓ Auto-recording started for {camera_config.name}")
+                # Update channel recording status
+                for channel in self.grid_view.channels:
+                    if channel.camera_id == camera_id:
+                        channel.set_recording(True)
+                        break
+                # Emit signal for recording control widget
+                self.recording_control.recording_started.emit(camera_id)
             else:
-                logger.warning(f"No pipeline manager for {camera_id}, cannot start recording")
+                logger.error(f"✗ Failed to auto-start recording for {camera_config.name}")
 
     def _on_camera_disconnected(self, camera_id: str):
         """Handle camera disconnected"""

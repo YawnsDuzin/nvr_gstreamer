@@ -74,13 +74,14 @@ class CameraStream:
         else:
             self.rtsp_url = self.config.rtsp_url
 
-    def connect(self, frame_callback=None, window_handle=None) -> bool:
+    def connect(self, frame_callback=None, window_handle=None, enable_recording=False) -> bool:
         """
         Connect to camera stream
 
         Args:
             frame_callback: Callback for frame processing
             window_handle: Window handle for video rendering
+            enable_recording: Enable recording support
 
         Returns:
             True if connected successfully
@@ -109,10 +110,11 @@ class CameraStream:
                 camera_name=self.config.name
             )
 
-            # Create unified pipeline (스트리밍 전용 모드)
+            # Create unified pipeline (녹화 지원 여부에 따라 모드 결정)
             from .unified_pipeline import PipelineMode
+            mode = PipelineMode.BOTH if enable_recording else PipelineMode.STREAMING_ONLY
             success = self.pipeline_manager.create_unified_pipeline(
-                mode=PipelineMode.STREAMING_ONLY
+                mode=mode
             )
 
             if not success:
@@ -146,12 +148,13 @@ class CameraStream:
         self.status = StreamStatus.DISCONNECTED
         logger.info(f"Camera disconnected: {self.config.name}")
 
-    def reconnect(self, frame_callback=None) -> bool:
+    def reconnect(self, frame_callback=None, enable_recording=False) -> bool:
         """
         Attempt to reconnect to camera
 
         Args:
             frame_callback: Callback for frame processing
+            enable_recording: Enable recording support
 
         Returns:
             True if reconnected successfully
@@ -166,7 +169,7 @@ class CameraStream:
         time.sleep(self.config.reconnect_delay)
 
         # Try to connect
-        return self.connect(frame_callback)
+        return self.connect(frame_callback, enable_recording=enable_recording)
 
     def _handle_connection_error(self):
         """Handle connection errors with reconnection logic"""

@@ -63,6 +63,7 @@ class RecordingPipeline:
         self.start_time = None
         self._thread = None
         self._main_loop = None
+        self._rotation_timer = None  # 파일 회전 타이머 추적
 
         # 녹화 디렉토리 생성
         self._create_recording_dir()
@@ -177,7 +178,8 @@ class RecordingPipeline:
 
             logger.success(f"Recording started: {self.current_filename}")
 
-            # 파일 분할 타이머 시작
+            # 파일 분할 타이머 시작 (기존 타이머가 있으면 정지)
+            self._stop_rotation_timer()
             self._schedule_file_rotation()
 
             return True
@@ -194,6 +196,12 @@ class RecordingPipeline:
 
         logger.info(f"Stopping recording: {self.config.camera_name}")
 
+        # 먼저 상태를 STOPPED로 변경 (타이머 중지를 위해)
+        self.status = RecordingStatus.STOPPED
+        
+        # 파일 회전 타이머 정지
+        self._stop_rotation_timer()
+
         if self.pipeline:
             # EOS 신호 보내기
             self.pipeline.send_event(Gst.Event.new_eos())
@@ -201,8 +209,6 @@ class RecordingPipeline:
             time.sleep(0.5)
             # 파이프라인 정지
             self.pipeline.set_state(Gst.State.NULL)
-
-        self.status = RecordingStatus.STOPPED
 
         # 메인 루프 정지
         if self._main_loop:
@@ -283,16 +289,23 @@ class RecordingPipeline:
                         self.pipeline.send_event(Gst.Event.new_eos())
                     self.start_time = time.time()
 
-                # 다음 체크 스케줄
+                # 다음 체크 스케줄 (녹화 중일 때만)
                 if self.status == RecordingStatus.RECORDING:
-                    timer = threading.Timer(10.0, rotate_file)  # 10초마다 체크
-                    timer.daemon = True
-                    timer.start()
+                    self._rotation_timer = threading.Timer(10.0, rotate_file)  # 10초마다 체크
+                    self._rotation_timer.daemon = True
+                    self._rotation_timer.start()
 
         # 첫 체크 스케줄
-        timer = threading.Timer(10.0, rotate_file)
-        timer.daemon = True
-        timer.start()
+        self._rotation_timer = threading.Timer(10.0, rotate_file)
+        self._rotation_timer.daemon = True
+        self._rotation_timer.start()
+        
+    def _stop_rotation_timer(self):
+        """파일 회전 타이머 정지"""
+        if self._rotation_timer:
+            self._rotation_timer.cancel()
+            self._rotation_timer = None
+            logger.debug(f"File rotation timer stopped for {self.config.camera_name}")
 
     def get_recording_info(self) -> Dict:
         """녹화 정보 반환"""

@@ -181,7 +181,7 @@ class RecordingControlWidget(QWidget):
         self.camera_list.addItem(item)
         self.camera_items[camera_id] = item
 
-        logger.debug(f"Added camera to recording control: {camera_name}")
+        logger.debug(f"Added camera to recording control: {camera_name} ({camera_id})")
 
     def remove_camera(self, camera_id: str):
         """카메라 제거"""
@@ -200,6 +200,8 @@ class RecordingControlWidget(QWidget):
         # 딕셔너리에서 제거
         del self.camera_items[camera_id]
         del self.cameras[camera_id]
+        
+        logger.debug(f"Removed camera from recording control: {camera_id}")
 
     def _get_duration_seconds(self) -> int:
         """선택된 녹화 시간 반환 (초)"""
@@ -225,21 +227,10 @@ class RecordingControlWidget(QWidget):
         camera_id = camera_item.camera_id
 
         if camera_id in self.cameras:
-            camera_name, rtsp_url = self.cameras[camera_id]
-
-            # 녹화 시작
-            file_format = self.format_combo.currentText()
-            duration = self._get_duration_seconds()
-
-            if self.recording_manager.start_recording(
-                camera_id, camera_name, rtsp_url,
-                file_format=file_format,
-                file_duration=duration
-            ):
-                camera_item.set_recording(True)
-                self.recording_started.emit(camera_id)
-                logger.info(f"Started recording: {camera_name}")
+            if self.start_recording(camera_id):
+                pass  # 성공 처리는 start_recording에서 함
             else:
+                camera_name = self.cameras[camera_id][0]
                 QMessageBox.error(self, "Error", f"Failed to start recording for {camera_name}")
 
     def _stop_recording(self):
@@ -251,10 +242,7 @@ class RecordingControlWidget(QWidget):
         camera_item = current_item
         camera_id = camera_item.camera_id
 
-        if self.recording_manager.stop_recording(camera_id):
-            camera_item.set_recording(False)
-            self.recording_stopped.emit(camera_id)
-            logger.info(f"Stopped recording: {camera_item.camera_name}")
+        self.stop_recording(camera_id)
 
     def _pause_recording(self):
         """선택된 카메라 녹화 일시정지"""
@@ -280,24 +268,15 @@ class RecordingControlWidget(QWidget):
         started_count = 0
         for camera_id, (camera_name, rtsp_url) in self.cameras.items():
             if not self.recording_manager.is_recording(camera_id):
-                if self.recording_manager.start_recording(
-                    camera_id, camera_name, rtsp_url,
-                    file_format=file_format,
-                    file_duration=duration
-                ):
-                    self.camera_items[camera_id].set_recording(True)
-                    self.recording_started.emit(camera_id)
+                if self.start_recording(camera_id):
                     started_count += 1
 
         logger.info(f"Started recording for {started_count} cameras")
 
     def _stop_all_recording(self):
         """모든 카메라 녹화 정지"""
-        self.recording_manager.stop_all_recordings()
-
-        for camera_id, item in self.camera_items.items():
-            item.set_recording(False)
-            self.recording_stopped.emit(camera_id)
+        for camera_id in list(self.camera_items.keys()):
+            self.stop_recording(camera_id)
 
         logger.info("Stopped all recordings")
 
@@ -306,38 +285,162 @@ class RecordingControlWidget(QWidget):
         camera_item = item
         camera_id = camera_item.camera_id
 
-        if self.recording_manager.is_recording(camera_id):
-            self._stop_recording()
+        if self.is_recording(camera_id):
+            self.stop_recording(camera_id)
         else:
-            self._start_recording()
+            self.start_recording(camera_id)
+
+    def start_recording(self, camera_id: str) -> bool:
+        """
+        특정 카메라 녹화 시작 (외부 호출용)
+        
+        Args:
+            camera_id: 카메라 ID
+            
+        Returns:
+            성공 여부
+        """
+        if camera_id not in self.cameras:
+            logger.warning(f"Camera {camera_id} not found in recording control")
+            return False
+            
+        # UnifiedPipeline을 사용하는 카메라 스트림 찾기
+        from ui.main_window import MainWindow
+        main_window = None
+        for widget in self.parent().parent().children():
+            if hasattr(widget, 'camera_list'):
+                main_window = widget
+                break
+        
+        if not main_window or not hasattr(main_window, 'camera_list'):
+            logger.error("Cannot find main window or camera list")
+            return False
+            
+        camera_stream = main_window.camera_list.get_camera_stream(camera_id)
+        if not camera_stream or not camera_stream.pipeline_manager:
+            logger.error(f"No pipeline manager found for camera {camera_id}")
+            return False
+            
+        # UnifiedPipeline의 녹화 시작
+        if camera_stream.pipeline_manager.start_recording():
+            if camera_id in self.camera_items:
+                self.camera_items[camera_id].set_recording(True)
+            self.recording_started.emit(camera_id)
+            camera_name = self.cameras[camera_id][0]
+            logger.info(f"Started recording: {camera_name}")
+            return True
+        else:
+            camera_name = self.cameras[camera_id][0]
+            logger.error(f"Failed to start recording for {camera_name}")
+            return False
 
     def _update_status(self):
         """상태 업데이트"""
         # 녹화 상태 업데이트
         for camera_id, item in self.camera_items.items():
-            is_recording = self.recording_manager.is_recording(camera_id)
+            is_recording = self.is_recording(camera_id)
             item.set_recording(is_recording)
 
-        # 디스크 사용량 업데이트
-        disk_info = self.recording_manager.get_disk_usage()
-        disk_text = (f"Disk Usage: {disk_info['total_size_mb']:.1f} MB "
-                    f"({disk_info['file_count']} files)")
+        # 디스크 사용량 업데이트 (기본값 표시)
+        from pathlib import Path
+        recordings_dir = Path("recordings")
+        if recordings_dir.exists():
+            total_size = sum(f.stat().st_size for f in recordings_dir.rglob("*.*") if f.is_file())
+            file_count = len(list(recordings_dir.rglob("*.*")))
+            disk_text = f"Disk Usage: {total_size / (1024*1024):.1f} MB ({file_count} files)"
+        else:
+            disk_text = "Disk Usage: 0 MB (0 files)"
         self.disk_label.setText(disk_text)
 
-        # 일시정지 버튼 텍스트 업데이트
-        current_item = self.camera_list.currentItem()
-        if current_item:
-            status = self.recording_manager.get_recording_status(current_item.camera_id)
-            if status == RecordingStatus.PAUSED:
-                self.pause_btn.setText("▶ Resume")
-            else:
-                self.pause_btn.setText("❚❚ Pause")
+        # 일시정지 버튼 텍스트 업데이트 (기본값)
+        self.pause_btn.setText("❚❚ Pause")
+
+    def stop_recording(self, camera_id: str) -> bool:
+        """
+        특정 카메라 녹화 정지 (외부 호출용)
+        
+        Args:
+            camera_id: 카메라 ID
+            
+        Returns:
+            성공 여부
+        """
+        # UnifiedPipeline을 사용하는 카메라 스트림 찾기
+        from ui.main_window import MainWindow
+        main_window = None
+        for widget in self.parent().parent().children():
+            if hasattr(widget, 'camera_list'):
+                main_window = widget
+                break
+        
+        if not main_window or not hasattr(main_window, 'camera_list'):
+            logger.error("Cannot find main window or camera list")
+            return False
+            
+        camera_stream = main_window.camera_list.get_camera_stream(camera_id)
+        if not camera_stream or not camera_stream.pipeline_manager:
+            logger.error(f"No pipeline manager found for camera {camera_id}")
+            return False
+            
+        # UnifiedPipeline의 녹화 정지
+        if camera_stream.pipeline_manager.stop_recording():
+            if camera_id in self.camera_items:
+                self.camera_items[camera_id].set_recording(False)
+            self.recording_stopped.emit(camera_id)
+            logger.info(f"Stopped recording: {camera_id}")
+            return True
+        return False
 
     def cleanup_old_recordings(self, days: int = 7):
         """오래된 녹화 파일 정리"""
-        self.recording_manager.cleanup_old_recordings(days)
+        # 기본 녹화 디렉토리 정리
+        import time
+        from pathlib import Path
+        
+        recordings_dir = Path("recordings")
+        if not recordings_dir.exists():
+            return
+            
+        cutoff_time = time.time() - (days * 24 * 3600)
+        deleted_count = 0
+        
+        for file_path in recordings_dir.rglob("*.*"):
+            if file_path.is_file() and file_path.stat().st_mtime < cutoff_time:
+                file_path.unlink()
+                deleted_count += 1
+                
+        logger.info(f"Cleaned up {deleted_count} old recording files")
+
+    def is_recording(self, camera_id: str) -> bool:
+        """
+        카메라 녹화 상태 확인 (외부 호출용)
+        
+        Args:
+            camera_id: 카메라 ID
+            
+        Returns:
+            녹화 중 여부
+        """
+        # UnifiedPipeline을 사용하는 카메라 스트림 찾기
+        from ui.main_window import MainWindow
+        main_window = None
+        for widget in self.parent().parent().children():
+            if hasattr(widget, 'camera_list'):
+                main_window = widget
+                break
+        
+        if not main_window or not hasattr(main_window, 'camera_list'):
+            return False
+            
+        camera_stream = main_window.camera_list.get_camera_stream(camera_id)
+        if not camera_stream or not camera_stream.pipeline_manager:
+            return False
+            
+        # UnifiedPipeline의 녹화 상태 확인
+        status = camera_stream.pipeline_manager.get_status()
+        return status.get('is_recording', False)
 
     def closeEvent(self, event):
         """종료 시 모든 녹화 정지"""
-        self.recording_manager.stop_all_recordings()
+        # UnifiedPipeline의 녹화 정지는 main_window에서 처리
         super().closeEvent(event)
