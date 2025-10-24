@@ -28,6 +28,7 @@ from streaming.camera_stream import CameraStream
 from recording.recording_manager import RecordingManager
 from playback.playback_manager import PlaybackManager
 from utils.system_monitor import SystemMonitorThread
+from core.services import CameraService, StorageService
 
 
 class MainWindow(QMainWindow):
@@ -39,6 +40,11 @@ class MainWindow(QMainWindow):
         self.config_manager = ConfigManager.get_instance()
         self.recording_manager = RecordingManager()
         self.playback_manager = PlaybackManager()
+
+        # Initialize core services
+        self.camera_service = CameraService(self.config_manager)
+        self.storage_service = StorageService()
+
         self.grid_view = None
         self.camera_list = None
         self.recording_control = None
@@ -1307,30 +1313,28 @@ class MainWindow(QMainWindow):
         if not channel_found:
             logger.warning(f"No channel found for camera {camera_id}")
 
-        # Auto-start recording if enabled in camera config
-        camera_config = self.config_manager.get_camera(camera_id)
-        if camera_config and camera_config.recording_enabled:
-            logger.info(f"recording_enabled=true for {camera_id}, starting recording automatically")
+        # Use CameraService for auto-recording logic
+        if self.camera_service.connect_camera(camera_id, stream):
+            logger.debug(f"Camera service connected for {camera_id}")
 
-            # Start recording
-            if stream.gst_pipeline and stream.gst_pipeline.start_recording():
-                logger.success(f"✓ Auto-recording started for {camera_config.name}")
-
+        # Register callbacks for UI updates
+        def on_recording_started(cam_id, recording):
+            if cam_id == camera_id:
                 # Update channel recording status
                 for channel in self.grid_view.channels:
-                    if channel.camera_id == camera_id:
+                    if channel.camera_id == cam_id:
                         channel.set_recording(True)
                         break
 
                 # Update recording control widget UI
-                if camera_id in self.recording_control.camera_items:
-                    self.recording_control.camera_items[camera_id].set_recording(True)
-                    logger.debug(f"Updated recording control widget for {camera_id}")
+                if cam_id in self.recording_control.camera_items:
+                    self.recording_control.camera_items[cam_id].set_recording(True)
+                    logger.debug(f"Updated recording control widget for {cam_id}")
 
                 # Emit signal for recording control widget
-                self.recording_control.recording_started.emit(camera_id)
-            else:
-                logger.error(f"✗ Failed to auto-start recording for {camera_config.name}")
+                self.recording_control.recording_started.emit(cam_id)
+
+        self.camera_service.register_callback('recording_started', on_recording_started)
 
     def _on_camera_disconnected(self, camera_id: str):
         """Handle camera disconnected"""

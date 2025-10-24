@@ -52,7 +52,7 @@ pip install -r requirements.txt
 # Main application with GUI
 python main.py
 python main.py --debug  # With debug logging
-python main.py --config custom_config.json  # Custom configuration (JSON format)
+python main.py --config custom_config.json  # Custom configuration
 
 # Single camera launcher (in tests/)
 python tests/run_single_camera.py
@@ -80,7 +80,7 @@ python reference/test_stream.py rtsp://admin:password@192.168.0.131:554/stream
 python reference/test_unified_pipeline.py --mode streaming --rtsp rtsp://...
 python reference/test_unified_pipeline.py --mode recording --rtsp rtsp://...
 python reference/test_unified_pipeline.py --mode both --rtsp rtsp://...
-python reference/test_valve_mode_switch.py
+python tests/test_valve_mode_switch.py
 
 # Component tests
 python reference/test_recording.py
@@ -110,37 +110,45 @@ Instead of separate pipelines for streaming and recording (which duplicates deco
 
 ### Key Components
 
-1. **Pipeline Management** (`streaming/`)
-   - `pipeline_manager.py`: Core GStreamer pipeline lifecycle management
-   - `unified_pipeline.py`: Unified streaming+recording pipeline with valve control (main innovation)
+1. **Core Business Logic** (`core/`) - NEW (2025-10)
+   - `models.py`: Domain entities (Camera, Recording, StreamStatus, StorageInfo)
+   - `enums.py`: System-wide enums (CameraStatus, RecordingStatus, PipelineMode)
+   - `exceptions.py`: Custom exception classes
+   - `services/camera_service.py`: Camera business logic, auto-recording
+   - `services/storage_service.py`: Storage management, file cleanup
+
+2. **Pipeline Management** (`streaming/`)
+   - `gst_pipeline.py`: Unified streaming+recording pipeline with valve control (formerly unified_pipeline.py)
    - `camera_stream.py`: Individual camera stream handler with auto-reconnection
    - Adaptive decoder selection: avdec_h264, omxh264dec (RPi 3), v4l2h264dec (RPi 4+)
+   - **Note**: PipelineManager removed in refactor - UnifiedPipeline used directly
 
-2. **Recording System** (`recording/`)
+3. **Recording System** (`recording/`)
    - `recording_manager.py`: Continuous recording with automatic file rotation
    - File organization: `recordings/{camera_id}/{date}/{camera_id}_{date}_{time}.mp4`
    - Rotation intervals: 5/10/30/60 minutes (configurable)
 
-3. **Playback System** (`playback/`)
+4. **Playback System** (`playback/`)
    - `playback_manager.py`: Recording file management and playback control
    - `PlaybackPipeline`: GStreamer-based video file playback
    - Timeline navigation with seek, speed control (0.5x-4x)
 
-4. **UI Components** (`ui/`)
-   - `main_window.py`: Main window with dockable widgets
+5. **UI Components** (`ui/`)
+   - `main_window.py`: Main window with dockable widgets, uses CameraService
    - `grid_view.py`: Camera view display (currently 1x1 layout)
    - `playback_widget.py`: Playback controls and file browser
    - `video_widget.py`: Video display with window handle management
    - **Note**: Uses PyQt5 (NOT PyQt6 despite requirements.txt)
 
-5. **Configuration** (`config/`)
+6. **Configuration** (`config/`)
    - `config_manager.py`: **Singleton pattern** JSON configuration handler
    - `IT_RNVR.json`: All application settings (app, ui, cameras, recording, logging, etc.)
    - UI state (window position, dock visibility) auto-saved on exit to JSON
    - ConfigManager uses singleton pattern - single instance shared across entire application
 
-6. **Utilities** (`utils/`)
+7. **Utilities** (`utils/`)
    - `gstreamer_utils.py`: Platform-specific GStreamer helpers
+   - `system_monitor.py`: Resource monitoring threads
    - Video sink selection based on platform (Windows/Linux/RPi)
 
 ### Pipeline Modes
@@ -152,11 +160,12 @@ Three operating modes controlled via `PipelineMode` enum:
 Mode switching happens at runtime using valve elements without service interruption.
 
 ### Design Patterns
-- **Singleton Pattern**: ConfigManager ensures single instance across entire application (config loaded only once)
-- **Manager Pattern**: PipelineManager, RecordingManager, PlaybackManager for lifecycle management
+- **Singleton Pattern**: ConfigManager ensures single instance across entire application
+- **Service Pattern**: CameraService, StorageService for business logic separation
+- **Domain Model Pattern**: Core models for Camera, Recording, StreamStatus entities
+- **Manager Pattern**: RecordingManager, PlaybackManager for lifecycle management
 - **State Pattern**: RecordingStatus, PlaybackState, PipelineMode enums for state tracking
 - **Observer Pattern**: GStreamer bus messages, Qt signals/slots for event handling
-- **Dataclass Pattern**: Configuration objects (AppConfig, UIConfig, CameraConfigData) for structured data
 - **Tee + Valve Pattern**: Unified pipeline for resource-efficient streaming and recording
 
 ## Important Notes
@@ -166,18 +175,33 @@ Mode switching happens at runtime using valve elements without service interrupt
 - **Format**: JSON (IT_RNVR.json) - migrated from YAML for easier partial updates
 - **Singleton Pattern**: ConfigManager uses singleton pattern - always use `ConfigManager.get_instance()`
 - **Auto-save**: UI state (window geometry, dock visibility) saved automatically on exit
-- **Partial Updates**: JSON allows updating specific sections (e.g., only `ui` section) without rewriting entire file
 - **Usage**:
   ```python
   # Correct - get singleton instance
   config = ConfigManager.get_instance()
 
-  # Also works - returns same instance
-  config = ConfigManager()
-
   # Update UI state
   config.update_ui_window_state(x, y, width, height)
   config.save_ui_config()  # Updates only 'ui' section in JSON
+  ```
+
+### Core Module Usage (Added: 2025-10)
+**NEW**: Business logic separated into core module:
+- **CameraService**: Handles auto-recording logic based on `recording_enabled` config
+- **StorageService**: Automatic file cleanup based on age/space
+- **Usage**:
+  ```python
+  from core.services import CameraService, StorageService
+
+  # Initialize services
+  camera_service = CameraService(config_manager)
+  storage_service = StorageService()
+
+  # Connect camera with auto-recording
+  camera_service.connect_camera(camera_id, stream_object)
+
+  # Auto cleanup old recordings
+  storage_service.auto_cleanup()
   ```
 
 ### PyQt Version Mismatch
@@ -200,23 +224,11 @@ System optimized for Raspberry Pi:
 - Adaptive decoder selection
 - Fragment-based MP4 muxing for reduced I/O
 
-### File Recording Strategy
-- Continuous recording with automatic rotation
-- Date-based directory structure
-- Multiple format support (MP4, MKV, AVI)
-- Disk space monitoring and management
-
 ### Window Handle Management
 Critical for ensuring proper video display:
 1. Window handles must be assigned after widget creation
 2. 500ms delay required for handle reassignment
 3. Platform-specific handling for Windows/Linux
-
-### Current System Mode
-The system supports both single and multi-camera operation:
-- Default configuration: Single camera (cam_01)
-- Expandable to multiple cameras via configuration
-- UI adapts based on camera count
 
 ## Development Workflow
 
@@ -239,37 +251,30 @@ When modifying the codebase:
 # Problem: Window handles not properly assigned
 # Solution: Check window handle assignment in main_window.py
 # Verify 500ms delay is present for handle assignment
-# In single camera mode, only one channel (index 0) needs handle assignment
+```
+
+#### Recording Files 0MB
+```python
+# Problem: Missing h264parse in recording branch
+# Solution: Ensure recording branch has:
+# record_queue → recording_valve → h264parse → mp4mux → filesink
+```
+
+#### Recording Not Starting Automatically
+```json
+// Check IT_RNVR.json
+{
+  "cameras": [{
+    "recording_enabled": true  // Must be true for auto-recording
+  }]
+}
 ```
 
 #### High CPU Usage
-```python
+```bash
 # Problem: Using separate pipelines for streaming and recording
-# Solution: Ensure unified_pipeline.py is used instead of separate pipelines
+# Solution: Ensure gst_pipeline.py (UnifiedPipeline) is used
 # Check valve states with get_status() method
-```
-
-#### Recording Files Not Created
-```bash
-# Check directory permissions
-ls -la recordings/
-
-# Verify disk space
-df -h
-
-# Check GStreamer debug output
-GST_DEBUG=3 python main.py
-```
-
-#### Camera Connection Failures
-```bash
-# Problem: Network issues or incorrect RTSP URL
-# Solution: Test RTSP URL directly
-gst-launch-1.0 rtspsrc location=rtsp://admin:password@192.168.0.131:554/stream ! decodebin ! autovideosink
-
-# Check auto-reconnection settings in IT_RNVR.json
-# camera_settings.max_reconnect_attempts: 5
-# camera_settings.reconnect_delay_seconds: 5
 ```
 
 #### Memory Leaks
@@ -287,12 +292,10 @@ python tests/memory_monitor.py
 
 #### Pipeline Error Recovery
 ```python
-# In pipeline_manager.py
+# In gst_pipeline.py
 def _on_bus_message(self, bus, message):
     if message.type == Gst.MessageType.ERROR:
-        # Log error
-        # Attempt reconnection
-        # Update UI state
+        # Log error, attempt reconnection, update UI state
 ```
 
 #### Stream Reconnection
@@ -307,16 +310,16 @@ def _on_bus_message(self, bus, message):
 ### Working Features
 - Real-time RTSP streaming with low latency
 - Continuous recording with automatic file rotation
+- Auto-recording on camera connection (when `recording_enabled: true`)
 - Playback system with timeline navigation and speed control
 - Dockable UI widgets (Camera List, Recording Control, Playback)
-- **JSON-based configuration with singleton pattern** (migrated from YAML)
+- JSON-based configuration with singleton pattern
 - UI state persistence (window geometry, dock visibility)
 - Auto-reconnection on network failure
 - Hardware acceleration support (RPi OMX/V4L2)
-- Dark/Light theme support
 - Runtime pipeline mode switching via valves
 - Memory-efficient unified pipeline architecture
-- Headless mode for recording without GUI
+- Core services for business logic (CameraService, StorageService)
 
 ### Known Issues
 - PyQt5/PyQt6 dependency mismatch in requirements.txt (code uses PyQt5)
@@ -324,12 +327,13 @@ def _on_bus_message(self, bus, message):
 - Credentials stored in cleartext in IT_RNVR.json
 
 ### Recent Updates (2025-10)
-- **Configuration system migrated from YAML to JSON** for easier partial updates
-- **ConfigManager implemented as singleton** - config loaded only once, shared across app
-- **UI state auto-save**: Window position/size and dock visibility saved to JSON on exit
-- Playback functionality integrated into main window
-- Valve-based pipeline control for efficient mode switching
-- File structure reorganization (docs/, tests/, utils/)
+- **Core module added** with domain models and business services
+- **PipelineManager removed** - UnifiedPipeline used directly
+- **File renamed**: `unified_pipeline.py` → `pipeline.py` → `gst_pipeline.py`
+- **Auto-recording logic** moved to CameraService
+- **Storage management** added with automatic cleanup
+- Configuration system migrated from YAML to JSON
+- UI state auto-save functionality added
 
 ### Platform Support
 - **Primary**: Raspberry Pi (3, 4, Zero 2W)

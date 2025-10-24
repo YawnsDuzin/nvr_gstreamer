@@ -5,19 +5,15 @@ Manages individual camera streams with connection management and error handling
 
 import time
 from typing import Optional, Dict, Any
-from enum import Enum
 from dataclasses import dataclass
 from loguru import logger
 from .gst_pipeline import UnifiedPipeline, PipelineMode
 
-
-class StreamStatus(Enum):
-    """Stream connection status"""
-    DISCONNECTED = "disconnected"
-    CONNECTING = "connecting"
-    CONNECTED = "connected"
-    ERROR = "error"
-    RECONNECTING = "reconnecting"
+# Core imports - using the new core module
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from core.enums import CameraStatus as StreamStatus
 
 
 @dataclass
@@ -31,6 +27,7 @@ class CameraConfig:
     use_hardware_decode: bool = False
     reconnect_attempts: int = 3
     reconnect_delay: int = 5
+    recording_enabled: bool = False  # Added for compatibility with core models
 
 
 class CameraStream:
