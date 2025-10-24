@@ -8,7 +8,7 @@ from typing import Optional, Dict, Any
 from enum import Enum
 from dataclasses import dataclass
 from loguru import logger
-from .pipeline_manager import PipelineManager
+from .pipeline import UnifiedPipeline, PipelineMode
 
 
 class StreamStatus(Enum):
@@ -44,7 +44,7 @@ class CameraStream:
             config: Camera configuration
         """
         self.config = config
-        self.pipeline_manager: Optional[PipelineManager] = None
+        self.pipeline: Optional[UnifiedPipeline] = None
         self.status = StreamStatus.DISCONNECTED
         self._reconnect_count = 0
         self._last_frame_time = 0
@@ -102,25 +102,21 @@ class CameraStream:
                 logger.error(f"Frame callback not supported with UnifiedPipeline for {self.config.name}")
                 raise Exception("Frame callback not supported in UnifiedPipeline")
 
-            # Create pipeline manager with UnifiedPipeline
-            self.pipeline_manager = PipelineManager(
-                rtsp_url=self.rtsp_url,
-                window_handle=handle_to_use,
-                camera_id=self.config.camera_id,
-                camera_name=self.config.name
-            )
-
-            # Create unified pipeline (녹화 지원 여부에 따라 모드 결정)
-            from .unified_pipeline import PipelineMode
+            # Create pipeline directly (녹화 지원 여부에 따라 모드 결정)
             mode = PipelineMode.BOTH if enable_recording else PipelineMode.STREAMING_ONLY
-            success = self.pipeline_manager.create_unified_pipeline(
+
+            self.pipeline = UnifiedPipeline(
+                rtsp_url=self.rtsp_url,
+                camera_id=self.config.camera_id,
+                camera_name=self.config.name,
+                window_handle=handle_to_use,
                 mode=mode
             )
 
-            if not success:
+            if not self.pipeline.create_pipeline():
                 raise Exception("Failed to create pipeline")
 
-            if not self.pipeline_manager.start():
+            if not self.pipeline.start():
                 raise Exception("Failed to start pipeline")
 
             self.status = StreamStatus.CONNECTED
@@ -141,9 +137,9 @@ class CameraStream:
         """Disconnect from camera stream"""
         logger.info(f"Disconnecting camera: {self.config.name}")
 
-        if self.pipeline_manager:
-            self.pipeline_manager.stop()
-            self.pipeline_manager = None
+        if self.pipeline:
+            self.pipeline.stop()
+            self.pipeline = None
 
         self.status = StreamStatus.DISCONNECTED
         logger.info(f"Camera disconnected: {self.config.name}")
@@ -184,7 +180,7 @@ class CameraStream:
 
     def is_connected(self) -> bool:
         """Check if stream is connected"""
-        return self.status == StreamStatus.CONNECTED and self.pipeline_manager and self.pipeline_manager.is_playing()
+        return self.status == StreamStatus.CONNECTED and self.pipeline and self.pipeline._is_playing
 
     def get_stats(self) -> Dict[str, Any]:
         """

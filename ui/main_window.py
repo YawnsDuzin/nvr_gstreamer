@@ -1290,12 +1290,16 @@ class MainWindow(QMainWindow):
                 channel_found = True
                 # Get window handle and set it on the pipeline
                 window_handle = channel.get_window_handle()
-                if window_handle and stream.pipeline_manager:
+                if window_handle and stream.pipeline:
                     # Set video sink to render in widget
-                    stream.pipeline_manager.set_window_handle(window_handle)
-                    logger.info(f"Set window handle for camera {camera_id}: {window_handle}")
+                    if stream.pipeline.video_sink:
+                        try:
+                            stream.pipeline.video_sink.set_window_handle(int(window_handle))
+                            logger.info(f"Set window handle for camera {camera_id}: {window_handle}")
+                        except Exception as e:
+                            logger.warning(f"Failed to set window handle for {camera_id}: {e}")
                 else:
-                    logger.warning(f"Could not set window handle for {camera_id} - handle: {window_handle}, pipeline: {stream.pipeline_manager}")
+                    logger.warning(f"Could not set window handle for {camera_id} - handle: {window_handle}, pipeline: {stream.pipeline}")
 
                 channel.set_connected(True)
                 break
@@ -1309,7 +1313,7 @@ class MainWindow(QMainWindow):
             logger.info(f"recording_enabled=true for {camera_id}, starting recording automatically")
 
             # Start recording
-            if stream.pipeline_manager and stream.pipeline_manager.start_recording():
+            if stream.pipeline and stream.pipeline.start_recording():
                 logger.success(f"✓ Auto-recording started for {camera_config.name}")
 
                 # Update channel recording status

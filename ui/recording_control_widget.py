@@ -317,12 +317,12 @@ class RecordingControlWidget(QWidget):
             return False
             
         camera_stream = main_window.camera_list.get_camera_stream(camera_id)
-        if not camera_stream or not camera_stream.pipeline_manager:
-            logger.error(f"No pipeline manager found for camera {camera_id}")
+        if not camera_stream or not camera_stream.pipeline:
+            logger.error(f"No pipeline found for camera {camera_id}")
             return False
-            
+
         # UnifiedPipeline의 녹화 시작
-        if camera_stream.pipeline_manager.start_recording():
+        if camera_stream.pipeline.start_recording():
             if camera_id in self.camera_items:
                 self.camera_items[camera_id].set_recording(True)
             self.recording_started.emit(camera_id)
@@ -381,12 +381,12 @@ class RecordingControlWidget(QWidget):
             return False
             
         camera_stream = main_window.camera_list.get_camera_stream(camera_id)
-        if not camera_stream or not camera_stream.pipeline_manager:
-            logger.error(f"No pipeline manager found for camera {camera_id}")
+        if not camera_stream or not camera_stream.pipeline:
+            logger.error(f"No pipeline found for camera {camera_id}")
             return False
-            
+
         # UnifiedPipeline의 녹화 정지
-        if camera_stream.pipeline_manager.stop_recording():
+        if camera_stream.pipeline.stop_recording():
             if camera_id in self.camera_items:
                 self.camera_items[camera_id].set_recording(False)
             self.recording_stopped.emit(camera_id)
@@ -436,11 +436,11 @@ class RecordingControlWidget(QWidget):
             return False
             
         camera_stream = main_window.camera_list.get_camera_stream(camera_id)
-        if not camera_stream or not camera_stream.pipeline_manager:
+        if not camera_stream or not camera_stream.pipeline:
             return False
-            
+
         # UnifiedPipeline의 녹화 상태 확인
-        status = camera_stream.pipeline_manager.get_status()
+        status = camera_stream.pipeline.get_status()
         return status.get('is_recording', False)
 
     def closeEvent(self, event):
