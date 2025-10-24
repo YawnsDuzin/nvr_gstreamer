@@ -304,9 +304,7 @@ class UnifiedPipeline:
             self.video_sink = create_video_sink_with_properties(
                 video_sink_name,
                 sync=False,  # 비동기 렌더링
-                force_aspect_ratio=True,
-                max_lateness=20 * Gst.MSECOND,  # 20ms 최대 지연
-                qos=True  # QoS 활성화
+                force_aspect_ratio=True
             )
 
             if not self.video_sink:
@@ -317,8 +315,23 @@ class UnifiedPipeline:
                     self.video_sink.set_property("sync", False)
                 else:
                     self.video_sink = Gst.ElementFactory.make("fakesink", "videosink")
-                    self.video_sink.set_property("sync", False)
-                    self.video_sink.set_property("silent", True)
+                    if self.video_sink:
+                        self.video_sink.set_property("sync", False)
+                        self.video_sink.set_property("silent", True)
+
+            # 추가 속성 설정 (video_sink가 성공적으로 생성된 경우)
+            if self.video_sink:
+                try:
+                    # QoS 활성화
+                    self.video_sink.set_property("qos", True)
+                except:
+                    pass  # 속성이 없으면 무시
+
+                try:
+                    # 최대 지연 시간 설정 (20ms)
+                    self.video_sink.set_property("max-lateness", 20 * Gst.MSECOND)
+                except:
+                    pass  # 속성이 없으면 무시
 
             # 엘리먼트를 파이프라인에 추가
             self.pipeline.add(stream_queue)
@@ -379,9 +392,12 @@ class UnifiedPipeline:
             self.recording_valve = Gst.ElementFactory.make("valve", "recording_valve")
             self.recording_valve.set_property("drop", True)  # 초기에는 녹화 중지
 
+            # h264parse - 녹화용 (H.264 스트림 파싱)
+            record_parse = Gst.ElementFactory.make("h264parse", "record_parse")
+
             # Muxer (MP4) - 녹화 최적화 설정
             muxer = Gst.ElementFactory.make("mp4mux", "muxer")
-            
+
             # 설정에서 fragment_duration_ms 로드 (기본값: 1000ms)
             config = ConfigManager.get_instance()
             try:
@@ -392,7 +408,7 @@ class UnifiedPipeline:
                     fragment_duration = recording_config.get('fragment_duration_ms', 1000)
             except Exception:
                 fragment_duration = 1000
-                
+
             muxer.set_property("fragment-duration", fragment_duration)
             muxer.set_property("streamable", True)
             muxer.set_property("faststart", True)  # 빠른 시작
@@ -400,7 +416,7 @@ class UnifiedPipeline:
 
             # 파일 싱크
             self.file_sink = Gst.ElementFactory.make("filesink", "filesink")
-            
+
             # 기본 파일명 설정 (녹화 시작 시 실제 파일명으로 변경됨)
             temp_file = self.recording_dir / f"{self.camera_id}_temp.mp4"
             self.file_sink.set_property("location", str(temp_file))
@@ -408,12 +424,14 @@ class UnifiedPipeline:
             # 엘리먼트를 파이프라인에 추가
             self.pipeline.add(record_queue)
             self.pipeline.add(self.recording_valve)
+            self.pipeline.add(record_parse)
             self.pipeline.add(muxer)
             self.pipeline.add(self.file_sink)
 
-            # 엘리먼트 연결
+            # 엘리먼트 연결: queue → valve → h264parse → muxer → filesink
             record_queue.link(self.recording_valve)
-            self.recording_valve.link(muxer)
+            self.recording_valve.link(record_parse)
+            record_parse.link(muxer)
             muxer.link(self.file_sink)
 
             # Tee에서 녹화 큐로 연결
@@ -801,6 +819,7 @@ class UnifiedPipeline:
                 recording_elements = [
                     ("record_queue", "recording queue"),
                     ("recording_valve", "recording valve"),
+                    ("record_parse", "recording h264parse"),
                     ("muxer", "mp4mux"),
                     ("filesink", "file sink")
                 ]
