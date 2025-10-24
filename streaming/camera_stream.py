@@ -8,7 +8,7 @@ from typing import Optional, Dict, Any
 from enum import Enum
 from dataclasses import dataclass
 from loguru import logger
-from .pipeline import UnifiedPipeline, PipelineMode
+from .gst_pipeline import UnifiedPipeline, PipelineMode
 
 
 class StreamStatus(Enum):
@@ -44,7 +44,7 @@ class CameraStream:
             config: Camera configuration
         """
         self.config = config
-        self.pipeline: Optional[UnifiedPipeline] = None
+        self.gst_pipeline: Optional[UnifiedPipeline] = None
         self.status = StreamStatus.DISCONNECTED
         self._reconnect_count = 0
         self._last_frame_time = 0
@@ -105,7 +105,7 @@ class CameraStream:
             # Create pipeline directly (녹화 지원 여부에 따라 모드 결정)
             mode = PipelineMode.BOTH if enable_recording else PipelineMode.STREAMING_ONLY
 
-            self.pipeline = UnifiedPipeline(
+            self.gst_pipeline = UnifiedPipeline(
                 rtsp_url=self.rtsp_url,
                 camera_id=self.config.camera_id,
                 camera_name=self.config.name,
@@ -113,10 +113,10 @@ class CameraStream:
                 mode=mode
             )
 
-            if not self.pipeline.create_pipeline():
+            if not self.gst_pipeline.create_pipeline():
                 raise Exception("Failed to create pipeline")
 
-            if not self.pipeline.start():
+            if not self.gst_pipeline.start():
                 raise Exception("Failed to start pipeline")
 
             self.status = StreamStatus.CONNECTED
@@ -137,9 +137,9 @@ class CameraStream:
         """Disconnect from camera stream"""
         logger.info(f"Disconnecting camera: {self.config.name}")
 
-        if self.pipeline:
-            self.pipeline.stop()
-            self.pipeline = None
+        if self.gst_pipeline:
+            self.gst_pipeline.stop()
+            self.gst_pipeline = None
 
         self.status = StreamStatus.DISCONNECTED
         logger.info(f"Camera disconnected: {self.config.name}")
@@ -180,7 +180,7 @@ class CameraStream:
 
     def is_connected(self) -> bool:
         """Check if stream is connected"""
-        return self.status == StreamStatus.CONNECTED and self.pipeline and self.pipeline._is_playing
+        return self.status == StreamStatus.CONNECTED and self.gst_pipeline and self.gst_pipeline._is_playing
 
     def get_stats(self) -> Dict[str, Any]:
         """
