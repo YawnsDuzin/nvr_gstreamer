@@ -9,7 +9,6 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
-from enum import Enum
 from dataclasses import dataclass
 from loguru import logger
 
@@ -17,16 +16,12 @@ import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GLib
 
-# GStreamer 초기화
-Gst.init(None)
+# Core imports
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from core.enums import RecordingStatus
 
-
-class RecordingStatus(Enum):
-    """녹화 상태"""
-    STOPPED = "stopped"
-    RECORDING = "recording"
-    PAUSED = "paused"
-    ERROR = "error"
+# Note: GStreamer는 main.py에서 초기화됨
 
 
 @dataclass
@@ -58,7 +53,7 @@ class RecordingPipeline:
         self.config = config
         self.pipeline = None
         self.bus = None
-        self.status = RecordingStatus.STOPPED
+        self.status = RecordingStatus.IDLE
         self.current_filename = None
         self.start_time = None
         self._thread = None
@@ -196,8 +191,8 @@ class RecordingPipeline:
 
         logger.info(f"Stopping recording: {self.config.camera_name}")
 
-        # 먼저 상태를 STOPPED로 변경 (타이머 중지를 위해)
-        self.status = RecordingStatus.STOPPED
+        # 먼저 상태를 IDLE로 변경 (타이머 중지를 위해)
+        self.status = RecordingStatus.IDLE
         
         # 파일 회전 타이머 정지
         self._stop_rotation_timer()
@@ -443,7 +438,7 @@ class RecordingManager:
         """녹화 상태 반환"""
         if camera_id in self.recording_pipelines:
             return self.recording_pipelines[camera_id].status
-        return RecordingStatus.STOPPED
+        return RecordingStatus.IDLE
 
     def get_all_recording_info(self) -> Dict:
         """모든 녹화 정보 반환"""

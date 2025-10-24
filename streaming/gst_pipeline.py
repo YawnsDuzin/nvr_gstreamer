@@ -13,20 +13,16 @@ import os
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict
-from enum import Enum
 from loguru import logger
 from utils.gstreamer_utils import get_video_sink, get_available_h264_decoder, create_video_sink_with_properties
 from config.config_manager import ConfigManager
 
-# GStreamer 초기화
-Gst.init(None)
+# Core imports
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from core.enums import PipelineMode
 
-
-class PipelineMode(Enum):
-    """파이프라인 동작 모드"""
-    STREAMING_ONLY = "streaming"
-    RECORDING_ONLY = "recording"
-    BOTH = "both"
+# Note: GStreamer는 main.py에서 초기화됨
 
 
 class UnifiedPipeline:

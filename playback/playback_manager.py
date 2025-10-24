@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, List, Dict, Callable
-from enum import Enum
 from dataclasses import dataclass
 from loguru import logger
 
@@ -18,17 +17,12 @@ from gi.repository import Gst, GLib, GstVideo
 
 from utils.gstreamer_utils import get_video_sink
 
-# GStreamer 초기화
-Gst.init(None)
+# Core imports
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from core.enums import PlaybackState
 
-
-class PlaybackState(Enum):
-    """재생 상태"""
-    STOPPED = "stopped"
-    PLAYING = "playing"
-    PAUSED = "paused"
-    SEEKING = "seeking"
-    ERROR = "error"
+# Note: GStreamer는 main.py에서 초기화됨
 
 
 @dataclass

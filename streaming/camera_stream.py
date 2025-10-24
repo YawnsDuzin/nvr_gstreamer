@@ -4,41 +4,30 @@ Manages individual camera streams with connection management and error handling
 """
 
 import time
-from typing import Optional, Dict, Any
-from dataclasses import dataclass
+from typing import Optional, Dict, Any, Union
 from loguru import logger
 from .gst_pipeline import UnifiedPipeline, PipelineMode
 
-# Core imports - using the new core module
+# Core imports
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from core.enums import CameraStatus as StreamStatus
+from core.models import Camera
 
-
-@dataclass
-class CameraConfig:
-    """Camera configuration"""
-    camera_id: str
-    name: str
-    rtsp_url: str
-    username: Optional[str] = None
-    password: Optional[str] = None
-    use_hardware_decode: bool = False
-    reconnect_attempts: int = 3
-    reconnect_delay: int = 5
-    recording_enabled: bool = False  # Added for compatibility with core models
+# Backward compatibility alias
+CameraConfig = Camera
 
 
 class CameraStream:
     """Handles individual camera stream"""
 
-    def __init__(self, config: CameraConfig):
+    def __init__(self, config: Union[Camera, CameraConfig]):
         """
         Initialize camera stream
 
         Args:
-            config: Camera configuration
+            config: Camera configuration (Camera or CameraConfig for backward compatibility)
         """
         self.config = config
         self.gst_pipeline: Optional[UnifiedPipeline] = None
@@ -53,12 +42,16 @@ class CameraStream:
         self.window_handle = None  # 미리 할당될 윈도우 핸들 저장
 
         # Build RTSP URL with credentials if provided
-        self._build_rtsp_url()
+        # Use Camera model's method if available
+        if hasattr(self.config, 'build_rtsp_url_with_auth'):
+            self.rtsp_url = self.config.build_rtsp_url_with_auth()
+        else:
+            self._build_rtsp_url()
 
         logger.info(f"Camera stream initialized: {self.config.name} ({self.config.camera_id})")
 
     def _build_rtsp_url(self):
-        """Build RTSP URL with credentials"""
+        """Build RTSP URL with credentials (legacy method for backward compatibility)"""
         if self.config.username and self.config.password:
             # Parse URL and insert credentials
             url_parts = self.config.rtsp_url.split("://")
