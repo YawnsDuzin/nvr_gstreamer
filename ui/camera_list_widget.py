@@ -427,8 +427,8 @@ class CameraListWidget(QWidget):
                         break
 
             # 녹화 지원 여부 확인
-            enable_recording = camera_item.camera_config.recording_enabled
-            
+            enable_recording = camera_item.camera_config.recording_enabled_start
+
             if camera_item.camera_stream.connect(window_handle=window_handle, enable_recording=enable_recording):
                 self.camera_connected.emit(camera_item.camera_config.camera_id)
                 camera_item.update_display()
@@ -473,8 +473,8 @@ class CameraListWidget(QWidget):
                         logger.warning(f"No window handle found for {camera_item.camera_config.camera_id}")
 
                     # 녹화 지원 여부 확인
-                    enable_recording = camera_item.camera_config.recording_enabled
-                    
+                    enable_recording = camera_item.camera_config.recording_enabled_start
+
                     if camera_item.camera_stream.connect(window_handle=window_handle, enable_recording=enable_recording):
                         self.camera_connected.emit(camera_item.camera_config.camera_id)
                         logger.success(f"Connected camera: {camera_item.camera_config.camera_id}")

@@ -20,6 +20,7 @@ from gi.repository import Gst, GLib
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from core.enums import RecordingStatus
+from config.config_manager import ConfigManager
 
 # Note: GStreamer는 main.py에서 초기화됨
 
@@ -32,7 +33,7 @@ class RecordingConfig:
     output_dir: str = "recordings"
     file_duration: int = 600  # 10분 단위로 파일 분할 (초)
     file_format: str = "mp4"  # mp4, mkv, avi
-    video_codec: str = "h264"  # h264, h265
+    video_codec: str = "h264"  # h264, h265/hevc
     enable_audio: bool = False
     max_file_size: int = 1024  # MB 단위
     retention_days: int = 7  # 보관 기간 (일)
@@ -92,14 +93,24 @@ class RecordingPipeline:
         try:
             self.current_filename = self._generate_filename()
 
-            # 파이프라인 문자열 생성
+            # 코덱에 따라 depay와 parse 선택
+            if self.config.video_codec.lower() in ['h265', 'hevc']:
+                depay_element = "rtph265depay"
+                parse_element = "h265parse"
+                logger.debug(f"Using H.265/HEVC codec for recording")
+            else:  # 기본값: h264
+                depay_element = "rtph264depay"
+                parse_element = "h264parse"
+                logger.debug(f"Using H.264 codec for recording")
+
+            # 파이프라인 문자열 생성 (파일 포맷에 따라)
             if self.config.file_format == "mp4":
                 # MP4 컨테이너 사용
                 pipeline_str = (
                     f"rtspsrc location={self.rtsp_url} protocols=tcp latency=200 ! "
                     "queue ! "
-                    "rtph264depay ! "
-                    "h264parse ! "
+                    f"{depay_element} ! "
+                    f"{parse_element} ! "
                     "mp4mux name=mux ! "
                     f"filesink location={self.current_filename}"
                 )
@@ -108,8 +119,8 @@ class RecordingPipeline:
                 pipeline_str = (
                     f"rtspsrc location={self.rtsp_url} protocols=tcp latency=200 ! "
                     "queue ! "
-                    "rtph264depay ! "
-                    "h264parse ! "
+                    f"{depay_element} ! "
+                    f"{parse_element} ! "
                     "matroskamux name=mux ! "
                     f"filesink location={self.current_filename}"
                 )
@@ -118,8 +129,8 @@ class RecordingPipeline:
                 pipeline_str = (
                     f"rtspsrc location={self.rtsp_url} protocols=tcp latency=200 ! "
                     "queue ! "
-                    "rtph264depay ! "
-                    "h264parse ! "
+                    f"{depay_element} ! "
+                    f"{parse_element} ! "
                     "avimux name=mux ! "
                     f"filesink location={self.current_filename}"
                 )
@@ -346,7 +357,7 @@ class RecordingManager:
         Path(self.output_dir).mkdir(parents=True, exist_ok=True)
 
     def start_recording(self, camera_id: str, camera_name: str, rtsp_url: str,
-                       file_format: str = "mp4", file_duration: int = 600) -> bool:
+                       file_format: str = None, file_duration: int = None) -> bool:
         """
         카메라 녹화 시작
 
@@ -354,8 +365,8 @@ class RecordingManager:
             camera_id: 카메라 ID
             camera_name: 카메라 이름
             rtsp_url: RTSP URL
-            file_format: 파일 포맷
-            file_duration: 파일 분할 시간 (초)
+            file_format: 파일 포맷 (None이면 설정파일에서 로드)
+            file_duration: 파일 분할 시간 (초), None이면 설정파일에서 로드
 
         Returns:
             성공 여부
@@ -367,13 +378,33 @@ class RecordingManager:
                 logger.warning(f"Camera {camera_id} is already recording")
                 return False
 
+        # 설정파일에서 녹화 설정 로드
+        config_manager = ConfigManager.get_instance()
+        recording_config = config_manager.get_recording_config()
+
+        # 파일 포맷이 지정되지 않으면 설정파일에서 로드
+        if file_format is None:
+            file_format = recording_config.get('file_format', 'mp4')
+            logger.debug(f"Using file_format from config: {file_format}")
+
+        # 파일 분할 시간이 지정되지 않으면 설정파일에서 로드
+        if file_duration is None:
+            rotation_minutes = recording_config.get('rotation_minutes', 10)
+            file_duration = rotation_minutes * 60  # 분 → 초 변환
+            logger.debug(f"Using rotation_minutes from config: {rotation_minutes}min ({file_duration}s)")
+
+        # 비디오 코덱 설정 로드
+        video_codec = recording_config.get('codec', 'h264')
+        logger.debug(f"Using codec from config: {video_codec}")
+
         # 녹화 설정 생성
         config = RecordingConfig(
             camera_id=camera_id,
             camera_name=camera_name,
             output_dir=self.output_dir,
             file_format=file_format,
-            file_duration=file_duration
+            file_duration=file_duration,
+            video_codec=video_codec
         )
 
         # 녹화 파이프라인 생성

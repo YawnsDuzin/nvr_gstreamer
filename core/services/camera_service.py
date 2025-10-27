@@ -73,7 +73,7 @@ class CameraService:
                 rtsp_url=camera_config.rtsp_url,
                 username=getattr(camera_config, 'username', None),
                 password=getattr(camera_config, 'password', None),
-                recording_enabled=camera_config.recording_enabled,
+                recording_enabled_start=camera_config.recording_enabled_start,
                 status=CameraStatus.CONNECTING
             )
 
@@ -85,7 +85,7 @@ class CameraService:
             camera.status = CameraStatus.CONNECTED
 
             # 자동 녹화 체크
-            if camera.recording_enabled:
+            if camera.recording_enabled_start:
                 logger.info(f"Auto-recording enabled for {camera.name} ({camera_id})")
 
                 # 녹화 시작 로직

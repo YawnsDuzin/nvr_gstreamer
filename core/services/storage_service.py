@@ -18,22 +18,38 @@ from ..exceptions import StorageError
 class StorageService:
     """스토리지 관리 서비스"""
 
-    def __init__(self, recordings_path: str = "recordings"):
+    def __init__(self, recordings_path: str = None):
         """
         Initialize storage service
 
         Args:
-            recordings_path: 녹화 파일 저장 경로
+            recordings_path: 녹화 파일 저장 경로 (None이면 설정에서 로드)
         """
+        # 설정 로드
+        from config.config_manager import ConfigManager
+        config_manager = ConfigManager.get_instance()
+        recording_config = config_manager.get_recording_config()
+
+        # 녹화 경로 설정
+        if recordings_path is None:
+            recordings_path = recording_config.get('base_path', './recordings')
+            logger.debug(f"Using recordings base_path from config: {recordings_path}")
+
         self.recordings_path = Path(recordings_path)
-        self.recordings_path.mkdir(exist_ok=True)
+        self.recordings_path.mkdir(parents=True, exist_ok=True)
 
-        # 설정 가능한 임계값
-        self.min_free_space_gb = 10  # 최소 여유 공간 (GB)
-        self.max_storage_days = 30  # 최대 보관 기간 (일)
-        self.cleanup_threshold_percent = 90  # 정리 시작 임계값 (%)
+        # 설정에서 임계값 로드
+        self.auto_cleanup_enabled = recording_config.get('auto_cleanup_enabled', True)
+        self.cleanup_interval_hours = recording_config.get('cleanup_interval_hours', 6)
+        self.min_free_space_gb = recording_config.get('min_free_space_gb', 10)
+        self.max_storage_days = recording_config.get('retention_days', 30)
+        self.cleanup_threshold_percent = recording_config.get('cleanup_threshold_percent', 90)
 
-        logger.info(f"Storage service initialized with path: {self.recordings_path}")
+        logger.info(f"Storage service initialized: path={self.recordings_path}, "
+                   f"retention={self.max_storage_days}days, "
+                   f"threshold={self.cleanup_threshold_percent}%, "
+                   f"min_free={self.min_free_space_gb}GB, "
+                   f"auto_cleanup={self.auto_cleanup_enabled}")
 
     def get_storage_info(self) -> StorageInfo:
         """

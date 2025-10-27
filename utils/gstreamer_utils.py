@@ -70,7 +70,28 @@ def get_available_h264_decoder(prefer_hardware: bool = True, decoder_preference:
     Returns:
         디코더 엘리먼트 이름
     """
+    return get_available_decoder('h264', prefer_hardware, decoder_preference)
+
+
+def get_available_decoder(codec: str = 'h264', prefer_hardware: bool = True, decoder_preference: list = None) -> str:
+    """
+    사용 가능한 최적의 비디오 디코더 선택
+
+    Args:
+        codec: 비디오 코덱 (h264, h265/hevc)
+        prefer_hardware: 하드웨어 디코더 우선 여부
+        decoder_preference: 선호 디코더 목록 (우선순위 순)
+
+    Returns:
+        디코더 엘리먼트 이름
+    """
     registry = Gst.Registry.get()
+
+    # 코덱 정규화
+    if codec.lower() in ['h265', 'hevc']:
+        codec = 'h265'
+    else:
+        codec = 'h264'
 
     # 설정에서 제공된 우선순위가 있으면 사용
     if decoder_preference:
@@ -78,30 +99,44 @@ def get_available_h264_decoder(prefer_hardware: bool = True, decoder_preference:
         logger.debug(f"Using custom decoder preference: {decoders}")
     elif prefer_hardware:
         # 하드웨어 디코더 우선 (라즈베리파이 최적화)
-        decoders = [
-            "v4l2h264dec",     # V4L2 hardware decoder (newer Raspberry Pi)
-            "omxh264dec",      # OpenMAX hardware decoder (older Raspberry Pi)
-            "avdec_h264",      # Software decoder (libav) - fallback
-            "openh264dec",     # OpenH264 software decoder
-            "h264parse"        # Last resort - just parse without decode
-        ]
+        if codec == 'h265':
+            decoders = [
+                "v4l2h265dec",     # V4L2 hardware decoder (newer Raspberry Pi)
+                "avdec_h265",      # Software decoder (libav) - fallback
+                "h265parse"        # Last resort - just parse without decode
+            ]
+        else:  # h264
+            decoders = [
+                "v4l2h264dec",     # V4L2 hardware decoder (newer Raspberry Pi)
+                "omxh264dec",      # OpenMAX hardware decoder (older Raspberry Pi)
+                "avdec_h264",      # Software decoder (libav) - fallback
+                "openh264dec",     # OpenH264 software decoder
+                "h264parse"        # Last resort - just parse without decode
+            ]
     else:
         # 소프트웨어 디코더 우선 (호환성 우선)
-        decoders = [
-            "avdec_h264",      # Software decoder (libav) - most compatible
-            "openh264dec",     # OpenH264 software decoder
-            "v4l2h264dec",     # V4L2 hardware decoder (newer Raspberry Pi)
-            "omxh264dec",      # OpenMAX hardware decoder (older Raspberry Pi)
-            "h264parse"        # Last resort - just parse without decode
-        ]
+        if codec == 'h265':
+            decoders = [
+                "avdec_h265",      # Software decoder (libav) - most compatible
+                "v4l2h265dec",     # V4L2 hardware decoder (newer Raspberry Pi)
+                "h265parse"        # Last resort - just parse without decode
+            ]
+        else:  # h264
+            decoders = [
+                "avdec_h264",      # Software decoder (libav) - most compatible
+                "openh264dec",     # OpenH264 software decoder
+                "v4l2h264dec",     # V4L2 hardware decoder (newer Raspberry Pi)
+                "omxh264dec",      # OpenMAX hardware decoder (older Raspberry Pi)
+                "h264parse"        # Last resort - just parse without decode
+            ]
 
     for decoder in decoders:
         if registry.find_feature(decoder, Gst.ElementFactory.__gtype__):
-            logger.info(f"Using H264 decoder: {decoder}")
+            logger.info(f"Using {codec.upper()} decoder: {decoder}")
             return decoder
 
-    logger.warning("No H264 decoder found, using h264parse only")
-    return "h264parse"
+    logger.warning(f"No {codec.upper()} decoder found, using {codec}parse only")
+    return f"{codec}parse"
 
 
 def create_video_sink_with_properties(sink_name: str, sync: bool = True,

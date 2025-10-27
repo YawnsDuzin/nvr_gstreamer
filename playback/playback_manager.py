@@ -16,6 +16,7 @@ gi.require_version('GstVideo', '1.0')
 from gi.repository import Gst, GLib, GstVideo
 
 from utils.gstreamer_utils import get_video_sink
+from config.config_manager import ConfigManager
 
 # Core imports
 import sys
@@ -396,13 +397,20 @@ class PlaybackPipeline:
 class PlaybackManager:
     """재생 관리자"""
 
-    def __init__(self, recordings_dir: str = "recordings"):
+    def __init__(self, recordings_dir: str = None):
         """
         재생 관리자 초기화
 
         Args:
-            recordings_dir: 녹화 파일 디렉토리
+            recordings_dir: 녹화 파일 디렉토리 (None이면 설정파일에서 로드)
         """
+        # 녹화 디렉토리가 지정되지 않으면 설정파일에서 로드
+        if recordings_dir is None:
+            config_manager = ConfigManager.get_instance()
+            recording_config = config_manager.get_recording_config()
+            recordings_dir = recording_config.get('base_path', './recordings')
+            logger.debug(f"Using recordings base_path from config: {recordings_dir}")
+
         self.recordings_dir = Path(recordings_dir)
         self.playback_pipeline = None
         self.recording_files: List[RecordingFile] = []

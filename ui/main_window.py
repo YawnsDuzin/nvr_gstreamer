@@ -63,6 +63,7 @@ class MainWindow(QMainWindow):
         self._setup_status_bar()
         self._load_dock_state()  # Dock 상태를 먼저 로드
         self._setup_connections()  # 그 다음 시그널 연결
+        self._setup_cleanup_timer()  # 자동 정리 타이머 설정
 
         # fullscreen_on_start 설정 적용 (모든 UI 설정 완료 후)
         if self.config_manager.ui_config.fullscreen_on_start:
@@ -1009,6 +1010,44 @@ class MainWindow(QMainWindow):
         # Finally populate recording control
         self._populate_recording_control()
 
+        # Auto-connect cameras with streaming_enabled_start=true
+        self._auto_connect_cameras()
+
+    def _setup_cleanup_timer(self):
+        """자동 정리 타이머 설정"""
+        recording_config = self.config_manager.get_recording_config()
+
+        if not recording_config.get('auto_cleanup_enabled', True):
+            logger.info("Auto cleanup disabled")
+            return
+
+        interval_hours = recording_config.get('cleanup_interval_hours', 6)
+        interval_ms = interval_hours * 60 * 60 * 1000
+
+        self.cleanup_timer = QTimer(self)
+        self.cleanup_timer.timeout.connect(self._run_auto_cleanup)
+        self.cleanup_timer.start(interval_ms)
+
+        logger.info(f"Auto cleanup timer started: interval={interval_hours}h")
+
+        # 시작 시 정리 실행
+        if recording_config.get('cleanup_on_startup', True):
+            QTimer.singleShot(30000, self._run_auto_cleanup)  # 30초 후
+            logger.info("Cleanup on startup scheduled (30s delay)")
+
+    def _run_auto_cleanup(self):
+        """자동 정리 실행"""
+        try:
+            logger.info("Starting auto cleanup...")
+            deleted_count = self.storage_service.auto_cleanup()
+
+            if deleted_count > 0:
+                logger.success(f"Auto cleanup completed: {deleted_count} files deleted")
+            else:
+                logger.info("Auto cleanup: no files to delete")
+        except Exception as e:
+            logger.error(f"Auto cleanup failed: {e}")
+
     def _setup_status_bar(self):
         """Setup status bar with system monitoring"""
         self.status_bar = QStatusBar()
@@ -1195,6 +1234,53 @@ class MainWindow(QMainWindow):
             if not window_handle_assigned:
                 logger.warning(f"✗ Camera {camera_id} not assigned to any channel")
 
+    def _auto_connect_cameras(self):
+        """
+        프로그램 시작 시 streaming_enabled_start=true인 카메라 자동 연결
+        """
+        logger.info("Auto-connecting cameras with streaming_enabled_start=true...")
+
+        cameras = self.config_manager.get_enabled_cameras()
+
+        # streaming_enabled_start가 true인 카메라들을 찾아서 연결
+        auto_connect_count = 0
+        for camera in cameras:
+            if hasattr(camera, 'streaming_enabled_start') and camera.streaming_enabled_start:
+                logger.info(f"Auto-connecting camera: {camera.name} ({camera.camera_id})")
+
+                # camera_list에서 해당 camera_item 찾기
+                if camera.camera_id in self.camera_list.camera_items:
+                    camera_item = self.camera_list.camera_items[camera.camera_id]
+
+                    # window handle 찾기
+                    window_handle = None
+                    for channel in self.grid_view.channels:
+                        if channel.camera_id == camera.camera_id:
+                            window_handle = channel.get_window_handle()
+                            break
+
+                    if not window_handle:
+                        logger.warning(f"No window handle found for {camera.camera_id}, skipping auto-connect")
+                        continue
+
+                    # 녹화 지원 여부 확인
+                    enable_recording = camera.recording_enabled_start
+
+                    # 카메라 연결
+                    if camera_item.camera_stream.connect(window_handle=window_handle, enable_recording=enable_recording):
+                        self.camera_list.camera_connected.emit(camera.camera_id)
+                        auto_connect_count += 1
+                        logger.success(f"✓ Auto-connected camera: {camera.name}")
+                    else:
+                        logger.error(f"✗ Failed to auto-connect camera: {camera.name}")
+                else:
+                    logger.warning(f"Camera {camera.camera_id} not found in camera list")
+
+        if auto_connect_count > 0:
+            logger.info(f"Auto-connected {auto_connect_count} camera(s)")
+        else:
+            logger.info("No cameras with streaming_enabled_start=true found")
+
     def _update_window_handles_after_layout_change(self):
         """레이아웃 변경 후 윈도우 핸들 재할당 및 파이프라인 재연결"""
         logger.info("Updating window handles after layout change...")
@@ -1313,28 +1399,36 @@ class MainWindow(QMainWindow):
         if not channel_found:
             logger.warning(f"No channel found for camera {camera_id}")
 
+        # Register recording state callback from gst_pipeline for UI synchronization
+        if stream and stream.gst_pipeline:
+            def on_recording_state_change(cam_id: str, is_recording: bool):
+                """파이프라인에서 녹화 상태 변경 시 UI 업데이트"""
+                logger.debug(f"[UI SYNC] Recording state callback: {cam_id} -> {is_recording}")
+
+                # Update Grid View (streaming UI)
+                for channel in self.grid_view.channels:
+                    if channel.camera_id == cam_id:
+                        channel.set_recording(is_recording)
+                        logger.debug(f"[UI SYNC] Updated Grid View for {cam_id}: recording={is_recording}")
+                        break
+
+                # Update Recording Control Widget
+                if cam_id in self.recording_control.camera_items:
+                    self.recording_control.camera_items[cam_id].set_recording(is_recording)
+                    logger.debug(f"[UI SYNC] Updated Recording Control for {cam_id}: recording={is_recording}")
+
+                # Emit signal for recording control widget
+                if is_recording:
+                    self.recording_control.recording_started.emit(cam_id)
+                else:
+                    self.recording_control.recording_stopped.emit(cam_id)
+
+            stream.gst_pipeline.register_recording_callback(on_recording_state_change)
+            logger.debug(f"[UI SYNC] Registered recording callback for {camera_id}")
+
         # Use CameraService for auto-recording logic
         if self.camera_service.connect_camera(camera_id, stream):
             logger.debug(f"Camera service connected for {camera_id}")
-
-        # Register callbacks for UI updates
-        def on_recording_started(cam_id, recording):
-            if cam_id == camera_id:
-                # Update channel recording status
-                for channel in self.grid_view.channels:
-                    if channel.camera_id == cam_id:
-                        channel.set_recording(True)
-                        break
-
-                # Update recording control widget UI
-                if cam_id in self.recording_control.camera_items:
-                    self.recording_control.camera_items[cam_id].set_recording(True)
-                    logger.debug(f"Updated recording control widget for {cam_id}")
-
-                # Emit signal for recording control widget
-                self.recording_control.recording_started.emit(cam_id)
-
-        self.camera_service.register_callback('recording_started', on_recording_started)
 
     def _on_camera_disconnected(self, camera_id: str):
         """Handle camera disconnected"""
@@ -1632,6 +1726,10 @@ class MainWindow(QMainWindow):
 
         if hasattr(self, 'clock_timer') and self.clock_timer:
             self.clock_timer.stop()
+
+        if hasattr(self, 'cleanup_timer') and self.cleanup_timer:
+            self.cleanup_timer.stop()
+            logger.info("Cleanup timer stopped")
 
         # Stop system monitoring thread
         if self.monitor_thread:

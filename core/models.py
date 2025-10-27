@@ -15,7 +15,8 @@ class Camera:
     rtsp_url: str
     username: Optional[str] = None
     password: Optional[str] = None
-    recording_enabled: bool = False
+    streaming_enabled_start: bool = False
+    recording_enabled_start: bool = False
     use_hardware_decode: bool = False
     reconnect_attempts: int = 3
     reconnect_delay: int = 5
@@ -40,7 +41,8 @@ class Camera:
             "rtsp_url": self.rtsp_url,
             "username": self.username,
             "password": self.password,
-            "recording_enabled": self.recording_enabled,
+            "streaming_enabled_start": self.streaming_enabled_start,
+            "recording_enabled_start": self.recording_enabled_start,
             "use_hardware_decode": self.use_hardware_decode,
             "reconnect_attempts": self.reconnect_attempts,
             "reconnect_delay": self.reconnect_delay,

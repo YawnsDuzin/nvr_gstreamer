@@ -342,3 +342,4 @@ def _on_bus_message(self, bus, message):
 
 ## Korean Language Requirement
 답변 및 설명은 한글로 작성한다. (All responses and explanations should be in Korean)
+내용 요약 및 문서화 파일은 ./doc 폴더에 생성한다.

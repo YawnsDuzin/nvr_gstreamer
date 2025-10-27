@@ -48,7 +48,8 @@ class CameraConfigData:
     username: Optional[str] = None
     password: Optional[str] = None
     use_hardware_decode: bool = False
-    recording_enabled: bool = False
+    streaming_enabled_start: bool = False
+    recording_enabled_start: bool = False
     motion_detection: bool = False
 
 
@@ -90,6 +91,7 @@ class ConfigManager:
         self.cameras: List[CameraConfigData] = []
         self.logging_config: Dict[str, Any] = {}  # 로깅 설정 저장
         self.streaming_config: Dict[str, Any] = {}  # 스트리밍 설정 저장
+        self.recording_config: Dict[str, Any] = {}  # 녹화 설정 저장
         self.auto_save = auto_save  # 자동 저장 플래그
 
         # Create default config directory
@@ -189,6 +191,14 @@ class ConfigManager:
                 logger.debug("No 'streaming' section found in configuration, using defaults")
                 self.streaming_config = {}
 
+            # Load recording configuration
+            if 'recording' in data:
+                self.recording_config = data['recording']
+                logger.debug(f"Loaded recording configuration: {self.recording_config.keys()}")
+            else:
+                logger.debug("No 'recording' section found in configuration, using defaults")
+                self.recording_config = {}
+
             logger.info(f"Configuration loaded from {self.config_file}")
             logger.info(f"Loaded {len(self.cameras)} camera configurations")
 
@@ -260,7 +270,8 @@ class ConfigManager:
                 name="Main Camera",
                 rtsp_url="rtsp://admin:password@192.168.0.131:554/stream",
                 enabled=True,
-                recording_enabled=False
+                streaming_enabled_start=False,
+                recording_enabled_start=False
             )
         ]
 
@@ -379,6 +390,15 @@ class ConfigManager:
             Streaming configuration dictionary
         """
         return self.streaming_config
+
+    def get_recording_config(self) -> Dict[str, Any]:
+        """
+        Get recording configuration
+
+        Returns:
+            Recording configuration dictionary
+        """
+        return self.recording_config
 
     def get_default_layout(self) -> tuple:
         """

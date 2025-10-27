@@ -17,6 +17,7 @@ from PyQt5.QtGui import QColor, QFont
 from loguru import logger
 
 from recording.recording_manager import RecordingManager, RecordingStatus
+from config.config_manager import ConfigManager
 
 
 class RecordingStatusItem(QListWidgetItem):
@@ -292,18 +293,18 @@ class RecordingControlWidget(QWidget):
 
     def start_recording(self, camera_id: str) -> bool:
         """
-        특정 카메라 녹화 시작 (외부 호출용)
-        
+        특정 카메라 녹화 시작 (통합 녹화 함수)
+
         Args:
             camera_id: 카메라 ID
-            
+
         Returns:
             성공 여부
         """
         if camera_id not in self.cameras:
             logger.warning(f"Camera {camera_id} not found in recording control")
             return False
-            
+
         # UnifiedPipeline을 사용하는 카메라 스트림 찾기
         from ui.main_window import MainWindow
         main_window = None
@@ -311,28 +312,25 @@ class RecordingControlWidget(QWidget):
             if hasattr(widget, 'camera_list'):
                 main_window = widget
                 break
-        
+
         if not main_window or not hasattr(main_window, 'camera_list'):
             logger.error("Cannot find main window or camera list")
             return False
-            
+
         camera_stream = main_window.camera_list.get_camera_stream(camera_id)
         if not camera_stream or not camera_stream.gst_pipeline:
             logger.error(f"No pipeline found for camera {camera_id}")
             return False
 
-        # UnifiedPipeline의 녹화 시작
-        if camera_stream.gst_pipeline.start_recording():
-            if camera_id in self.camera_items:
-                self.camera_items[camera_id].set_recording(True)
-            self.recording_started.emit(camera_id)
+        # UnifiedPipeline의 녹화 시작 (콜백이 자동으로 UI 업데이트)
+        result = camera_stream.gst_pipeline.start_recording()
+        if result:
             camera_name = self.cameras[camera_id][0]
             logger.info(f"Started recording: {camera_name}")
-            return True
         else:
             camera_name = self.cameras[camera_id][0]
             logger.error(f"Failed to start recording for {camera_name}")
-            return False
+        return result
 
     def _update_status(self):
         """상태 업데이트"""
@@ -344,9 +342,14 @@ class RecordingControlWidget(QWidget):
                 item.set_recording(is_recording)
                 logger.debug(f"Recording status updated for {camera_id}: {is_recording}")
 
-        # 디스크 사용량 업데이트 (기본값 표시)
+        # 디스크 사용량 업데이트
         from pathlib import Path
-        recordings_dir = Path("recordings")
+        # 설정에서 녹화 디렉토리 가져오기
+        config_manager = ConfigManager.get_instance()
+        recording_config = config_manager.get_recording_config()
+        recordings_path = recording_config.get('base_path', './recordings')
+        recordings_dir = Path(recordings_path)
+
         if recordings_dir.exists():
             total_size = sum(f.stat().st_size for f in recordings_dir.rglob("*.*") if f.is_file())
             file_count = len(list(recordings_dir.rglob("*.*")))
@@ -360,11 +363,11 @@ class RecordingControlWidget(QWidget):
 
     def stop_recording(self, camera_id: str) -> bool:
         """
-        특정 카메라 녹화 정지 (외부 호출용)
-        
+        특정 카메라 녹화 정지 (통합 녹화 함수)
+
         Args:
             camera_id: 카메라 ID
-            
+
         Returns:
             성공 여부
         """
@@ -375,43 +378,44 @@ class RecordingControlWidget(QWidget):
             if hasattr(widget, 'camera_list'):
                 main_window = widget
                 break
-        
+
         if not main_window or not hasattr(main_window, 'camera_list'):
             logger.error("Cannot find main window or camera list")
             return False
-            
+
         camera_stream = main_window.camera_list.get_camera_stream(camera_id)
         if not camera_stream or not camera_stream.gst_pipeline:
             logger.error(f"No pipeline found for camera {camera_id}")
             return False
 
-        # UnifiedPipeline의 녹화 정지
-        if camera_stream.gst_pipeline.stop_recording():
-            if camera_id in self.camera_items:
-                self.camera_items[camera_id].set_recording(False)
-            self.recording_stopped.emit(camera_id)
+        # UnifiedPipeline의 녹화 정지 (콜백이 자동으로 UI 업데이트)
+        result = camera_stream.gst_pipeline.stop_recording()
+        if result:
             logger.info(f"Stopped recording: {camera_id}")
-            return True
-        return False
+        return result
 
     def cleanup_old_recordings(self, days: int = 7):
         """오래된 녹화 파일 정리"""
-        # 기본 녹화 디렉토리 정리
         import time
         from pathlib import Path
-        
-        recordings_dir = Path("recordings")
+
+        # 설정에서 녹화 디렉토리 가져오기
+        config_manager = ConfigManager.get_instance()
+        recording_config = config_manager.get_recording_config()
+        recordings_path = recording_config.get('base_path', './recordings')
+        recordings_dir = Path(recordings_path)
+
         if not recordings_dir.exists():
             return
-            
+
         cutoff_time = time.time() - (days * 24 * 3600)
         deleted_count = 0
-        
+
         for file_path in recordings_dir.rglob("*.*"):
             if file_path.is_file() and file_path.stat().st_mtime < cutoff_time:
                 file_path.unlink()
                 deleted_count += 1
-                
+
         logger.info(f"Cleaned up {deleted_count} old recording files")
 
     def is_recording(self, camera_id: str) -> bool:

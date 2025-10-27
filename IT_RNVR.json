@@ -55,21 +55,22 @@
       "enabled": true,
       "username": null,
       "password": null,
-      "recording_enabled": true
+      "streaming_enabled_start": true,
+      "recording_enabled_start": true
     }
   ],
   "recording": {
-    "enabled": true,
-    "base_path": "./recordings",
-    "file_format": "mp4",
-    "rotation_minutes": 10,
+    "base_path": "./recordings2",
+    "file_format": "mkv",
+    "rotation_minutes": 5,
     "retention_days": 30,
-    "max_file_size_mb": 1024,
-    "pre_record_seconds": 5,
-    "post_record_seconds": 5,
     "codec": "h264",
-    "container_format": "mp4",
-    "fragment_duration_ms": 1000
+    "fragment_duration_ms": 1000,
+    "auto_cleanup_enabled": true,
+    "cleanup_interval_hours": 6,
+    "cleanup_threshold_percent": 90,
+    "min_free_space_gb": 10,
+    "cleanup_on_startup": true
   },
   "logging": {
     "enabled": true,
