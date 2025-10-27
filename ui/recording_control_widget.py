@@ -62,6 +62,7 @@ class RecordingControlWidget(QWidget):
         self.recording_manager = recording_manager or RecordingManager()
         self.camera_items = {}  # camera_id -> RecordingStatusItem
         self.cameras = {}  # camera_id -> (name, rtsp_url)
+        self.main_window = None  # MainWindow 참조 (나중에 설정됨)
 
         self._setup_ui()
         self._setup_timer()
@@ -156,10 +157,10 @@ class RecordingControlWidget(QWidget):
         self.setLayout(layout)
 
     def _setup_timer(self):
-        """업데이트 타이머 설정"""
+        """업데이트 타이머 설정 (디스크 사용량만)"""
         self.update_timer = QTimer()
-        self.update_timer.timeout.connect(self._update_status)
-        self.update_timer.start(2000)  # 2초마다 업데이트
+        self.update_timer.timeout.connect(self._update_disk_usage)
+        self.update_timer.start(5000)  # 5초마다 디스크 사용량 업데이트
 
     def add_camera(self, camera_id: str, camera_name: str, rtsp_url: str):
         """
@@ -305,19 +306,12 @@ class RecordingControlWidget(QWidget):
             logger.warning(f"Camera {camera_id} not found in recording control")
             return False
 
-        # UnifiedPipeline을 사용하는 카메라 스트림 찾기
-        from ui.main_window import MainWindow
-        main_window = None
-        for widget in self.parent().parent().children():
-            if hasattr(widget, 'camera_list'):
-                main_window = widget
-                break
-
-        if not main_window or not hasattr(main_window, 'camera_list'):
-            logger.error("Cannot find main window or camera list")
+        # MainWindow 참조 확인
+        if not self.main_window or not hasattr(self.main_window, 'camera_list'):
+            logger.error("MainWindow reference not set or camera_list not found")
             return False
 
-        camera_stream = main_window.camera_list.get_camera_stream(camera_id)
+        camera_stream = self.main_window.camera_list.get_camera_stream(camera_id)
         if not camera_stream or not camera_stream.gst_pipeline:
             logger.error(f"No pipeline found for camera {camera_id}")
             return False
@@ -332,17 +326,8 @@ class RecordingControlWidget(QWidget):
             logger.error(f"Failed to start recording for {camera_name}")
         return result
 
-    def _update_status(self):
-        """상태 업데이트"""
-        # 녹화 상태 업데이트
-        for camera_id, item in self.camera_items.items():
-            is_recording = self.is_recording(camera_id)
-            # 상태가 변경되었을 때만 업데이트
-            if item.is_recording != is_recording:
-                item.set_recording(is_recording)
-                logger.debug(f"Recording status updated for {camera_id}: {is_recording}")
-
-        # 디스크 사용량 업데이트
+    def _update_disk_usage(self):
+        """디스크 사용량 업데이트 (타이머에서 호출)"""
         from pathlib import Path
         # 설정에서 녹화 디렉토리 가져오기
         config_manager = ConfigManager.get_instance()
@@ -358,8 +343,21 @@ class RecordingControlWidget(QWidget):
             disk_text = "Disk Usage: 0 MB (0 files)"
         self.disk_label.setText(disk_text)
 
-        # 일시정지 버튼 텍스트 업데이트 (기본값)
-        self.pause_btn.setText("❚❚ Pause")
+    def update_recording_status(self, camera_id: str, is_recording: bool):
+        """
+        녹화 상태 업데이트 (콜백에서 호출)
+
+        Args:
+            camera_id: 카메라 ID
+            is_recording: 녹화 중 여부
+        """
+        if camera_id in self.camera_items:
+            item = self.camera_items[camera_id]
+            if item.is_recording != is_recording:
+                item.set_recording(is_recording)
+                logger.info(f"[RECORDING SYNC] Recording status updated for {camera_id}: {is_recording}")
+        else:
+            logger.warning(f"Camera {camera_id} not found in recording control items")
 
     def stop_recording(self, camera_id: str) -> bool:
         """
@@ -371,19 +369,12 @@ class RecordingControlWidget(QWidget):
         Returns:
             성공 여부
         """
-        # UnifiedPipeline을 사용하는 카메라 스트림 찾기
-        from ui.main_window import MainWindow
-        main_window = None
-        for widget in self.parent().parent().children():
-            if hasattr(widget, 'camera_list'):
-                main_window = widget
-                break
-
-        if not main_window or not hasattr(main_window, 'camera_list'):
-            logger.error("Cannot find main window or camera list")
+        # MainWindow 참조 확인
+        if not self.main_window or not hasattr(self.main_window, 'camera_list'):
+            logger.error("MainWindow reference not set or camera_list not found")
             return False
 
-        camera_stream = main_window.camera_list.get_camera_stream(camera_id)
+        camera_stream = self.main_window.camera_list.get_camera_stream(camera_id)
         if not camera_stream or not camera_stream.gst_pipeline:
             logger.error(f"No pipeline found for camera {camera_id}")
             return False
@@ -421,25 +412,18 @@ class RecordingControlWidget(QWidget):
     def is_recording(self, camera_id: str) -> bool:
         """
         카메라 녹화 상태 확인 (외부 호출용)
-        
+
         Args:
             camera_id: 카메라 ID
-            
+
         Returns:
             녹화 중 여부
         """
-        # UnifiedPipeline을 사용하는 카메라 스트림 찾기
-        from ui.main_window import MainWindow
-        main_window = None
-        for widget in self.parent().parent().children():
-            if hasattr(widget, 'camera_list'):
-                main_window = widget
-                break
-        
-        if not main_window or not hasattr(main_window, 'camera_list'):
+        # MainWindow 참조 확인
+        if not self.main_window or not hasattr(self.main_window, 'camera_list'):
             return False
-            
-        camera_stream = main_window.camera_list.get_camera_stream(camera_id)
+
+        camera_stream = self.main_window.camera_list.get_camera_stream(camera_id)
         if not camera_stream or not camera_stream.gst_pipeline:
             return False
 

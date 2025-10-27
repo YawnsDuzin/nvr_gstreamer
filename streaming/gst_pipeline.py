@@ -803,7 +803,6 @@ class UnifiedPipeline:
             return False
 
         # 모든 모드에서 녹화 가능 (항상 recording branch 존재)
-        # recording_valve가 이미 열려있으면 파일명만 설정
         try:
             # 녹화 파일명 생성
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -812,15 +811,17 @@ class UnifiedPipeline:
 
             self.current_recording_file = str(date_dir / f"{self.camera_id}_{timestamp}.{self.file_format}")
 
-            # file_sink를 NULL 상태로 변경하여 파일명 안전하게 변경
+            # 파일명 설정 (NULL 상태에서만 가능)
+            logger.debug("[RECORDING DEBUG] Setting file_sink to NULL state")
             self.file_sink.set_state(Gst.State.NULL)
             self.file_sink.get_state(Gst.CLOCK_TIME_NONE)
-            
-            # 파일 싱크 설정
+
             self.file_sink.set_property("location", self.current_recording_file)
-            
+            logger.debug(f"[RECORDING DEBUG] Set file location to: {self.current_recording_file}")
+
             # file_sink를 다시 PLAYING 상태로 변경
             self.file_sink.set_state(Gst.State.PLAYING)
+            self.file_sink.get_state(Gst.CLOCK_TIME_NONE)
 
             # Valve 열기 (녹화 시작)
             self.recording_valve.set_property("drop", False)
@@ -841,6 +842,8 @@ class UnifiedPipeline:
 
         except Exception as e:
             logger.error(f"Failed to start recording: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return False
 
     def stop_recording(self) -> bool:
@@ -853,19 +856,14 @@ class UnifiedPipeline:
             # 먼저 녹화 상태를 false로 설정 (타이머 중지를 위해)
             self._is_recording = False
             self.recording_start_time = None
-            
+
             # 파일 회전 타이머 정지
             self._stop_rotation_timer()
-            
+
             # Valve 닫기 (녹화 중지)
             if self.recording_valve:
                 self.recording_valve.set_property("drop", True)
-
-            # EOS 이벤트 전송하여 파일 완료
-            if self.file_sink:
-                pad = self.file_sink.get_static_pad("sink")
-                if pad:
-                    pad.send_event(Gst.Event.new_eos())
+                logger.debug("[RECORDING DEBUG] Recording valve closed")
 
             logger.info(f"Recording stopped: {self.current_recording_file}")
 

@@ -130,6 +130,17 @@ class CameraService:
             if stream_object and hasattr(stream_object, 'gst_pipeline'):
                 pipeline = stream_object.gst_pipeline
 
+                # 이미 녹화 중인지 확인
+                if hasattr(pipeline, 'get_status'):
+                    status = pipeline.get_status()
+                    if status.get('is_recording', False):
+                        logger.info(f"Recording already started for {camera_id} (auto-started by pipeline)")
+                        # 이미 녹화 중이므로 Recording 객체만 생성
+                        recording.status = RecordingStatus.RECORDING
+                        recording.file_path = getattr(pipeline, 'current_recording_file', '')
+                        self.recordings[camera_id] = recording
+                        return True
+
                 # 녹화 모드 확인 및 설정
                 if hasattr(pipeline, 'mode'):
                     if pipeline.mode != PipelineMode.BOTH:

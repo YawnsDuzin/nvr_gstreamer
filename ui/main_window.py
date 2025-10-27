@@ -122,6 +122,7 @@ class MainWindow(QMainWindow):
             QDockWidget.DockWidgetClosable
         )
         self.recording_control = RecordingControlWidget(self.recording_manager)
+        self.recording_control.main_window = self  # MainWindow 참조 설정
         self.recording_dock.setWidget(self.recording_control)
         self.addDockWidget(Qt.RightDockWidgetArea, self.recording_dock)
 
@@ -1412,10 +1413,8 @@ class MainWindow(QMainWindow):
                         logger.debug(f"[UI SYNC] Updated Grid View for {cam_id}: recording={is_recording}")
                         break
 
-                # Update Recording Control Widget
-                if cam_id in self.recording_control.camera_items:
-                    self.recording_control.camera_items[cam_id].set_recording(is_recording)
-                    logger.debug(f"[UI SYNC] Updated Recording Control for {cam_id}: recording={is_recording}")
+                # Update Recording Control Widget (통합 메서드 사용)
+                self.recording_control.update_recording_status(cam_id, is_recording)
 
                 # Emit signal for recording control widget
                 if is_recording:

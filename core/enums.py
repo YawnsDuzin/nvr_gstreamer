@@ -39,6 +39,7 @@ class PlaybackState(Enum):
     PAUSED = "paused"
     BUFFERING = "buffering"
     SEEKING = "seeking"
+    ERROR = "error"
 
 
 class StreamQuality(Enum):
