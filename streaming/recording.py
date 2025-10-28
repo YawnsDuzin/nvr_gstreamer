@@ -20,7 +20,7 @@ from gi.repository import Gst, GLib
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from core.enums import RecordingStatus
-from config.config_manager import ConfigManager
+from core.config import ConfigManager
 
 # Note: GStreamer는 main.py에서 초기화됨
 
@@ -339,13 +339,20 @@ class RecordingPipeline:
 class RecordingManager:
     """전체 녹화 관리자"""
 
-    def __init__(self, output_dir: str = "recordings"):
+    def __init__(self, output_dir: str = None):
         """
         녹화 관리자 초기화
 
         Args:
-            output_dir: 녹화 파일 저장 디렉토리
+            output_dir: 녹화 파일 저장 디렉토리 (None이면 설정파일에서 로드)
         """
+        # 녹화 디렉토리가 지정되지 않으면 설정파일에서 로드
+        if output_dir is None:
+            config_manager = ConfigManager.get_instance()
+            recording_config = config_manager.get_recording_config()
+            output_dir = recording_config.get('base_path', './recordings')
+            logger.debug(f"Using recordings base_path from config: {output_dir}")
+
         self.output_dir = output_dir
         self.recording_pipelines: Dict[str, RecordingPipeline] = {}
         self._ensure_output_dir()

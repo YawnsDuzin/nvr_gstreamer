@@ -23,12 +23,12 @@ from ui.camera_list_widget import CameraListWidget
 from ui.camera_dialog import CameraDialog
 from ui.recording_control_widget import RecordingControlWidget
 from ui.playback_widget import PlaybackWidget
-from config.config_manager import ConfigManager
+from core.config import ConfigManager
+from core.storage import StorageService
 from streaming.camera_stream import CameraStream
-from recording.recording_manager import RecordingManager
-from playback.playback_manager import PlaybackManager
+from streaming.recording import RecordingManager
+from streaming.playback import PlaybackManager
 from utils.system_monitor import SystemMonitorThread
-from core.services import CameraService, StorageService
 
 
 class MainWindow(QMainWindow):
@@ -42,7 +42,6 @@ class MainWindow(QMainWindow):
         self.playback_manager = PlaybackManager()
 
         # Initialize core services
-        self.camera_service = CameraService(self.config_manager)
         self.storage_service = StorageService()
 
         self.grid_view = None
@@ -1238,6 +1237,9 @@ class MainWindow(QMainWindow):
     def _auto_connect_cameras(self):
         """
         프로그램 시작 시 streaming_enabled_start=true인 카메라 자동 연결
+        camera_list_widget의 _connect_camera() 기능 재사용
+
+        Note: 녹화 자동 시작은 _on_camera_connected()에서 recording_enabled_start 설정을 확인하여 처리
         """
         logger.info("Auto-connecting cameras with streaming_enabled_start=true...")
 
@@ -1245,35 +1247,22 @@ class MainWindow(QMainWindow):
 
         # streaming_enabled_start가 true인 카메라들을 찾아서 연결
         auto_connect_count = 0
+
         for camera in cameras:
             if hasattr(camera, 'streaming_enabled_start') and camera.streaming_enabled_start:
                 logger.info(f"Auto-connecting camera: {camera.name} ({camera.camera_id})")
 
-                # camera_list에서 해당 camera_item 찾기
+                # camera_list에서 해당 camera_item 찾기 및 선택
                 if camera.camera_id in self.camera_list.camera_items:
                     camera_item = self.camera_list.camera_items[camera.camera_id]
 
-                    # window handle 찾기
-                    window_handle = None
-                    for channel in self.grid_view.channels:
-                        if channel.camera_id == camera.camera_id:
-                            window_handle = channel.get_window_handle()
-                            break
+                    # 아이템 선택 (camera_list_widget의 _connect_camera가 선택된 아이템 사용)
+                    self.camera_list.list_widget.setCurrentItem(camera_item)
 
-                    if not window_handle:
-                        logger.warning(f"No window handle found for {camera.camera_id}, skipping auto-connect")
-                        continue
-
-                    # 녹화 지원 여부 확인
-                    enable_recording = camera.recording_enabled_start
-
-                    # 카메라 연결
-                    if camera_item.camera_stream.connect(window_handle=window_handle, enable_recording=enable_recording):
-                        self.camera_list.camera_connected.emit(camera.camera_id)
-                        auto_connect_count += 1
-                        logger.success(f"✓ Auto-connected camera: {camera.name}")
-                    else:
-                        logger.error(f"✗ Failed to auto-connect camera: {camera.name}")
+                    # camera_list_widget의 Connect 기능 재사용
+                    # 녹화 자동 시작은 _on_camera_connected()에서 처리
+                    self.camera_list._connect_camera()
+                    auto_connect_count += 1
                 else:
                     logger.warning(f"Camera {camera.camera_id} not found in camera list")
 
@@ -1281,6 +1270,30 @@ class MainWindow(QMainWindow):
             logger.info(f"Auto-connected {auto_connect_count} camera(s)")
         else:
             logger.info("No cameras with streaming_enabled_start=true found")
+
+    def _auto_start_recording(self, camera_id: str):
+        """
+        자동 녹화 시작 (RecordingControlWidget의 start_recording() 직접 호출)
+
+        Args:
+            camera_id: 카메라 ID
+        """
+        # 이미 녹화 중인지 확인
+        if self.recording_control.is_recording(camera_id):
+            logger.info(f"Recording already started for {camera_id} (skipping auto-start)")
+            return
+
+        # RecordingControlWidget의 start_recording() 메서드 직접 호출
+        # (UI 메시지 표시 없이 녹화만 시작)
+        if camera_id in self.recording_control.cameras:
+            if self.recording_control.start_recording(camera_id):
+                logger.success(f"✓ Auto-started recording for camera: {camera_id}")
+                # 녹화 시작 후 즉시 UI 상태 업데이트
+                self.recording_control.update_recording_status(camera_id, True)
+            else:
+                logger.error(f"✗ Failed to auto-start recording for camera: {camera_id}")
+        else:
+            logger.error(f"✗ Camera {camera_id} not found in recording control widget")
 
     def _update_window_handles_after_layout_change(self):
         """레이아웃 변경 후 윈도우 핸들 재할당 및 파이프라인 재연결"""
@@ -1425,9 +1438,12 @@ class MainWindow(QMainWindow):
             stream.gst_pipeline.register_recording_callback(on_recording_state_change)
             logger.debug(f"[UI SYNC] Registered recording callback for {camera_id}")
 
-        # Use CameraService for auto-recording logic
-        if self.camera_service.connect_camera(camera_id, stream):
-            logger.debug(f"Camera service connected for {camera_id}")
+        # 자동 녹화 체크 (RecordingControlWidget의 start_recording() 재사용)
+        camera_config = self.config_manager.get_camera(camera_id)
+        if camera_config and camera_config.recording_enabled_start:
+            logger.info(f"Auto-recording enabled for {camera_config.name} ({camera_id})")
+            # 파이프라인 준비를 위해 500ms 지연 후 녹화 시작
+            QTimer.singleShot(500, lambda: self._auto_start_recording(camera_id))
 
     def _on_camera_disconnected(self, camera_id: str):
         """Handle camera disconnected"""

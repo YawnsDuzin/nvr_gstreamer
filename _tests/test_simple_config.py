@@ -63,7 +63,7 @@ def test_simple_config():
     # Test 4: Import and test ConfigManager
     print("\n--- ConfigManager Test ---")
     try:
-        from config.config_manager import ConfigManager
+        from core.config import ConfigManager
         print("ConfigManager imported successfully")
 
         # Create ConfigManager instance

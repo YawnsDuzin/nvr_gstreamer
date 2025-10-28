@@ -17,9 +17,9 @@ import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst
 
-from config.config_manager import ConfigManager
+from core.config import ConfigManager
 from streaming.camera_stream import CameraStream
-from recording.recording_manager import RecordingManager
+from streaming.recording import RecordingManager
 
 
 def setup_logging():

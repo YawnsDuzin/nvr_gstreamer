@@ -12,7 +12,7 @@ current_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(current_dir))
 
 from loguru import logger
-from config.config_manager import ConfigManager
+from core.config import ConfigManager
 
 
 def test_logging_config():

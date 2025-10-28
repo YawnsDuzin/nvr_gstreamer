@@ -6,17 +6,17 @@
   "ui": {
     "theme": "dark",
     "show_status_bar": true,
-    "fullscreen_on_start": false,
+    "fullscreen_on_start": true,
     "window_state": {
-      "x": 1920,
+      "x": 0,
       "y": 0,
-      "width": 1931,
-      "height": 1061
+      "width": 1920,
+      "height": 1080
     },
     "dock_state": {
-      "camera_visible": true,
-      "recording_visible": true,
-      "playback_visible": true
+      "camera_visible": false,
+      "recording_visible": false,
+      "playback_visible": false
     }
   },
   "streaming": {
@@ -60,9 +60,9 @@
     }
   ],
   "recording": {
-    "base_path": "./recordings2",
+    "base_path": "./_recordings",
     "file_format": "mkv",
-    "rotation_minutes": 5,
+    "rotation_minutes": 2,
     "retention_days": 30,
     "codec": "h264",
     "fragment_duration_ms": 1000,
@@ -74,7 +74,7 @@
   },
   "logging": {
     "enabled": true,
-    "log_path": "./logs",
+    "log_path": "./_logs",
     "console": {
       "enabled": true,
       "level": "INFO",

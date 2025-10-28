@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import Optional, Dict
 from loguru import logger
 from utils.gstreamer_utils import get_video_sink, get_available_h264_decoder, get_available_decoder, create_video_sink_with_properties
-from config.config_manager import ConfigManager
+from core.config import ConfigManager
 
 # Core imports
 import sys
@@ -55,12 +55,13 @@ class UnifiedPipeline:
         self.bus = None
         self.text_overlay = None  # OSD 텍스트 오버레이
         self._timestamp_update_timer = None  # 타임스탬프 업데이트 타이머
+        self.splitmuxsink = None  # splitmuxsink 엘리먼트 (자동 파일 분할)
 
         self._is_playing = False
         self._is_recording = False
         self._main_loop = None
         self._thread = None
-        self._rotation_timer = None  # 파일 회전 타이머 추적
+        self._fragment_id = 0  # 파일 분할 ID 추적
 
         # 녹화 상태 변경 콜백
         self._recording_state_callbacks = []  # (camera_id, is_recording) 콜백 리스트
@@ -76,9 +77,9 @@ class UnifiedPipeline:
         self.current_recording_file = None
         self.recording_start_time = None
 
-        # 파일 분할 주기 (분 → 초 변환)
+        # 파일 분할 주기 (분 → 나노초 변환, splitmuxsink용)
         rotation_minutes = recording_config.get('rotation_minutes', 10)
-        self.file_duration = rotation_minutes * 60
+        self.file_duration_ns = rotation_minutes * 60 * Gst.SECOND
 
         # 파일 포맷 저장 (파일명 생성 시 사용)
         self.file_format = recording_config.get('file_format', 'mp4')
@@ -86,7 +87,7 @@ class UnifiedPipeline:
         # 비디오 코덱 저장 (depay/parse 엘리먼트 생성 시 사용)
         self.video_codec = recording_config.get('codec', 'h264')
 
-        logger.debug(f"Recording config loaded: base_path={base_path}, rotation={rotation_minutes}min ({self.file_duration}s), format={self.file_format}, codec={self.video_codec}")
+        logger.debug(f"Recording config loaded: base_path={base_path}, rotation={rotation_minutes}min, format={self.file_format}, codec={self.video_codec}")
 
     def register_recording_callback(self, callback):
         """
@@ -161,10 +162,12 @@ class UnifiedPipeline:
             if self.video_codec == 'h265' or self.video_codec == 'hevc':
                 depay = Gst.ElementFactory.make("rtph265depay", "depay")
                 parse = Gst.ElementFactory.make("h265parse", "parse")
+                parse.set_property("config-interval", 1)
                 logger.debug("Using H.265/HEVC codec")
             else:  # 기본값: h264
                 depay = Gst.ElementFactory.make("rtph264depay", "depay")
                 parse = Gst.ElementFactory.make("h264parse", "parse")
+                parse.set_property("config-interval", 1)
                 logger.debug("Using H.264 codec")
 
             if not depay or not parse:
@@ -173,8 +176,7 @@ class UnifiedPipeline:
             # Tee 엘리먼트 - 스트림 분기점
             self.tee = Gst.ElementFactory.make("tee", "tee")
             self.tee.set_property("allow-not-linked", True)
-            # 데이터 흐름 개선을 위한 설정
-            self.tee.set_property("pull-mode", 1)  # GST_TEE_PULL_MODE_SINGLE
+            logger.debug("Tee element created with allow-not-linked=True")
 
             # 엘리먼트를 파이프라인에 추가
             self.pipeline.add(rtspsrc)
@@ -230,15 +232,19 @@ class UnifiedPipeline:
 
             # 스트리밍 큐 - 낮은 지연시간을 위한 설정
             stream_queue = Gst.ElementFactory.make("queue", "stream_queue")
-            stream_queue.set_property("max-size-buffers", 5)  # 버퍼 개수 감소
-            stream_queue.set_property("max-size-time", 1 * Gst.SECOND)  # 1초 버퍼
+            stream_queue.set_property("max-size-buffers", 10)  # 버퍼 개수 증가 (5 -> 10)
+            stream_queue.set_property("max-size-time", 2 * Gst.SECOND)  # 2초 버퍼로 증가
             stream_queue.set_property("max-size-bytes", 0)  # 바이트 제한 없음
             stream_queue.set_property("leaky", 2)  # downstream leaky
-            logger.debug("Stream queue configured for low latency")
+            logger.debug("Stream queue configured - buffers=10, time=2s, leaky=downstream")
 
             # Valve 엘리먼트 - 스트리밍 on/off 제어
             self.streaming_valve = Gst.ElementFactory.make("valve", "streaming_valve")
-            self.streaming_valve.set_property("drop", False)  # 초기값은 나중에 설정
+            # 초기값은 나중에 _apply_mode_settings()에서 설정됨
+            # 하지만 파이프라인이 PLAYING 상태로 가기 위해서는 최소 하나의 sink가 데이터를 받아야 함
+            # 따라서 스트리밍 브랜치는 기본적으로 열어둠
+            self.streaming_valve.set_property("drop", False)  # False = 데이터 흐름 허용 (중요!)
+            logger.debug("[VALVE DEBUG] streaming_valve initial state: drop=False (open for pipeline startup)")
 
             # 디코더 - 설정에 따라 선택
             # use_hardware_acceleration 설정 확인
@@ -356,7 +362,8 @@ class UnifiedPipeline:
             self.video_sink = create_video_sink_with_properties(
                 video_sink_name,
                 sync=False,  # 비동기 렌더링
-                force_aspect_ratio=True
+                force_aspect_ratio=True,
+                async_handling=False  # async를 false로 설정하여 즉시 PLAYING 상태로 전환
             )
 
             if not self.video_sink:
@@ -398,28 +405,57 @@ class UnifiedPipeline:
             self.pipeline.add(self.video_sink)
 
             # 엘리먼트 연결
-            stream_queue.link(self.streaming_valve)
-            self.streaming_valve.link(decoder)
-            decoder.link(convert)
+            logger.debug("[STREAMING DEBUG] Linking streaming branch elements...")
+
+            if not stream_queue.link(self.streaming_valve):
+                raise Exception("Failed to link stream_queue → streaming_valve")
+            logger.debug("[STREAMING DEBUG] Linked: stream_queue → streaming_valve")
+
+            if not self.streaming_valve.link(decoder):
+                raise Exception("Failed to link streaming_valve → decoder")
+            logger.debug("[STREAMING DEBUG] Linked: streaming_valve → decoder")
+
+            if not decoder.link(convert):
+                raise Exception("Failed to link decoder → convert")
+            logger.debug("[STREAMING DEBUG] Linked: decoder → convert")
 
             # OSD가 활성화된 경우 convert → textoverlay → scale
             # OSD가 비활성화된 경우 convert → scale
             if self.text_overlay:
-                convert.link(self.text_overlay)
-                self.text_overlay.link(scale)
-            else:
-                convert.link(scale)
+                if not convert.link(self.text_overlay):
+                    raise Exception("Failed to link convert → text_overlay")
+                logger.debug("[STREAMING DEBUG] Linked: convert → text_overlay")
 
-            scale.link(caps_filter)
-            caps_filter.link(final_queue)
-            final_queue.link(self.video_sink)
+                if not self.text_overlay.link(scale):
+                    raise Exception("Failed to link text_overlay → scale")
+                logger.debug("[STREAMING DEBUG] Linked: text_overlay → scale")
+            else:
+                if not convert.link(scale):
+                    raise Exception("Failed to link convert → scale")
+                logger.debug("[STREAMING DEBUG] Linked: convert → scale")
+
+            if not scale.link(caps_filter):
+                raise Exception("Failed to link scale → caps_filter")
+            logger.debug("[STREAMING DEBUG] Linked: scale → caps_filter")
+
+            if not caps_filter.link(final_queue):
+                raise Exception("Failed to link caps_filter → final_queue")
+            logger.debug("[STREAMING DEBUG] Linked: caps_filter → final_queue")
+
+            if not final_queue.link(self.video_sink):
+                raise Exception("Failed to link final_queue → video_sink")
+            logger.debug("[STREAMING DEBUG] Linked: final_queue → video_sink")
 
             # Tee에서 스트리밍 큐로 연결
             tee_pad = self.tee.request_pad_simple("src_%u")
             queue_pad = stream_queue.get_static_pad("sink")
-            tee_pad.link(queue_pad)
+            link_result = tee_pad.link(queue_pad)
 
-            logger.debug("Streaming branch created")
+            if link_result != Gst.PadLinkReturn.OK:
+                raise Exception(f"Failed to link tee → stream_queue (result: {link_result})")
+            logger.debug("[STREAMING DEBUG] Linked: tee → stream_queue")
+
+            logger.debug("[STREAMING DEBUG] Streaming branch created successfully")
 
         except Exception as e:
             logger.error(f"Failed to create streaming branch: {e}")
@@ -428,7 +464,7 @@ class UnifiedPipeline:
             raise  # 상위로 예외 전파
 
     def _create_recording_branch(self):
-        """녹화 브랜치 생성"""
+        """녹화 브랜치 생성 (splitmuxsink + valve 사용)"""
         try:
             # 녹화 디렉토리 생성
             self.recording_dir.mkdir(parents=True, exist_ok=True)
@@ -438,11 +474,14 @@ class UnifiedPipeline:
             record_queue.set_property("max-size-buffers", 0)  # 버퍼 개수 제한 없음
             record_queue.set_property("max-size-time", 5 * Gst.SECOND)  # 5초 버퍼
             record_queue.set_property("max-size-bytes", 50 * 1024 * 1024)  # 50MB 버퍼
-            record_queue.set_property("leaky", 0)  # no leaky (녹화 데이터 보존)
+            record_queue.set_property("leaky", 2)  # downstream leaky
+
+            logger.debug("[RECORDING DEBUG] Record queue configured")
 
             # Valve 엘리먼트 - 녹화 on/off 제어
             self.recording_valve = Gst.ElementFactory.make("valve", "recording_valve")
             self.recording_valve.set_property("drop", True)  # 초기에는 녹화 중지
+            logger.debug("[VALVE DEBUG] recording_valve initial state: drop=True (closed)")
 
             # Parse 엘리먼트 - 녹화용 (코덱에 따라 선택)
             if self.video_codec == 'h265' or self.video_codec == 'hevc':
@@ -455,57 +494,54 @@ class UnifiedPipeline:
             if not record_parse:
                 raise Exception(f"Failed to create record_parse for codec: {self.video_codec}")
 
-            # 녹화 설정 로드
-            config = ConfigManager.get_instance()
-            recording_config = config.get_recording_config()
+            # 키프레임 설정
+            record_parse.set_property("config-interval", 1)  # 1초마다 키프레임 확인
 
-            # 파일 포맷 설정 (기본값: mp4)
-            file_format = recording_config.get('file_format', 'mp4')
-            fragment_duration = recording_config.get('fragment_duration_ms', 1000)
+            # splitmuxsink 생성 (자동 파일 분할 지원)
+            self.splitmuxsink = Gst.ElementFactory.make("splitmuxsink", "splitmuxsink")
+            if not self.splitmuxsink:
+                raise Exception("Failed to create splitmuxsink")
 
-            # 포맷에 따라 적절한 Muxer 선택
-            if file_format == 'mp4':
-                muxer = Gst.ElementFactory.make("mp4mux", "muxer")
-                if muxer:
-                    muxer.set_property("fragment-duration", fragment_duration)
-                    muxer.set_property("streamable", True)
-                    muxer.set_property("faststart", True)
-                    muxer.set_property("movie-timescale", 90000)
-                    logger.debug(f"MP4 muxer created with fragment-duration={fragment_duration}ms")
-            elif file_format == 'mkv':
-                muxer = Gst.ElementFactory.make("matroskamux", "muxer")
-                if muxer:
-                    muxer.set_property("streamable", True)
-                    logger.debug("Matroska (MKV) muxer created")
-            elif file_format == 'avi':
-                muxer = Gst.ElementFactory.make("avimux", "muxer")
-                logger.debug("AVI muxer created")
+            # 파일 분할 시간 설정 (나노초 단위)
+            self.splitmuxsink.set_property("max-size-time", self.file_duration_ns)
+            logger.debug(f"[RECORDING DEBUG] splitmuxsink max-size-time: {self.file_duration_ns / Gst.SECOND}s")
+
+            # muxer 설정 (파일 포맷에 따라)
+            if self.file_format == 'mp4':
+                muxer_factory = "mp4mux"
+            elif self.file_format == 'mkv':
+                muxer_factory = "matroskamux"
+            elif self.file_format == 'avi':
+                muxer_factory = "avimux"
             else:
-                logger.warning(f"Unsupported file format '{file_format}', using MP4")
-                muxer = Gst.ElementFactory.make("mp4mux", "muxer")
-                if muxer:
-                    muxer.set_property("fragment-duration", fragment_duration)
-                    muxer.set_property("streamable", True)
-                    muxer.set_property("faststart", True)
+                logger.warning(f"Unsupported format '{self.file_format}', using matroskamux")
+                muxer_factory = "matroskamux"
 
-            if not muxer:
-                raise Exception(f"Failed to create muxer for format: {file_format}")
+            self.splitmuxsink.set_property("muxer-factory", muxer_factory)
 
-            # 파일 싱크
-            self.file_sink = Gst.ElementFactory.make("filesink", "filesink")
+            # muxer 속성 설정 (mp4의 경우 fragment 설정)
+            if self.file_format == 'mp4':
+                # mp4mux 속성 설정을 위한 문자열
+                self.splitmuxsink.set_property("muxer-properties",
+                    "fragment-duration=1000,streamable=true")
 
-            # 기본 파일명 설정 (녹화 시작 시 실제 파일명으로 변경됨)
-            temp_file = self.recording_dir / f"{self.camera_id}_temp.{self.file_format}"
-            self.file_sink.set_property("location", str(temp_file))
+            # splitmuxsink 설정
+            self.splitmuxsink.set_property("async-handling", True)  # 비동기 처리
+            self.splitmuxsink.set_property("send-keyframe-requests", True)  # 키프레임 요청
+
+            # format-location 시그널 연결 - 파일명 동적 생성
+            self._recording_fragment_id = 0
+            self.splitmuxsink.connect("format-location", self._on_format_location)
+
+            logger.debug(f"[RECORDING DEBUG] splitmuxsink configured with format-location handler")
 
             # 엘리먼트를 파이프라인에 추가
             self.pipeline.add(record_queue)
             self.pipeline.add(self.recording_valve)
             self.pipeline.add(record_parse)
-            self.pipeline.add(muxer)
-            self.pipeline.add(self.file_sink)
+            self.pipeline.add(self.splitmuxsink)
 
-            # 엘리먼트 연결: queue → valve → h264parse → muxer → filesink
+            # 엘리먼트 연결: queue → valve → parse → splitmuxsink
             logger.debug("[RECORDING DEBUG] Linking recording branch elements...")
 
             if not record_queue.link(self.recording_valve):
@@ -516,13 +552,9 @@ class UnifiedPipeline:
                 raise Exception("Failed to link recording_valve → record_parse")
             logger.debug("[RECORDING DEBUG] Linked: recording_valve → record_parse")
 
-            if not record_parse.link(muxer):
-                raise Exception("Failed to link record_parse → muxer")
-            logger.debug("[RECORDING DEBUG] Linked: record_parse → muxer")
-
-            if not muxer.link(self.file_sink):
-                raise Exception("Failed to link muxer → file_sink")
-            logger.debug("[RECORDING DEBUG] Linked: muxer → file_sink")
+            if not record_parse.link(self.splitmuxsink):
+                raise Exception("Failed to link record_parse → splitmuxsink")
+            logger.debug("[RECORDING DEBUG] Linked: record_parse → splitmuxsink")
 
             # Tee에서 녹화 큐로 연결
             tee_pad = self.tee.request_pad_simple("src_%u")
@@ -533,13 +565,15 @@ class UnifiedPipeline:
                 raise Exception(f"Failed to link tee → record_queue (result: {link_result})")
             logger.debug("[RECORDING DEBUG] Linked: tee → record_queue")
 
-            logger.info("[RECORDING DEBUG] Recording branch created successfully")
+            logger.info("[RECORDING DEBUG] Recording branch created successfully with splitmuxsink")
 
         except Exception as e:
             logger.error(f"Failed to create recording branch: {e}")
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
             raise  # 상위로 예외 전파
+
+
 
     def _on_pad_added(self, src, pad, depay):
         """RTSP 소스의 동적 패드 연결"""
@@ -580,16 +614,12 @@ class UnifiedPipeline:
             logger.debug(f"Error debug info: {debug}")
 
             # 녹화 관련 엘리먼트에서 에러 발생 시 특별 처리
-            if src_name in ["filesink", "muxer", "record_parse", "recording_valve", "record_queue"]:
+            if src_name in ["splitmuxsink", "record_parse", "recording_valve", "record_queue"]:
                 logger.error(f"[RECORDING DEBUG] Recording branch error from {src_name}: {err}")
                 # 녹화 valve 상태 확인
                 if self.recording_valve:
                     valve_drop = self.recording_valve.get_property("drop")
                     logger.error(f"[RECORDING DEBUG] Current recording_valve drop={valve_drop}")
-                # file_sink location 확인
-                if self.file_sink:
-                    location = self.file_sink.get_property("location")
-                    logger.error(f"[RECORDING DEBUG] Current file_sink location: {location}")
 
             # Video sink 에러인 경우 (윈도우 핸들 없음 또는 테스트 모드)
             # 에러를 로깅하지만 파이프라인은 계속 실행
@@ -614,7 +644,7 @@ class UnifiedPipeline:
             warn, debug = message.parse_warning()
             src_name = message.src.get_name() if message.src else "unknown"
             logger.warning(f"Pipeline warning from {src_name}: {warn}")
-            if src_name in ["filesink", "muxer", "record_parse", "recording_valve"]:
+            if src_name in ["splitmuxsink", "record_parse", "recording_valve"]:
                 logger.warning(f"[RECORDING DEBUG] Recording branch warning: {warn}")
 
     def start(self) -> bool:
@@ -648,39 +678,27 @@ class UnifiedPipeline:
                 return False
 
             # 녹화 파일명 설정 (READY 상태에서 안전하게 설정)
-            # GStreamer filesink는 NULL 상태에서만 location을 변경할 수 있으므로
-            # READY 상태 전에 설정해야 함
+            # splitmuxsink는 location 패턴을 사용하여 자동으로 파일을 생성
             if self.mode in [PipelineMode.RECORDING_ONLY, PipelineMode.BOTH]:
                 # recording_valve의 drop 속성 확인
                 valve_drop = self.recording_valve.get_property("drop")
                 logger.debug(f"[RECORDING DEBUG] Mode: {self.mode.value}, recording_valve drop: {valve_drop}")
 
                 if not valve_drop:  # drop=False면 녹화 예정
-                    # 녹화 파일명 생성 (아직 설정되지 않은 경우)
+                    # 녹화 파일명 패턴 생성 (아직 설정되지 않은 경우)
                     if not self.current_recording_file:
                         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                         date_dir = self.recording_dir / datetime.now().strftime("%Y%m%d")
                         date_dir.mkdir(exist_ok=True)
+                        # splitmuxsink용 파일명 패턴 (%05d는 파일 인덱스)
+                        location_pattern = str(date_dir / f"{self.camera_id}_{timestamp}_%05d.{self.file_format}")
+
+                        # splitmuxsink location 설정
+                        if self.splitmuxsink:
+                            self.splitmuxsink.set_property("location", location_pattern)
+
                         self.current_recording_file = str(date_dir / f"{self.camera_id}_{timestamp}.{self.file_format}")
-
-                        # CRITICAL: file_sink는 현재 READY 상태인데, location 변경을 위해 NULL로 전환
-                        logger.debug(f"[RECORDING DEBUG] Setting file_sink to NULL state for location change")
-                        self.file_sink.set_state(Gst.State.NULL)
-                        self.file_sink.get_state(Gst.CLOCK_TIME_NONE)  # 상태 변경 대기
-
-                        # file_sink 파일명 설정 (NULL 상태에서만 가능)
-                        logger.debug(f"[RECORDING DEBUG] Setting file_sink location to: {self.current_recording_file}")
-                        self.file_sink.set_property("location", self.current_recording_file)
-
-                        # 설정된 값 확인
-                        actual_location = self.file_sink.get_property("location")
-                        logger.info(f"[RECORDING DEBUG] Recording file set: {self.current_recording_file}")
-                        logger.debug(f"[RECORDING DEBUG] Verified file_sink location: {actual_location}")
-
-                        # file_sink를 다시 READY 상태로 전환 (파이프라인과 동기화)
-                        logger.debug(f"[RECORDING DEBUG] Restoring file_sink to READY state")
-                        self.file_sink.set_state(Gst.State.READY)
-                        self.file_sink.get_state(Gst.CLOCK_TIME_NONE)  # 상태 변경 대기
+                        logger.info(f"[RECORDING DEBUG] Initial recording pattern set: {location_pattern}")
                 else:
                     logger.debug(f"[RECORDING DEBUG] Recording valve is closed (drop=True), skipping file setup")
 
@@ -693,11 +711,9 @@ class UnifiedPipeline:
                     err, debug = bus_msg.parse_error()
                     logger.error(f"Error detail: {err}, Debug: {debug}")
                 return False
-
-            # 라이브 소스는 즉시 성공하거나 비동기로 처리됨
             elif ret in [Gst.StateChangeReturn.SUCCESS, Gst.StateChangeReturn.NO_PREROLL]:
+                # 라이브 소스는 즉시 성공하거나 비동기로 처리됨
                 logger.debug("Pipeline started immediately (live source detected)")
-
             elif ret == Gst.StateChangeReturn.ASYNC:
                 logger.debug("Pipeline state change is asynchronous, checking state...")
                 # 라이브 소스는 빠르게 연결되므로 짧은 대기 시간 (3초)
@@ -728,6 +744,10 @@ class UnifiedPipeline:
             self._is_playing = True
             logger.debug(f"Pipeline successfully started for {self.camera_name}")
 
+            # PLAYING 상태 전환 후 valve 상태 재적용 (상태 변경 시 리셋될 수 있음)
+            logger.debug("[VALVE DEBUG] Re-applying valve settings after successful PLAYING state transition")
+            self._apply_mode_settings()
+
             # 녹화 상태 동기화: RECORDING_ONLY 또는 BOTH 모드에서 recording_valve가 열려있으면 녹화 중
             if self.mode in [PipelineMode.RECORDING_ONLY, PipelineMode.BOTH]:
                 # recording_valve의 drop 속성 확인
@@ -735,11 +755,24 @@ class UnifiedPipeline:
                 logger.debug(f"[RECORDING DEBUG] Post-PLAYING state - Mode: {self.mode.value}, valve drop: {valve_drop}")
 
                 if not valve_drop:  # drop=False면 녹화 중
+                    # 녹화 파일명 패턴 생성
+                    if not self.current_recording_file:
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        date_dir = self.recording_dir / datetime.now().strftime("%Y%m%d")
+                        date_dir.mkdir(exist_ok=True)
+                        location_pattern = str(date_dir / f"{self.camera_id}_{timestamp}_%05d.{self.file_format}")
+                        
+                        # splitmuxsink location 설정
+                        if self.splitmuxsink:
+                            self.splitmuxsink.set_property("location", location_pattern)
+                        
+                        self.current_recording_file = str(date_dir / f"{self.camera_id}_{timestamp}.{self.file_format}")
+                    
                     self._is_recording = True
                     self.recording_start_time = time.time()
-                    # 파일 회전 타이머 시작
-                    self._schedule_file_rotation()
-                    logger.info(f"[RECORDING DEBUG] Auto-recording started: {self.current_recording_file}")
+                    self._fragment_id += 1
+                    
+                    logger.info(f"[RECORDING DEBUG] Auto-recording started with splitmuxsink: {self.current_recording_file}")
                     logger.debug(f"[RECORDING DEBUG] Recording state: _is_recording={self._is_recording}, file={self.current_recording_file}")
 
                     # 녹화 시작 콜백 호출 (UI 동기화)
@@ -793,7 +826,7 @@ class UnifiedPipeline:
             logger.info(f"Pipeline stopped for {self.camera_name}")
 
     def start_recording(self) -> bool:
-        """녹화 시작"""
+        """녹화 시작 (splitmuxsink + valve 사용)"""
         if not self._is_playing:
             logger.error("Pipeline is not running")
             return False
@@ -802,38 +835,39 @@ class UnifiedPipeline:
             logger.warning(f"Already recording: {self.camera_name}")
             return False
 
-        # 모든 모드에서 녹화 가능 (항상 recording branch 존재)
         try:
-            # 녹화 파일명 생성
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # 녹화 디렉토리 생성 (날짜별)
             date_dir = self.recording_dir / datetime.now().strftime("%Y%m%d")
             date_dir.mkdir(exist_ok=True)
 
+            # 녹화 파일명 생성 (format-location 핸들러에서 사용)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             self.current_recording_file = str(date_dir / f"{self.camera_id}_{timestamp}.{self.file_format}")
+            self._recording_fragment_id = 0  # 프래그먼트 ID 초기화
 
-            # 파일명 설정 (NULL 상태에서만 가능)
-            logger.debug("[RECORDING DEBUG] Setting file_sink to NULL state")
-            self.file_sink.set_state(Gst.State.NULL)
-            self.file_sink.get_state(Gst.CLOCK_TIME_NONE)
+            # valve 상태 확인
+            if self.recording_valve:
+                valve_drop = self.recording_valve.get_property("drop")
+                if not valve_drop:
+                    logger.error("[RECORDING DEBUG] Valve is already open!")
+                    return False
 
-            self.file_sink.set_property("location", self.current_recording_file)
-            logger.debug(f"[RECORDING DEBUG] Set file location to: {self.current_recording_file}")
-
-            # file_sink를 다시 PLAYING 상태로 변경
-            self.file_sink.set_state(Gst.State.PLAYING)
-            self.file_sink.get_state(Gst.CLOCK_TIME_NONE)
-
-            # Valve 열기 (녹화 시작)
-            self.recording_valve.set_property("drop", False)
-
+            # 상태 업데이트 (valve 열기 전에 설정)
             self._is_recording = True
             self.recording_start_time = time.time()
 
-            # 파일 회전 타이머 시작 (기존 타이머가 있으면 정지)
-            self._stop_rotation_timer()
-            self._schedule_file_rotation()
+            logger.info(f"[RECORDING DEBUG] Recording state set, base file: {self.current_recording_file}")
+
+            # 짧은 대기 후 Valve 열기 (location 설정이 완료되도록)
+            time.sleep(0.1)
+
+            # Valve 열기 (녹화 시작)
+            if self.recording_valve:
+                self.recording_valve.set_property("drop", False)
+                logger.debug("[RECORDING DEBUG] Recording valve opened")
 
             logger.success(f"Recording started: {self.current_recording_file}")
+            logger.info(f"Files will be split every {self.file_duration_ns / Gst.SECOND}s, using format-location handler")
 
             # 녹화 시작 콜백 호출 (UI 동기화)
             self._notify_recording_state_change(True)
@@ -847,25 +881,46 @@ class UnifiedPipeline:
             return False
 
     def stop_recording(self) -> bool:
-        """녹화 정지"""
+        """녹화 정지 (splitmuxsink + valve 사용)"""
         if not self._is_recording:
             logger.warning(f"Not recording: {self.camera_name}")
             return False
 
         try:
-            # 먼저 녹화 상태를 false로 설정 (타이머 중지를 위해)
-            self._is_recording = False
-            self.recording_start_time = None
-
-            # 파일 회전 타이머 정지
-            self._stop_rotation_timer()
+            logger.info(f"Stopping recording for {self.camera_name}...")
 
             # Valve 닫기 (녹화 중지)
             if self.recording_valve:
                 self.recording_valve.set_property("drop", True)
                 logger.debug("[RECORDING DEBUG] Recording valve closed")
 
-            logger.info(f"Recording stopped: {self.current_recording_file}")
+            # splitmuxsink에 EOS 이벤트 전송 (현재 파일을 깔끔하게 종료)
+            if self.splitmuxsink:
+                # splitmuxsink의 split-now 신호를 발생시켜 현재 파일을 마무리하고 새 파일 시작
+                try:
+                    self.splitmuxsink.emit("split-now")
+                    logger.debug("[RECORDING DEBUG] Emitted split-now signal to splitmuxsink")
+                except:
+                    # split-now가 실패하면 sink pad에 EOS 전송
+                    pad = self.splitmuxsink.get_static_pad("video")
+                    if not pad:
+                        # video pad가 없으면 sink pad 시도
+                        pad = self.splitmuxsink.get_static_pad("sink")
+
+                    if pad:
+                        pad.send_event(Gst.Event.new_eos())
+                        logger.debug("[RECORDING DEBUG] Sent EOS event to splitmuxsink pad")
+
+            # 짧은 대기 시간 (EOS 처리 및 파일 완료 대기)
+            time.sleep(0.5)  # 0.2초에서 0.5초로 증가
+
+            # 녹화 상태 업데이트
+            self._is_recording = False
+            self.recording_start_time = None
+            saved_file = self.current_recording_file
+            self.current_recording_file = None  # 파일 경로 초기화
+
+            logger.info(f"Recording stopped: {saved_file}")
 
             # 녹화 정지 콜백 호출 (UI 동기화)
             self._notify_recording_state_change(False)
@@ -874,62 +929,51 @@ class UnifiedPipeline:
 
         except Exception as e:
             logger.error(f"Failed to stop recording: {e}")
+            # 에러 발생 시에도 상태 업데이트
+            self._is_recording = False
+            self.recording_start_time = None
+            self.current_recording_file = None
             return False
 
-    def _rotate_recording_file(self):
-        """녹화 파일 회전"""
+    def _on_format_location(self, splitmux, fragment_id):
+        """
+        splitmuxsink의 format-location 시그널 핸들러
+        새 파일이 생성될 때마다 호출됨
+
+        Args:
+            splitmux: splitmuxsink 엘리먼트 (사용되지 않음)
+            fragment_id: 현재 프래그먼트 인덱스
+
+        Returns:
+            str: 생성할 파일 경로 (형식: {camera_id}_{timestamp}.{format})
+        """
         if not self._is_recording:
-            return
-
-        logger.info(f"Rotating recording file for {self.camera_name}")
-
-        try:
-            # 새 파일명 생성
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # 녹화 중이 아니면 기본 경로 반환
             date_dir = self.recording_dir / datetime.now().strftime("%Y%m%d")
             date_dir.mkdir(exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            return str(date_dir / f"{self.camera_id}_temp_{timestamp}.{self.file_format}")
 
-            old_file = self.current_recording_file
-            self.current_recording_file = str(date_dir / f"{self.camera_id}_{timestamp}.{self.file_format}")
-            
-            # 파일 싱크 위치 변경 (GStreamer가 자동으로 새 파일 생성)
-            self.file_sink.set_property("location", self.current_recording_file)
-            
-            # 녹화 시작 시간 업데이트
-            self.recording_start_time = time.time()
-            
-            logger.info(f"Rotated from {old_file} to {self.current_recording_file}")
-            
-        except Exception as e:
-            logger.error(f"Failed to rotate recording file: {e}")
-            # 회전 실패 시 녹화 중지
-            self.stop_recording()
+        # 매 fragment마다 새로운 timestamp로 파일 생성
+        # 형식: cam_01_20251028_143000.mp4 (기존 형식과 동일)
+        date_dir = self.recording_dir / datetime.now().strftime("%Y%m%d")
+        date_dir.mkdir(exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        file_path = str(date_dir / f"{self.camera_id}_{timestamp}.{self.file_format}")
 
-    def _schedule_file_rotation(self):
-        """파일 회전 스케줄링"""
-        def check_rotation():
-            if self._is_recording and self.recording_start_time:
-                elapsed = time.time() - self.recording_start_time
-                if elapsed >= self.file_duration:
-                    self._rotate_recording_file()
+        logger.info(f"[RECORDING DEBUG] Creating recording file: {file_path} (fragment #{fragment_id})")
+        self._recording_fragment_id = fragment_id
 
-                # 다음 체크 스케줄 (녹화 중일 때만)
-                if self._is_recording:
-                    self._rotation_timer = threading.Timer(10.0, check_rotation)
-                    self._rotation_timer.daemon = True
-                    self._rotation_timer.start()
+        return file_path
 
-        # 첫 체크 스케줄
-        self._rotation_timer = threading.Timer(10.0, check_rotation)
-        self._rotation_timer.daemon = True
-        self._rotation_timer.start()
-        
-    def _stop_rotation_timer(self):
-        """파일 회전 타이머 정지"""
-        if self._rotation_timer:
-            self._rotation_timer.cancel()
-            self._rotation_timer = None
-            logger.debug("File rotation timer stopped")
+    def _delayed_valve_open(self):
+        """지연된 valve 열기 (키프레임 대기 후) - 이제 사용되지 않음"""
+        # 이 메서드는 더 이상 사용되지 않지만 호환성을 위해 유지
+        logger.debug("[KEYFRAME] _delayed_valve_open called but no longer used")
+
+
+
+
 
     def _run_main_loop(self):
         """메인 루프 실행"""
@@ -991,8 +1035,7 @@ class UnifiedPipeline:
                 ("record_queue", "recording queue"),
                 ("recording_valve", "recording valve"),
                 ("record_parse", "recording h264parse"),
-                ("muxer", "mp4mux"),
-                ("filesink", "file sink")
+                ("splitmuxsink", "splitmuxsink")
             ]
             for name, description in recording_elements:
                 element = self.pipeline.get_by_name(name)
@@ -1001,7 +1044,7 @@ class UnifiedPipeline:
                     return False
                 logger.debug(f"Verified element: {name} ({element.get_factory().get_name()})")
 
-            logger.debug("Pipeline element verification successful - all branches present")
+            logger.debug("Pipeline element verification successful - all branches present with splitmuxsink")
             return True
 
         except Exception as e:
@@ -1016,25 +1059,40 @@ class UnifiedPipeline:
             logger.error("Valves not initialized - cannot apply mode settings")
             return
 
-        logger.debug(f"[VALVE DEBUG] Applying mode settings for: {self.mode.value}")
+        # 현재 valve 상태 확인
+        current_stream_drop = self.streaming_valve.get_property("drop")
+        current_record_drop = self.recording_valve.get_property("drop")
+        logger.info(f"[VALVE DEBUG] Current valve states before mode change - Streaming: drop={current_stream_drop}, Recording: drop={current_record_drop}")
+        logger.info(f"[VALVE DEBUG] Applying mode settings for: {self.mode.value}")
 
         if self.mode == PipelineMode.STREAMING_ONLY:
             # 스트리밍만: streaming valve 열림, recording valve 닫힘
             self.streaming_valve.set_property("drop", False)
             self.recording_valve.set_property("drop", True)
-            logger.debug(f"[VALVE DEBUG] Mode: STREAMING_ONLY - Streaming valve drop={self.streaming_valve.get_property('drop')}, Recording valve drop={self.recording_valve.get_property('drop')}")
+            logger.info(f"[VALVE DEBUG] Mode: STREAMING_ONLY - Setting Streaming valve drop=False (open), Recording valve drop=True (closed)")
 
         elif self.mode == PipelineMode.RECORDING_ONLY:
             # 녹화만: streaming valve 닫힘, recording valve 열림 (즉시 녹화 시작)
             self.streaming_valve.set_property("drop", True)
             self.recording_valve.set_property("drop", False)
-            logger.debug(f"[VALVE DEBUG] Mode: RECORDING_ONLY - Streaming valve drop={self.streaming_valve.get_property('drop')}, Recording valve drop={self.recording_valve.get_property('drop')}")
+            logger.info(f"[VALVE DEBUG] Mode: RECORDING_ONLY - Setting Streaming valve drop=True (closed), Recording valve drop=False (open)")
 
         elif self.mode == PipelineMode.BOTH:
             # 둘 다: streaming valve 열림, recording valve 열림 (즉시 녹화 시작)
             self.streaming_valve.set_property("drop", False)
             self.recording_valve.set_property("drop", False)
-            logger.debug(f"[VALVE DEBUG] Mode: BOTH - Streaming valve drop={self.streaming_valve.get_property('drop')}, Recording valve drop={self.recording_valve.get_property('drop')}")
+            logger.info(f"[VALVE DEBUG] Mode: BOTH - Setting Streaming valve drop=False (open), Recording valve drop=False (open)")
+
+        # 실제 설정값 확인
+        actual_stream_drop = self.streaming_valve.get_property("drop")
+        actual_record_drop = self.recording_valve.get_property("drop")
+        logger.info(f"[VALVE DEBUG] Valve states after mode change - Streaming: drop={actual_stream_drop}, Recording: drop={actual_record_drop}")
+
+        # 변경 사항 확인
+        if actual_stream_drop != (self.mode == PipelineMode.RECORDING_ONLY):
+            logger.warning(f"[VALVE DEBUG] Streaming valve state mismatch! Expected drop={self.mode == PipelineMode.RECORDING_ONLY}, Actual={actual_stream_drop}")
+        if actual_record_drop != (self.mode == PipelineMode.STREAMING_ONLY):
+            logger.warning(f"[VALVE DEBUG] Recording valve state mismatch! Expected drop={self.mode == PipelineMode.STREAMING_ONLY}, Actual={actual_record_drop}")
 
     def set_mode(self, mode: PipelineMode):
         """파이프라인 모드 변경 (런타임 중 변경 가능)"""

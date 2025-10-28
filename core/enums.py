@@ -42,6 +42,7 @@ class PlaybackState(Enum):
     ERROR = "error"
 
 
+# 현재 사용되지 않음
 class StreamQuality(Enum):
     """스트림 품질 설정"""
     LOW = "low"      # 480p

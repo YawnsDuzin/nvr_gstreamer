@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import Qt
 from loguru import logger
 from ui.main_window import MainWindow
-from config.config_manager import ConfigManager
+from core.config import ConfigManager
 
 
 def setup_logging(debug: bool = False, config_file: str = None):

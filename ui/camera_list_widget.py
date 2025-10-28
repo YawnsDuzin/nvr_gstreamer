@@ -6,7 +6,7 @@ Manages and displays list of configured cameras
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QListWidget,
     QListWidgetItem, QPushButton, QLabel, QMenu,
-    QAction, QMessageBox, QToolBar
+    QAction, QMessageBox, QGroupBox
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 from PyQt5.QtGui import QIcon, QColor, QFont
@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from ui.camera_dialog import CameraDialog
-from config.config_manager import ConfigManager, CameraConfigData
+from core.config import ConfigManager, CameraConfigData
 from streaming.camera_stream import CameraStream, CameraConfig
 
 
@@ -83,23 +83,9 @@ class CameraListWidget(QWidget):
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # Header
-        # header = QLabel("Cameras")
-        # header.setStyleSheet("""
-        #     QLabel {
-        #         background-color: #2a2a2a;
-        #         color: #ffffff;
-        #         padding: 10px;
-        #         font-size: 14px;
-        #         font-weight: bold;
-        #         border-bottom: 1px solid #3a3a3a;
-        #     }
-        # """)
-        # layout.addWidget(header)
-
-        # Toolbar
-        toolbar = self._create_toolbar()
-        layout.addWidget(toolbar)
+        # Camera Streaming Status GroupBox
+        status_group = QGroupBox("Camera Streaming Status")
+        status_layout = QVBoxLayout()
 
         # Camera list
         self.list_widget = QListWidget()
@@ -109,7 +95,13 @@ class CameraListWidget(QWidget):
         self.list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
         self.list_widget.customContextMenuRequested.connect(self._show_context_menu)
 
-        layout.addWidget(self.list_widget)
+        status_layout.addWidget(self.list_widget)
+        status_group.setLayout(status_layout)
+        layout.addWidget(status_group)
+
+        # Toolbar buttons
+        toolbar = self._create_toolbar()
+        layout.addWidget(toolbar)
 
         # Status bar
         self.status_label = QLabel("0 cameras configured")
@@ -122,47 +114,51 @@ class CameraListWidget(QWidget):
 
     def _create_toolbar(self):
         """Create toolbar with camera actions"""
-        toolbar = QWidget()
-        # Use theme from main window - no hardcoded style
+        toolbar_group = QGroupBox("Camera Controls")
+        layout = QVBoxLayout()
 
-        layout = QHBoxLayout()
-        layout.setContentsMargins(5, 5, 5, 5)
-        layout.setSpacing(5)
+        # Management buttons row
+        management_layout = QHBoxLayout()
+        management_layout.setSpacing(5)
 
         # Add button
-        add_btn = QPushButton("➕")
+        add_btn = QPushButton("➕ Add")
         add_btn.setToolTip("Add Camera")
         add_btn.clicked.connect(self._add_camera)
-        layout.addWidget(add_btn)
+        management_layout.addWidget(add_btn)
 
         # Edit button
-        edit_btn = QPushButton("✏️")
+        edit_btn = QPushButton("✏️ Edit")
         edit_btn.setToolTip("Edit Camera")
         edit_btn.clicked.connect(self._edit_camera)
-        layout.addWidget(edit_btn)
+        management_layout.addWidget(edit_btn)
 
         # Remove button
-        remove_btn = QPushButton("🗑️")
+        remove_btn = QPushButton("🗑️ Remove")
         remove_btn.setToolTip("Remove Camera")
         remove_btn.clicked.connect(self._remove_camera)
-        layout.addWidget(remove_btn)
+        management_layout.addWidget(remove_btn)
 
-        layout.addStretch()
+        layout.addLayout(management_layout)
+
+        # Connection buttons row
+        connection_layout = QHBoxLayout()
+        connection_layout.setSpacing(5)
 
         # Connect all button
-        connect_all_btn = QPushButton("Connect All")
+        connect_all_btn = QPushButton("🔗 Connect All")
         connect_all_btn.clicked.connect(self._connect_all)
-        layout.addWidget(connect_all_btn)
+        connection_layout.addWidget(connect_all_btn)
 
         # Disconnect all button
-        disconnect_all_btn = QPushButton("Disconnect All")
+        disconnect_all_btn = QPushButton("⛓️ Disconnect All")
         disconnect_all_btn.clicked.connect(self._disconnect_all)
-        layout.addWidget(disconnect_all_btn)
+        connection_layout.addWidget(disconnect_all_btn)
 
-        toolbar.setLayout(layout)
+        layout.addLayout(connection_layout)
 
-        # Use theme from main window - no hardcoded button styles
-        return toolbar
+        toolbar_group.setLayout(layout)
+        return toolbar_group
 
     def _setup_context_menu(self):
         """Setup context menu for camera items"""

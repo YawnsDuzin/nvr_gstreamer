@@ -17,7 +17,7 @@ current_dir = Path(__file__).parent
 sys.path.insert(0, str(current_dir))
 
 from ui.main_window import MainWindow
-from config.config_manager import ConfigManager
+from core.config import ConfigManager
 
 
 def setup_logging(debug: bool = False):
@@ -115,8 +115,8 @@ def main():
         # GUI 없이 녹화만 실행
         logger.info("헤드리스 모드: GUI 없이 녹화만 실행")
 
-        from recording.recording_manager import RecordingManager
-        from config.config_manager import ConfigManager
+        from streaming.recording import RecordingManager
+        from core.config import ConfigManager
         import time
 
         config_manager = ConfigManager()

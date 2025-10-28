@@ -9,15 +9,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
-    QPushButton, QLabel, QCheckBox, QComboBox,
+    QPushButton, QLabel,
     QListWidget, QListWidgetItem, QMessageBox
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 from PyQt5.QtGui import QColor, QFont
 from loguru import logger
 
-from recording.recording_manager import RecordingManager, RecordingStatus
-from config.config_manager import ConfigManager
+from streaming.recording import RecordingManager, RecordingStatus
+from core.config import ConfigManager
 
 
 class RecordingStatusItem(QListWidgetItem):
@@ -77,46 +77,7 @@ class RecordingControlWidget(QWidget):
 
         # 전체 컨트롤 그룹
         control_group = QGroupBox("Recording Controls")
-        control_layout = QVBoxLayout()
-
-        # 전체 녹화 버튼들
-        button_layout = QHBoxLayout()
-
-        self.start_all_btn = QPushButton("▶ Start All")
-        self.start_all_btn.clicked.connect(self._start_all_recording)
-        button_layout.addWidget(self.start_all_btn)
-
-        self.stop_all_btn = QPushButton("■ Stop All")
-        self.stop_all_btn.clicked.connect(self._stop_all_recording)
-        button_layout.addWidget(self.stop_all_btn)
-
-        control_layout.addLayout(button_layout)
-
-        # 녹화 설정
-        settings_layout = QHBoxLayout()
-
-        settings_layout.addWidget(QLabel("Format:"))
-        self.format_combo = QComboBox()
-        self.format_combo.addItems(["mp4", "mkv", "avi"])
-        settings_layout.addWidget(self.format_combo)
-
-        settings_layout.addWidget(QLabel("Duration:"))
-        self.duration_combo = QComboBox()
-        self.duration_combo.addItems(["5 min", "10 min", "30 min", "60 min"])
-        self.duration_combo.setCurrentIndex(1)  # 기본 10분
-        settings_layout.addWidget(self.duration_combo)
-
-        settings_layout.addStretch()
-
-        control_layout.addLayout(settings_layout)
-
-        # 연속 녹화 체크박스
-        self.continuous_cb = QCheckBox("Continuous Recording")
-        self.continuous_cb.setToolTip("자동으로 파일을 분할하며 계속 녹화")
-        control_layout.addWidget(self.continuous_cb)
-
-        control_group.setLayout(control_layout)
-        layout.addWidget(control_group)
+        control_layout = QVBoxLayout()        
 
         # 카메라별 상태 그룹
         status_group = QGroupBox("Camera Recording Status")
@@ -147,6 +108,48 @@ class RecordingControlWidget(QWidget):
 
         status_group.setLayout(status_layout)
         layout.addWidget(status_group)
+
+        # 전체 녹화 버튼들
+        button_layout = QHBoxLayout()
+
+        self.start_all_btn = QPushButton("▶ Start All")
+        self.start_all_btn.clicked.connect(self._start_all_recording)
+        button_layout.addWidget(self.start_all_btn)
+
+        self.stop_all_btn = QPushButton("■ Stop All")
+        self.stop_all_btn.clicked.connect(self._stop_all_recording)
+        button_layout.addWidget(self.stop_all_btn)
+
+        control_layout.addLayout(button_layout)
+
+        control_group.setLayout(control_layout)
+        layout.addWidget(control_group)
+
+        # 녹화 설정 정보 표시
+        settings_info_group = QGroupBox("Recording Settings")
+        settings_info_layout = QVBoxLayout()
+
+        # 설정 값들 가져오기
+        config_manager = ConfigManager.get_instance()
+        recording_config = config_manager.get_recording_config()
+
+        # 저장 경로
+        base_path = recording_config.get('base_path', './recordings')
+        self.path_label = QLabel(f"Storage Path: {base_path}")
+        settings_info_layout.addWidget(self.path_label)
+
+        # 파일 포맷
+        file_format = recording_config.get('file_format', 'mp4')
+        self.format_label = QLabel(f"File Format: {file_format}")
+        settings_info_layout.addWidget(self.format_label)
+
+        # 파일 분할 주기
+        rotation_minutes = recording_config.get('rotation_minutes', 10)
+        self.rotation_label = QLabel(f"File Rotation: {rotation_minutes} minutes")
+        settings_info_layout.addWidget(self.rotation_label)
+
+        settings_info_group.setLayout(settings_info_layout)
+        layout.addWidget(settings_info_group)
 
         # 디스크 사용량 표시
         self.disk_label = QLabel("Disk Usage: Calculating...")
@@ -205,18 +208,6 @@ class RecordingControlWidget(QWidget):
         
         logger.debug(f"Removed camera from recording control: {camera_id}")
 
-    def _get_duration_seconds(self) -> int:
-        """선택된 녹화 시간 반환 (초)"""
-        duration_text = self.duration_combo.currentText()
-        if "5 min" in duration_text:
-            return 300
-        elif "10 min" in duration_text:
-            return 600
-        elif "30 min" in duration_text:
-            return 1800
-        elif "60 min" in duration_text:
-            return 3600
-        return 600  # 기본 10분
 
     def _start_recording(self):
         """선택된 카메라 녹화 시작"""
@@ -233,7 +224,7 @@ class RecordingControlWidget(QWidget):
                 pass  # 성공 처리는 start_recording에서 함
             else:
                 camera_name = self.cameras[camera_id][0]
-                QMessageBox.error(self, "Error", f"Failed to start recording for {camera_name}")
+                QMessageBox.critical(self, "Error", f"Failed to start recording for {camera_name}")
 
     def _stop_recording(self):
         """선택된 카메라 녹화 정지"""
@@ -264,12 +255,9 @@ class RecordingControlWidget(QWidget):
 
     def _start_all_recording(self):
         """모든 카메라 녹화 시작"""
-        file_format = self.format_combo.currentText()
-        duration = self._get_duration_seconds()
-
         started_count = 0
         for camera_id, (camera_name, rtsp_url) in self.cameras.items():
-            if not self.recording_manager.is_recording(camera_id):
+            if not self.is_recording(camera_id):
                 if self.start_recording(camera_id):
                     started_count += 1
 
@@ -325,6 +313,23 @@ class RecordingControlWidget(QWidget):
             camera_name = self.cameras[camera_id][0]
             logger.error(f"Failed to start recording for {camera_name}")
         return result
+
+    def update_settings_display(self):
+        """녹화 설정 정보 표시 업데이트"""
+        config_manager = ConfigManager.get_instance()
+        recording_config = config_manager.get_recording_config()
+
+        # 저장 경로 업데이트
+        base_path = recording_config.get('base_path', './recordings')
+        self.path_label.setText(f"Storage Path: {base_path}")
+
+        # 파일 포맷 업데이트
+        file_format = recording_config.get('file_format', 'mp4')
+        self.format_label.setText(f"File Format: {file_format}")
+
+        # 파일 분할 주기 업데이트
+        rotation_minutes = recording_config.get('rotation_minutes', 10)
+        self.rotation_label.setText(f"File Rotation: {rotation_minutes} minutes")
 
     def _update_disk_usage(self):
         """디스크 사용량 업데이트 (타이머에서 호출)"""

@@ -140,7 +140,8 @@ def get_available_decoder(codec: str = 'h264', prefer_hardware: bool = True, dec
 
 
 def create_video_sink_with_properties(sink_name: str, sync: bool = True,
-                                     force_aspect_ratio: bool = True) -> Optional[Gst.Element]:
+                                     force_aspect_ratio: bool = True,
+                                     async_handling: bool = None) -> Optional[Gst.Element]:
     """
     속성이 설정된 비디오 싱크 엘리먼트 생성
 
@@ -148,6 +149,7 @@ def create_video_sink_with_properties(sink_name: str, sync: bool = True,
         sink_name: 비디오 싱크 이름
         sync: 동기화 여부
         force_aspect_ratio: 종횡비 유지 여부
+        async_handling: async 속성 설정 (None이면 sync의 반대값 사용)
 
     Returns:
         생성된 비디오 싱크 엘리먼트 또는 None
@@ -163,8 +165,11 @@ def create_video_sink_with_properties(sink_name: str, sync: bool = True,
         video_sink.set_property("sync", sync)
 
         # async 속성이 있는 경우 설정
+        # async_handling이 명시적으로 설정되었으면 그 값을 사용, 아니면 sync의 반대값
+        async_value = async_handling if async_handling is not None else (not sync)
         try:
-            video_sink.set_property("async", not sync)
+            video_sink.set_property("async", async_value)
+            logger.debug(f"Video sink async property set to: {async_value}")
         except:
             pass  # 속성이 없으면 무시
 

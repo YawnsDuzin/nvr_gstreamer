@@ -15,7 +15,7 @@ from typing import Optional, List
 from datetime import datetime
 from loguru import logger
 
-from playback.playback_manager import PlaybackManager, PlaybackState, RecordingFile
+from streaming.playback import PlaybackManager, PlaybackState, RecordingFile
 
 
 class PlaybackControlWidget(QWidget):

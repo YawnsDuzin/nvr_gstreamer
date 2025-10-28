@@ -102,51 +102,44 @@ The system's key feature is a **unified pipeline architecture** that reduces CPU
 RTSP Source → Decode → Tee ─┬─→ Streaming Branch (Display)
                             │   controlled by: streaming_valve
                             │
-                            └─→ Recording Branch (File Storage)
+                            └─→ Recording Branch (splitmuxsink - Auto File Split)
                                 controlled by: recording_valve
 ```
 
 Instead of separate pipelines for streaming and recording (which duplicates decoding), a single `tee` element splits the decoded stream. Recording and streaming are controlled dynamically using `valve` elements, enabling runtime mode switching without pipeline recreation.
 
+**Recording uses splitmuxsink** for automatic file splitting based on time duration, eliminating the need for manual file rotation.
+
 ### Key Components
 
-1. **Core Business Logic** (`core/`) - NEW (2025-10)
+1. **Core Business Logic** (`core/`) - Refactored (2025-10-28)
    - `models.py`: Domain entities (Camera, Recording, StreamStatus, StorageInfo)
    - `enums.py`: System-wide enums (CameraStatus, RecordingStatus, PipelineMode)
    - `exceptions.py`: Custom exception classes
-   - `services/camera_service.py`: Camera business logic, auto-recording
-   - `services/storage_service.py`: Storage management, file cleanup
+   - `config.py`: **Singleton pattern** JSON configuration handler
+   - `storage.py`: Storage management, file cleanup
+   - ConfigManager uses singleton pattern - single instance shared across entire application
 
-2. **Pipeline Management** (`streaming/`)
-   - `gst_pipeline.py`: Unified streaming+recording pipeline with valve control (formerly unified_pipeline.py)
+2. **Streaming & Recording** (`streaming/`) - Consolidated (2025-10-28)
+   - `gst_pipeline.py`: Unified streaming+recording pipeline with valve control
    - `camera_stream.py`: Individual camera stream handler with auto-reconnection
+   - `recording.py`: Recording management with splitmuxsink
+   - `playback.py`: Playback management and control
    - Adaptive decoder selection: avdec_h264, omxh264dec (RPi 3), v4l2h264dec (RPi 4+)
-   - **Note**: PipelineManager removed in refactor - UnifiedPipeline used directly
+   - **splitmuxsink** handles automatic file splitting based on `max-size-time`
+   - File organization: `recordings/{camera_id}/{date}/{camera_id}_{timestamp}_00000.mp4`
+   - format-location signal handler dynamically generates file names
 
-3. **Recording System** (`recording/`)
-   - `recording_manager.py`: Continuous recording with automatic file rotation
-   - File organization: `recordings/{camera_id}/{date}/{camera_id}_{date}_{time}.mp4`
-   - Rotation intervals: 5/10/30/60 minutes (configurable)
-
-4. **Playback System** (`playback/`)
-   - `playback_manager.py`: Recording file management and playback control
-   - `PlaybackPipeline`: GStreamer-based video file playback
-   - Timeline navigation with seek, speed control (0.5x-4x)
-
-5. **UI Components** (`ui/`)
-   - `main_window.py`: Main window with dockable widgets, uses CameraService
+3. **UI Components** (`ui/`)
+   - `main_window.py`: Main window with dockable widgets
    - `grid_view.py`: Camera view display (currently 1x1 layout)
    - `playback_widget.py`: Playback controls and file browser
    - `video_widget.py`: Video display with window handle management
+   - `camera_list_widget.py`: Camera list management
+   - `recording_control_widget.py`: Recording control interface
    - **Note**: Uses PyQt5 (NOT PyQt6 despite requirements.txt)
 
-6. **Configuration** (`config/`)
-   - `config_manager.py`: **Singleton pattern** JSON configuration handler
-   - `IT_RNVR.json`: All application settings (app, ui, cameras, recording, logging, etc.)
-   - UI state (window position, dock visibility) auto-saved on exit to JSON
-   - ConfigManager uses singleton pattern - single instance shared across entire application
-
-7. **Utilities** (`utils/`)
+4. **Utilities** (`utils/`)
    - `gstreamer_utils.py`: Platform-specific GStreamer helpers
    - `system_monitor.py`: Resource monitoring threads
    - Video sink selection based on platform (Windows/Linux/RPi)
@@ -185,20 +178,19 @@ Mode switching happens at runtime using valve elements without service interrupt
   config.save_ui_config()  # Updates only 'ui' section in JSON
   ```
 
-### Core Module Usage (Added: 2025-10)
-**NEW**: Business logic separated into core module:
-- **CameraService**: Handles auto-recording logic based on `recording_enabled` config
+### Core Module Usage (Updated: 2025-10-28)
+Business logic in core module:
+- **ConfigManager**: Singleton pattern configuration handler
 - **StorageService**: Automatic file cleanup based on age/space
 - **Usage**:
   ```python
-  from core.services import CameraService, StorageService
+  from core import ConfigManager, StorageService
 
-  # Initialize services
-  camera_service = CameraService(config_manager)
+  # Get config instance (singleton)
+  config = ConfigManager.get_instance()
+
+  # Initialize storage service
   storage_service = StorageService()
-
-  # Connect camera with auto-recording
-  camera_service.connect_camera(camera_id, stream_object)
 
   # Auto cleanup old recordings
   storage_service.auto_cleanup()
@@ -214,7 +206,9 @@ When modifying dependencies, ensure PyQt5 is used throughout.
 Different pipeline configurations based on platform:
 - Hardware acceleration: `omxh264dec` (older RPi) or `v4l2h264dec` (newer RPi)
 - Software decoding: `avdec_h264` when hardware acceleration unavailable
-- Recording optimization: Bypasses decoding using `h264parse → mp4mux`
+- Recording optimization: Uses `h264parse → splitmuxsink` for automatic file splitting
+  - splitmuxsink internally uses mp4mux/matroskamux based on file format
+  - Automatic file rotation based on `max-size-time` property
 
 ### Performance Optimization
 System optimized for Raspberry Pi:
@@ -253,11 +247,13 @@ When modifying the codebase:
 # Verify 500ms delay is present for handle assignment
 ```
 
-#### Recording Files 0MB
+#### Recording Files 0MB or Not Created
 ```python
-# Problem: Missing h264parse in recording branch
+# Problem: splitmuxsink location not set or valve closed
 # Solution: Ensure recording branch has:
-# record_queue → recording_valve → h264parse → mp4mux → filesink
+# record_queue → recording_valve → h264parse → splitmuxsink
+# Check format-location signal handler is properly connected
+# Verify valve is open when recording starts
 ```
 
 #### Recording Not Starting Automatically
@@ -327,13 +323,23 @@ def _on_bus_message(self, bus, message):
 - Credentials stored in cleartext in IT_RNVR.json
 
 ### Recent Updates (2025-10)
+- **Project structure refactored** (2025-10-28)
+  - Folder count reduced from 15 to 8 (47% reduction)
+  - `config/` → `core/config.py`
+  - `core/services/storage_service.py` → `core/storage.py`
+  - `playback/` → `streaming/playback.py`
+  - `recording/` → `streaming/recording.py`
+  - Removed empty folders: config/, playback/, recording/, core/services/
+- **Recording system changed to splitmuxsink** (2025-10-28)
+  - Automatic file splitting based on time duration
+  - format-location signal handler for dynamic file naming
+  - Eliminates manual file rotation logic
 - **Core module added** with domain models and business services
 - **PipelineManager removed** - UnifiedPipeline used directly
 - **File renamed**: `unified_pipeline.py` → `pipeline.py` → `gst_pipeline.py`
-- **Auto-recording logic** moved to CameraService
-- **Storage management** added with automatic cleanup
 - Configuration system migrated from YAML to JSON
 - UI state auto-save functionality added
+- **Deprecated folders removed**: gstreamer/, services/, _tests/, _doc/
 
 ### Platform Support
 - **Primary**: Raspberry Pi (3, 4, Zero 2W)
@@ -341,5 +347,7 @@ def _on_bus_message(self, bus, message):
 - **Experimental**: Windows (requires GStreamer or mock)
 
 ## Korean Language Requirement
-답변 및 설명은 한글로 작성한다. (All responses and explanations should be in Korean)
-내용 요약 및 문서화 파일은 ./doc 폴더에 생성한다.
+- 답변 및 설명은 한글로 작성한다. (All responses and explanations should be in Korean)
+- 내용 요약 및 문서화 파일은 ./_doc 폴더에 생성한다.
+- 테스트코드는 별도 요청이 없으면 따로 생성하지 않는다.
+- 현재 개발은 windows pc에서 진행하고, 테스트는 별도의 linux 환경에서 진행중이라, 현재 pc에서는 프로그램 실행 안됨.

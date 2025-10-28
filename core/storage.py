@@ -11,8 +11,8 @@ from typing import Optional, List, Dict, Tuple
 from datetime import datetime, timedelta
 from loguru import logger
 
-from ..models import StorageInfo, Recording
-from ..exceptions import StorageError
+from .models import StorageInfo, Recording
+from .exceptions import StorageError
 
 
 class StorageService:
@@ -26,7 +26,7 @@ class StorageService:
             recordings_path: 녹화 파일 저장 경로 (None이면 설정에서 로드)
         """
         # 설정 로드
-        from config.config_manager import ConfigManager
+        from core.config import ConfigManager
         config_manager = ConfigManager.get_instance()
         recording_config = config_manager.get_recording_config()
 
