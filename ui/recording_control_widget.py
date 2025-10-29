@@ -16,7 +16,6 @@ from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 from PyQt5.QtGui import QColor, QFont
 from loguru import logger
 
-from camera.recording import RecordingManager, RecordingStatus
 from core.config import ConfigManager
 
 
@@ -57,9 +56,8 @@ class RecordingControlWidget(QWidget):
     recording_started = pyqtSignal(str)  # camera_id
     recording_stopped = pyqtSignal(str)  # camera_id
 
-    def __init__(self, recording_manager: RecordingManager = None, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.recording_manager = recording_manager or RecordingManager()
         self.camera_items = {}  # camera_id -> RecordingStatusItem
         self.cameras = {}  # camera_id -> (name, rtsp_url)
         self.main_window = None  # MainWindow 참조 (나중에 설정됨)
@@ -99,10 +97,6 @@ class RecordingControlWidget(QWidget):
         self.stop_btn = QPushButton("■ Stop")
         self.stop_btn.clicked.connect(self._stop_recording)
         individual_layout.addWidget(self.stop_btn)
-
-        self.pause_btn = QPushButton("❚❚ Pause")
-        self.pause_btn.clicked.connect(self._pause_recording)
-        individual_layout.addWidget(self.pause_btn)
 
         status_layout.addLayout(individual_layout)
 
@@ -194,8 +188,8 @@ class RecordingControlWidget(QWidget):
             return
 
         # 녹화 중이면 정지
-        if self.recording_manager.is_recording(camera_id):
-            self.recording_manager.stop_recording(camera_id)
+        if self.is_recording(camera_id):
+            self.stop_recording(camera_id)
 
         # 리스트에서 제거
         item = self.camera_items[camera_id]
@@ -205,7 +199,7 @@ class RecordingControlWidget(QWidget):
         # 딕셔너리에서 제거
         del self.camera_items[camera_id]
         del self.cameras[camera_id]
-        
+
         logger.debug(f"Removed camera from recording control: {camera_id}")
 
 
@@ -236,22 +230,6 @@ class RecordingControlWidget(QWidget):
         camera_id = camera_item.camera_id
 
         self.stop_recording(camera_id)
-
-    def _pause_recording(self):
-        """선택된 카메라 녹화 일시정지"""
-        current_item = self.camera_list.currentItem()
-        if not current_item:
-            return
-
-        camera_id = current_item.camera_id
-        status = self.recording_manager.get_recording_status(camera_id)
-
-        if status == RecordingStatus.RECORDING:
-            self.recording_manager.pause_recording(camera_id)
-            self.pause_btn.setText("▶ Resume")
-        elif status == RecordingStatus.PAUSED:
-            self.recording_manager.resume_recording(camera_id)
-            self.pause_btn.setText("❚❚ Pause")
 
     def _start_all_recording(self):
         """모든 카메라 녹화 시작"""

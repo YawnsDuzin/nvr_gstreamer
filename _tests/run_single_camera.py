@@ -115,36 +115,29 @@ def main():
         # GUI 없이 녹화만 실행
         logger.info("헤드리스 모드: GUI 없이 녹화만 실행")
 
-        from camera.recording import RecordingManager
-        from core.config import ConfigManager
+        from camera.gst_pipeline import GstPipeline, PipelineMode
         import time
 
         config_manager = ConfigManager()
         camera = config_manager.get_enabled_cameras()[0]
-        recording_manager = RecordingManager()
+        pipeline = GstPipeline(camera.camera_id, camera.rtsp_url)
 
         logger.info("녹화 시작...")
-        if recording_manager.start_recording(
-            camera.camera_id,
-            camera.name,
-            camera.rtsp_url,
-            file_format="mp4",
-            file_duration=600  # 10분 단위
-        ):
+        if pipeline.start(mode=PipelineMode.RECORDING_ONLY):
             logger.success("✓ 녹화 시작됨")
             logger.info("Ctrl+C를 눌러 종료하세요...")
 
             try:
+                elapsed = 0
                 while True:
                     time.sleep(10)
-                    info = recording_manager.get_all_recording_info()
-                    if camera.camera_id in info:
-                        rec_info = info[camera.camera_id]
-                        if 'duration' in rec_info:
-                            logger.info(f"녹화 중... {rec_info['duration']}초")
+                    elapsed += 10
+                    status = pipeline.get_status()
+                    if status.get('is_recording'):
+                        logger.info(f"녹화 중... {elapsed}초 | 모드: {status['mode']}")
             except KeyboardInterrupt:
                 logger.info("\n녹화 종료 중...")
-                recording_manager.stop_all_recordings()
+                pipeline.stop()
                 logger.success("✓ 녹화 종료됨")
         else:
             logger.error("✗ 녹화 시작 실패")

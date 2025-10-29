@@ -27,7 +27,6 @@ from core.config import ConfigManager
 from core.storage import StorageService
 from core.system_monitor import SystemMonitorThread
 from camera.streaming import CameraStream
-from camera.recording import RecordingManager
 from camera.playback import PlaybackManager
 
 
@@ -38,7 +37,6 @@ class MainWindow(QMainWindow):
         super().__init__()
         # Get singleton instance
         self.config_manager = ConfigManager.get_instance()
-        self.recording_manager = RecordingManager()
         self.playback_manager = PlaybackManager()
 
         # Initialize core services
@@ -120,7 +118,7 @@ class MainWindow(QMainWindow):
             QDockWidget.DockWidgetFloatable |
             QDockWidget.DockWidgetClosable
         )
-        self.recording_control = RecordingControlWidget(self.recording_manager)
+        self.recording_control = RecordingControlWidget()
         self.recording_control.main_window = self  # MainWindow 참조 설정
         self.recording_dock.setWidget(self.recording_control)
         self.addDockWidget(Qt.RightDockWidgetArea, self.recording_dock)

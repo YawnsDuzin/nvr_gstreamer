@@ -19,7 +19,7 @@ from gi.repository import Gst
 
 from core.config import ConfigManager
 from camera.streaming import CameraStream
-from camera.recording import RecordingManager
+from camera.gst_pipeline import GstPipeline, PipelineMode
 
 
 def setup_logging():
@@ -85,35 +85,32 @@ def test_recording_only():
     camera = cameras[0]
     logger.info(f"카메라: {camera.name}")
 
-    # 녹화 관리자 생성
-    recording_manager = RecordingManager()
+    # GstPipeline으로 녹화 전용 모드 사용
+    pipeline = GstPipeline(camera.camera_id, camera.rtsp_url)
 
     logger.info("녹화 시작...")
-    if recording_manager.start_recording(
-        camera.camera_id,
-        camera.name,
-        camera.rtsp_url,
-        file_format="mp4",
-        file_duration=60  # 1분 단위로 파일 분할
-    ):
+    if pipeline.start(mode=PipelineMode.RECORDING_ONLY):
         logger.success("✓ 녹화 시작됨!")
 
         # 20초 동안 녹화
         for i in range(20):
             time.sleep(1)
-            info = recording_manager.get_all_recording_info()
-            if camera.camera_id in info:
-                rec_info = info[camera.camera_id]
-                logger.info(f"녹화 중... {i+1}초 | 파일: {Path(rec_info['current_file']).name}")
+            status = pipeline.get_status()
+            if status.get('is_recording'):
+                logger.info(f"녹화 중... {i+1}초 | 모드: {status['mode']}")
 
         # 녹화 중지
-        recording_manager.stop_recording(camera.camera_id)
+        pipeline.stop()
         logger.success("✓ 녹화 완료")
 
-        # 디스크 사용량 확인
-        disk_usage = recording_manager.get_disk_usage()
-        logger.info(f"녹화 파일 크기: {disk_usage['total_size_mb']:.2f} MB")
-        logger.info(f"녹화 파일 개수: {disk_usage['file_count']}")
+        # 녹화 디렉토리 확인
+        recording_config = config_manager.get_recording_config()
+        recordings_path = Path(recording_config.get('base_path', './recordings'))
+        if recordings_path.exists():
+            files = list(recordings_path.rglob("*.mp4"))
+            total_size = sum(f.stat().st_size for f in files)
+            logger.info(f"녹화 파일 크기: {total_size / (1024*1024):.2f} MB")
+            logger.info(f"녹화 파일 개수: {len(files)}")
 
         return True
     else:
@@ -138,9 +135,7 @@ def test_streaming_and_recording():
     camera = cameras[0]
     logger.info(f"카메라: {camera.name}")
 
-    # 통합 파이프라인 사용 (unified_pipeline.py)
-    from camera.gst_pipeline import GstPipeline, PipelineMode
-
+    # 통합 파이프라인 사용
     pipeline = GstPipeline(camera.camera_id, camera.rtsp_url)
 
     # 스트리밍과 녹화 모두 활성화
