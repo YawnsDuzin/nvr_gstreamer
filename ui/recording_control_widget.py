@@ -313,9 +313,9 @@ class RecordingControlWidget(QWidget):
         if not camera_stream or not camera_stream.gst_pipeline:
             return False
 
-        # GstPipeline의 상태 확인
+        # GstPipeline의 재생 상태 확인
         status = camera_stream.gst_pipeline.get_status()
-        return status.get('state') == 'PLAYING'
+        return status.get('is_playing', False)
 
     def start_recording(self, camera_id: str) -> bool:
         """
