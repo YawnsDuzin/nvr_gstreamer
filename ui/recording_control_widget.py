@@ -214,10 +214,23 @@ class RecordingControlWidget(QWidget):
         camera_id = camera_item.camera_id
 
         if camera_id in self.cameras:
+            camera_name = self.cameras[camera_id][0]
+
+            # 스트리밍 중인지 먼저 확인
+            if not self.is_streaming(camera_id):
+                QMessageBox.warning(
+                    self,
+                    "Cannot Start Recording",
+                    f"Camera '{camera_name}' is not streaming.\n\n"
+                    "Recording requires an active streaming pipeline.\n"
+                    "Please start streaming first."
+                )
+                return
+
+            # 녹화 시작
             if self.start_recording(camera_id):
                 pass  # 성공 처리는 start_recording에서 함
             else:
-                camera_name = self.cameras[camera_id][0]
                 QMessageBox.critical(self, "Error", f"Failed to start recording for {camera_name}")
 
     def _stop_recording(self):
@@ -234,12 +247,24 @@ class RecordingControlWidget(QWidget):
     def _start_all_recording(self):
         """모든 카메라 녹화 시작"""
         started_count = 0
-        for camera_id, (camera_name, rtsp_url) in self.cameras.items():
-            if not self.is_recording(camera_id):
-                if self.start_recording(camera_id):
-                    started_count += 1
+        skipped_count = 0
 
-        logger.info(f"Started recording for {started_count} cameras")
+        for camera_id, (camera_name, rtsp_url) in self.cameras.items():
+            # 이미 녹화 중이면 스킵
+            if self.is_recording(camera_id):
+                continue
+
+            # 스트리밍 중이 아니면 스킵
+            if not self.is_streaming(camera_id):
+                logger.warning(f"Skipping {camera_name}: Not streaming")
+                skipped_count += 1
+                continue
+
+            # 녹화 시작
+            if self.start_recording(camera_id):
+                started_count += 1
+
+        logger.info(f"Started recording for {started_count} cameras (skipped {skipped_count} not streaming)")
 
     def _stop_all_recording(self):
         """모든 카메라 녹화 정지"""
@@ -256,7 +281,41 @@ class RecordingControlWidget(QWidget):
         if self.is_recording(camera_id):
             self.stop_recording(camera_id)
         else:
+            # 스트리밍 중인지 확인
+            if not self.is_streaming(camera_id):
+                camera_name = self.cameras.get(camera_id, ["Unknown"])[0]
+                QMessageBox.warning(
+                    self,
+                    "Cannot Start Recording",
+                    f"Camera '{camera_name}' is not streaming.\n\n"
+                    "Recording requires an active streaming pipeline.\n"
+                    "Please start streaming first."
+                )
+                return
+
             self.start_recording(camera_id)
+
+    def is_streaming(self, camera_id: str) -> bool:
+        """
+        카메라 스트리밍 상태 확인
+
+        Args:
+            camera_id: 카메라 ID
+
+        Returns:
+            스트리밍 중 여부
+        """
+        # MainWindow 참조 확인
+        if not self.main_window or not hasattr(self.main_window, 'camera_list'):
+            return False
+
+        camera_stream = self.main_window.camera_list.get_camera_stream(camera_id)
+        if not camera_stream or not camera_stream.gst_pipeline:
+            return False
+
+        # GstPipeline의 상태 확인
+        status = camera_stream.gst_pipeline.get_status()
+        return status.get('state') == 'PLAYING'
 
     def start_recording(self, camera_id: str) -> bool:
         """
@@ -279,7 +338,14 @@ class RecordingControlWidget(QWidget):
 
         camera_stream = self.main_window.camera_list.get_camera_stream(camera_id)
         if not camera_stream or not camera_stream.gst_pipeline:
+            camera_name = self.cameras[camera_id][0]
             logger.error(f"No pipeline found for camera {camera_id}")
+            return False
+
+        # 스트리밍 중인지 확인 (필수 요구사항)
+        if not self.is_streaming(camera_id):
+            camera_name = self.cameras[camera_id][0]
+            logger.warning(f"Cannot start recording for {camera_name}: Camera is not streaming")
             return False
 
         # GstPipeline의 녹화 시작 (콜백이 자동으로 UI 업데이트)

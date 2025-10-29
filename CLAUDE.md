@@ -352,3 +352,4 @@ def _on_bus_message(self, bus, message):
 - 테스트코드는 별도 요청이 없으면 따로 생성하지 않는다.
 - 현재 개발은 windows pc에서 진행하고, 테스트는 별도의 linux 환경에서 진행중이라, 현재 pc에서는 프로그램 실행 안됨.
 - git 작업은 별도로 요청하지 않으면 별도로 진행하지마.
+- git commit 할때    Feat with [duzin] 추가해줘.
