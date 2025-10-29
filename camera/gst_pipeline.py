@@ -748,37 +748,9 @@ class GstPipeline:
             logger.debug("[VALVE DEBUG] Re-applying valve settings after successful PLAYING state transition")
             self._apply_mode_settings()
 
-            # 녹화 상태 동기화: RECORDING_ONLY 또는 BOTH 모드에서 recording_valve가 열려있으면 녹화 중
-            if self.mode in [PipelineMode.RECORDING_ONLY, PipelineMode.BOTH]:
-                # recording_valve의 drop 속성 확인
-                valve_drop = self.recording_valve.get_property("drop")
-                logger.debug(f"[RECORDING DEBUG] Post-PLAYING state - Mode: {self.mode.value}, valve drop: {valve_drop}")
-
-                if not valve_drop:  # drop=False면 녹화 중
-                    # 녹화 파일명 패턴 생성
-                    if not self.current_recording_file:
-                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                        date_dir = self.recording_dir / datetime.now().strftime("%Y%m%d")
-                        date_dir.mkdir(exist_ok=True)
-                        location_pattern = str(date_dir / f"{self.camera_id}_{timestamp}_%05d.{self.file_format}")
-                        
-                        # splitmuxsink location 설정
-                        if self.splitmuxsink:
-                            self.splitmuxsink.set_property("location", location_pattern)
-                        
-                        self.current_recording_file = str(date_dir / f"{self.camera_id}_{timestamp}.{self.file_format}")
-                    
-                    self._is_recording = True
-                    self.recording_start_time = time.time()
-                    self._fragment_id += 1
-                    
-                    logger.info(f"[RECORDING DEBUG] Auto-recording started with splitmuxsink: {self.current_recording_file}")
-                    logger.debug(f"[RECORDING DEBUG] Recording state: _is_recording={self._is_recording}, file={self.current_recording_file}")
-
-                    # 녹화 시작 콜백 호출 (UI 동기화)
-                    self._notify_recording_state_change(True)
-                else:
-                    logger.debug(f"[RECORDING DEBUG] Recording valve closed, not starting auto-recording")
+            # 녹화는 start_recording() 메서드를 통해 명시적으로 시작해야 함
+            # (자동 녹화는 _auto_start_recording()에서 콜백 등록 후 start_recording() 호출)
+            logger.debug(f"[RECORDING DEBUG] Pipeline started in {self.mode.value} mode - recording valve will be controlled via start_recording()")
 
             # 메인 루프 시작
             self._main_loop = GLib.MainLoop()
@@ -1072,16 +1044,16 @@ class GstPipeline:
             logger.info(f"[VALVE DEBUG] Mode: STREAMING_ONLY - Setting Streaming valve drop=False (open), Recording valve drop=True (closed)")
 
         elif self.mode == PipelineMode.RECORDING_ONLY:
-            # 녹화만: streaming valve 닫힘, recording valve 열림 (즉시 녹화 시작)
+            # 녹화만 모드: streaming valve 닫힘, recording valve도 닫힘 (수동 시작 필요)
             self.streaming_valve.set_property("drop", True)
-            self.recording_valve.set_property("drop", False)
-            logger.info(f"[VALVE DEBUG] Mode: RECORDING_ONLY - Setting Streaming valve drop=True (closed), Recording valve drop=False (open)")
+            self.recording_valve.set_property("drop", True)
+            logger.info(f"[VALVE DEBUG] Mode: RECORDING_ONLY - Both valves closed, recording must be started via start_recording()")
 
         elif self.mode == PipelineMode.BOTH:
-            # 둘 다: streaming valve 열림, recording valve 열림 (즉시 녹화 시작)
+            # 스트리밍 + 녹화 준비 모드: streaming valve 열림, recording valve는 닫힘 (수동 시작 필요)
             self.streaming_valve.set_property("drop", False)
-            self.recording_valve.set_property("drop", False)
-            logger.info(f"[VALVE DEBUG] Mode: BOTH - Setting Streaming valve drop=False (open), Recording valve drop=False (open)")
+            self.recording_valve.set_property("drop", True)
+            logger.info(f"[VALVE DEBUG] Mode: BOTH - Streaming valve open, Recording valve closed (recording must be started via start_recording())")
 
         # 실제 설정값 확인
         actual_stream_drop = self.streaming_valve.get_property("drop")
