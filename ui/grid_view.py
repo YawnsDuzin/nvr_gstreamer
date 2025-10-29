@@ -78,11 +78,7 @@ class ChannelWidget(StreamVideoWidget):
             painter.fillRect(text_rect, QColor(0, 0, 0, 128))
             painter.drawText(text_rect, Qt.AlignCenter, current_time)
 
-            # Draw recording indicator if recording
-            if hasattr(self, 'is_recording') and self.is_recording:
-                painter.setBrush(QColor(255, 0, 0))
-                painter.setPen(Qt.NoPen)
-                painter.drawEllipse(self.width() - 30, 10, 15, 15)
+            # 녹화 인디케이터 제거 - recording_status_label로 표시됨
 
             painter.end()
 
@@ -92,9 +88,10 @@ class ChannelWidget(StreamVideoWidget):
         self.update()
 
     def set_recording(self, recording: bool):
-        """Set recording state"""
+        """Set recording state - delegated to parent StreamVideoWidget"""
         self.is_recording = recording
-        self.update()
+        # 부모 클래스의 set_recording 호출 (recording_status_label 업데이트)
+        super().set_recording(recording)
 
 
 class GridViewWidget(QWidget):

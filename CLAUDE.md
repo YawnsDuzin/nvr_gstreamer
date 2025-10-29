@@ -323,6 +323,13 @@ def _on_bus_message(self, bus, message):
 - Credentials stored in cleartext in IT_RNVR.json
 
 ### Recent Updates (2025-10)
+- **Auto-recording UI sync fixed** (2025-10-29)
+  - Removed automatic recording start from `GstPipeline.start()`
+  - Recording now always starts via explicit `start_recording()` call
+  - Unified flow: manual and auto-recording use identical code path
+  - Valve control: All modes start with `recording_valve` closed
+  - Callbacks registered before recording starts, ensuring UI sync
+  - Files: `camera/gst_pipeline.py` (valve logic), `ui/main_window.py` (callback flow)
 - **Project structure refactored** (2025-10-28)
   - Folder count reduced from 15 to 8 (47% reduction)
   - `config/` → `core/config.py`
@@ -346,10 +353,22 @@ def _on_bus_message(self, bus, message):
 - **Secondary**: Linux (Ubuntu 20.04+, Debian 11+)
 - **Experimental**: Windows (requires GStreamer or mock)
 
-## Korean Language Requirement
+## Korean Language and Git Requirements
 - 답변 및 설명은 한글로 작성한다. (All responses and explanations should be in Korean)
 - 내용 요약 및 문서화 파일은 ./_doc 폴더에 생성한다.
 - 테스트코드는 별도 요청이 없으면 따로 생성하지 않는다.
 - 현재 개발은 windows pc에서 진행하고, 테스트는 별도의 linux 환경에서 진행중이라, 현재 pc에서는 프로그램 실행 안됨.
-- git 작업은 별도로 요청하지 않으면 별도로 진행하지마.
-- git commit 할때    Feat with [duzin] 추가해줘.
+- **Git 작업**: 별도로 요청하지 않으면 커밋하지 않음
+- **Commit 메시지 형식**:
+  ```
+  type: 제목 (한글)
+
+  변경 내용 상세 설명 (한글)
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+  Co-Authored-By: Claude <noreply@anthropic.com>
+  ```
+  - type: feat, fix, refactor, docs, test, chore 등
+  - 제목과 내용은 한글로 작성
+  - 코드 예시나 파일명은 원문 유지

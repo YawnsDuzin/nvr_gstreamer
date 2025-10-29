@@ -311,16 +311,18 @@ class MainWindow(QMainWindow):
         /* List Widget (Camera List, Playback List) */
         QListWidget {
             background-color: #1a1a1a;
-            color: #ffffff;
+            /* color: #ffffff; */ /* 제거: 개별 아이템 색상을 setForeground()로 제어 */
             border: none;
             outline: none;
         }
         QListWidget::item {
             padding: 8px;
             border-bottom: 1px solid #2a2a2a;
+            /* 개별 아이템 색상은 setForeground()로 설정 */
         }
         QListWidget::item:selected {
             background-color: #3a3a3a;
+            /* 선택 시에도 텍스트 색상 유지 */
         }
         QListWidget::item:hover {
             background-color: #2a2a2a;
@@ -663,17 +665,18 @@ class MainWindow(QMainWindow):
         /* List Widget (Camera List, Playback List) */
         QListWidget {
             background-color: #ffffff;
-            color: #1e1e1e;
+            /* color: #1e1e1e; */ /* 제거: 개별 아이템 색상을 setForeground()로 제어 */
             border: 1px solid #e0e0e0;
             outline: none;
         }
         QListWidget::item {
             padding: 8px;
             border-bottom: 1px solid #f0f0f0;
+            /* 개별 아이템 색상은 setForeground()로 설정 */
         }
         QListWidget::item:selected {
             background-color: #e5e5e5;
-            color: #000000;
+            /* color: #000000; */ /* 제거: 선택 시에도 개별 색상 유지 */
         }
         QListWidget::item:hover {
             background-color: #f5f5f5;
@@ -1363,7 +1366,8 @@ class MainWindow(QMainWindow):
             self.recording_control.add_camera(
                 camera_config.camera_id,
                 camera_config.name,
-                camera_config.rtsp_url
+                camera_config.rtsp_url,
+                camera_config.enabled
             )
 
     def _on_camera_removed(self, camera_id: str):
@@ -1411,7 +1415,12 @@ class MainWindow(QMainWindow):
         if not channel_found:
             logger.warning(f"No channel found for camera {camera_id}")
 
-        # Register recording state callback from gst_pipeline for UI synchronization
+        # Update RecordingStatusItem 연결 상태
+        if camera_id in self.recording_control.camera_items:
+            self.recording_control.camera_items[camera_id].set_connected(True)
+            logger.debug(f"[UI SYNC] Updated RecordingStatusItem connection status for {camera_id}: True")
+
+        # 녹화 상태 콜백 등록 (start_recording()에서 자동으로 콜백 호출)
         if stream and stream.gst_pipeline:
             def on_recording_state_change(cam_id: str, is_recording: bool):
                 """파이프라인에서 녹화 상태 변경 시 UI 업데이트"""
@@ -1424,7 +1433,7 @@ class MainWindow(QMainWindow):
                         logger.debug(f"[UI SYNC] Updated Grid View for {cam_id}: recording={is_recording}")
                         break
 
-                # Update Recording Control Widget (통합 메서드 사용)
+                # Update Recording Control Widget
                 self.recording_control.update_recording_status(cam_id, is_recording)
 
                 # Emit signal for recording control widget
@@ -1436,11 +1445,12 @@ class MainWindow(QMainWindow):
             stream.gst_pipeline.register_recording_callback(on_recording_state_change)
             logger.debug(f"[UI SYNC] Registered recording callback for {camera_id}")
 
-        # 자동 녹화 체크 (RecordingControlWidget의 start_recording() 재사용)
+        # 자동 녹화 시작 (recording_enabled_start 설정 확인)
         camera_config = self.config_manager.get_camera(camera_id)
         if camera_config and camera_config.recording_enabled_start:
             logger.info(f"Auto-recording enabled for {camera_config.name} ({camera_id})")
-            # 파이프라인 준비를 위해 500ms 지연 후 녹화 시작
+            # 파이프라인 안정화를 위해 500ms 지연 후 녹화 시작
+            # start_recording()이 valve를 열고 콜백을 호출하여 UI 업데이트
             QTimer.singleShot(500, lambda: self._auto_start_recording(camera_id))
 
     def _on_camera_disconnected(self, camera_id: str):
@@ -1452,6 +1462,11 @@ class MainWindow(QMainWindow):
             if channel.camera_id == camera_id:
                 channel.set_connected(False)
                 break
+
+        # Update RecordingStatusItem 연결 상태
+        if camera_id in self.recording_control.camera_items:
+            self.recording_control.camera_items[camera_id].set_connected(False)
+            logger.debug(f"[UI SYNC] Updated RecordingStatusItem connection status for {camera_id}: False")
 
     def _on_channel_double_clicked(self, channel_index: int):
         """Handle channel double-click"""
@@ -1475,7 +1490,8 @@ class MainWindow(QMainWindow):
                 self.recording_control.add_camera(
                     camera.camera_id,
                     camera.name,
-                    camera.rtsp_url
+                    camera.rtsp_url,
+                    camera.enabled
                 )
                 logger.debug(f"Added camera to recording control: {camera.name}")
 

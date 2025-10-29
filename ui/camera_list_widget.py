@@ -33,20 +33,25 @@ class CameraListItem(QListWidgetItem):
 
     def update_display(self):
         """Update item display text"""
-        status = "●" if self.camera_config.enabled else "○"
-        connection = "🔗" if self.camera_stream and self.camera_stream.is_connected() else ""
-
-        display_text = f"{status} {self.camera_config.name} ({self.camera_config.camera_id}) {connection}"
-        self.setText(display_text)
-
-        # Set color based on status
-        if self.camera_config.enabled:
-            if self.camera_stream and self.camera_stream.is_connected():
-                self.setForeground(QColor(68, 255, 68))  # Green for connected
-            else:
-                self.setForeground(QColor(255, 255, 255))  # White for enabled
+        if not self.camera_config.enabled:
+            # 비활성화: ⚫ 검은 원과 동일한 색상
+            status_icon = "⚫"
+            status_text = "비활성화"
+            color = QColor(100, 100, 100)  # 어두운 회색
+        elif self.camera_stream and self.camera_stream.is_connected():
+            # 활성화 + 연결됨: 🟢 녹색 원과 동일한 색상
+            status_icon = "🟢"
+            status_text = "연결됨"
+            color = QColor(0, 255, 0)  # 순수 녹색
         else:
-            self.setForeground(QColor(128, 128, 128))  # Gray for disabled
+            # 활성화 + 연결안됨: ⚪ 흰 원과 동일한 색상
+            status_icon = "⚪"
+            status_text = "대기중"
+            color = QColor(255, 255, 255)  # 흰색
+
+        display_text = f"{status_icon} {self.camera_config.name} ({self.camera_config.camera_id}) [{status_text}]"
+        self.setText(display_text)
+        self.setForeground(color)
 
     def set_camera_stream(self, stream: CameraStream):
         """Set associated camera stream"""

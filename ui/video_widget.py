@@ -67,9 +67,9 @@ class StreamVideoWidget(QWidget):
         header_layout.addWidget(self.name_label)
         header_layout.addStretch()
 
-        # Status indicator
-        self.status_label = QLabel("● Disconnected")
-        self.status_label.setStyleSheet("""
+        # Streaming status indicator
+        self.streaming_status_label = QLabel("● Disconnected")
+        self.streaming_status_label.setStyleSheet("""
             QLabel {
                 color: #ff4444;
                 background-color: rgba(0, 0, 0, 128);
@@ -77,7 +77,19 @@ class StreamVideoWidget(QWidget):
                 border-radius: 3px;
             }
         """)
-        header_layout.addWidget(self.status_label)
+        header_layout.addWidget(self.streaming_status_label)
+
+        # Recording status indicator
+        self.recording_status_label = QLabel("⚫ Stop")
+        self.recording_status_label.setStyleSheet("""
+            QLabel {
+                color: #cccccc;
+                background-color: rgba(0, 0, 0, 128);
+                padding: 3px;
+                border-radius: 3px;
+            }
+        """)
+        header_layout.addWidget(self.recording_status_label)
 
         # Video display area
         self.video_widget = VideoWidget()
@@ -145,8 +157,8 @@ class StreamVideoWidget(QWidget):
         self.is_connected = connected
 
         if connected:
-            self.status_label.setText("● Connected")
-            self.status_label.setStyleSheet("""
+            self.streaming_status_label.setText("● Connected")
+            self.streaming_status_label.setStyleSheet("""
                 QLabel {
                     color: #44ff44;
                     background-color: rgba(0, 0, 0, 128);
@@ -156,10 +168,10 @@ class StreamVideoWidget(QWidget):
             """)
             self.stream_connected.emit(self.camera_id)
         else:
-            self.status_label.setText("● Disconnected")
-            self.status_label.setStyleSheet("""
+            self.streaming_status_label.setText("● Disconnected")
+            self.streaming_status_label.setStyleSheet("""
                 QLabel {
-                    color: #ff4444;
+                    color: #cccccc;
                     background-color: rgba(0, 0, 0, 128);
                     padding: 3px;
                     border-radius: 3px;
@@ -174,8 +186,8 @@ class StreamVideoWidget(QWidget):
         Args:
             error_message: Error description
         """
-        self.status_label.setText("● Error")
-        self.status_label.setStyleSheet("""
+        self.streaming_status_label.setText("● Error")
+        self.streaming_status_label.setStyleSheet("""
             QLabel {
                 color: #ffaa00;
                 background-color: rgba(0, 0, 0, 128);
@@ -195,7 +207,7 @@ class StreamVideoWidget(QWidget):
         """
         self.camera_id = camera_id
         self.camera_name = camera_name
-        self.name_label.setText(camera_name)
+        self.name_label.setText(f"{camera_name} ({camera_id})")
 
     def set_recording(self, recording: bool):
         """
@@ -204,8 +216,27 @@ class StreamVideoWidget(QWidget):
         Args:
             recording: Recording state
         """
-        # This method is for compatibility with ChannelWidget
-        pass
+        if recording:
+            self.recording_status_label.setText("● Rec")
+            self.recording_status_label.setStyleSheet("""
+                QLabel {
+                    color: #ff0000;
+                    background-color: rgba(0, 0, 0, 128);
+                    padding: 3px;
+                    border-radius: 3px;
+                    font-weight: bold;
+                }
+            """)
+        else:
+            self.recording_status_label.setText("● Stop")
+            self.recording_status_label.setStyleSheet("""
+                QLabel {
+                    color: #cccccc;
+                    background-color: rgba(0, 0, 0, 128);
+                    padding: 3px;
+                    border-radius: 3px;
+                }
+            """)
 
     def clear_video(self):
         """Clear video display"""

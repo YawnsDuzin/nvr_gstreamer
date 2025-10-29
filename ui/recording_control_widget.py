@@ -22,30 +22,50 @@ from core.config import ConfigManager
 class RecordingStatusItem(QListWidgetItem):
     """녹화 상태 표시 아이템"""
 
-    def __init__(self, camera_id: str, camera_name: str):
+    def __init__(self, camera_id: str, camera_name: str, enabled: bool = True):
         super().__init__()
         self.camera_id = camera_id
         self.camera_name = camera_name
         self.is_recording = False
+        self.is_connected = False
+        self.enabled = enabled
         self.update_display()
 
     def update_display(self):
         """표시 텍스트 업데이트"""
-        status_icon = "🔴" if self.is_recording else "⚫"
-        status_text = "REC" if self.is_recording else "STOP"
-
-        display_text = f"{status_icon} {self.camera_name} [{status_text}]"
-        self.setText(display_text)
-
-        # 색상 설정
-        if self.is_recording:
-            self.setForeground(QColor(255, 100, 100))  # 빨간색
+        if not self.enabled:
+            # 비활성화: ⚫ 검은 원과 동일한 색상
+            status_icon = "⚫"
+            status_text = "비활성화"
+            color = QColor(100, 100, 100)  # 어두운 회색
+        elif self.is_recording:
+            # 활성화 + 녹화중: 🔴 빨간 원과 동일한 색상
+            status_icon = "🔴"
+            status_text = "녹화중"
+            color = QColor(255, 0, 0)  # 순수 빨간색
         else:
-            self.setForeground(QColor(200, 200, 200))  # 회색
+            # 활성화 + 대기중: ⚪ 흰 원과 동일한 색상
+            status_icon = "⚪"
+            status_text = "대기중"
+            color = QColor(255, 255, 255)  # 흰색
+
+        display_text = f"{status_icon} {self.camera_name} ({self.camera_id}) [{status_text}]"
+        self.setText(display_text)
+        self.setForeground(color)
 
     def set_recording(self, is_recording: bool):
         """녹화 상태 설정"""
         self.is_recording = is_recording
+        self.update_display()
+
+    def set_connected(self, is_connected: bool):
+        """연결 상태 설정"""
+        self.is_connected = is_connected
+        self.update_display()
+
+    def set_enabled(self, enabled: bool):
+        """활성화 상태 설정"""
+        self.enabled = enabled
         self.update_display()
 
 
@@ -159,7 +179,7 @@ class RecordingControlWidget(QWidget):
         self.update_timer.timeout.connect(self._update_disk_usage)
         self.update_timer.start(5000)  # 5초마다 디스크 사용량 업데이트
 
-    def add_camera(self, camera_id: str, camera_name: str, rtsp_url: str):
+    def add_camera(self, camera_id: str, camera_name: str, rtsp_url: str, enabled: bool = True):
         """
         카메라 추가
 
@@ -167,6 +187,7 @@ class RecordingControlWidget(QWidget):
             camera_id: 카메라 ID
             camera_name: 카메라 이름
             rtsp_url: RTSP URL
+            enabled: 카메라 활성화 여부
         """
         if camera_id in self.camera_items:
             logger.warning(f"Camera {camera_id} already exists")
@@ -176,7 +197,7 @@ class RecordingControlWidget(QWidget):
         self.cameras[camera_id] = (camera_name, rtsp_url)
 
         # 리스트 아이템 생성
-        item = RecordingStatusItem(camera_id, camera_name)
+        item = RecordingStatusItem(camera_id, camera_name, enabled)
         self.camera_list.addItem(item)
         self.camera_items[camera_id] = item
 

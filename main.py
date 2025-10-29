@@ -55,7 +55,7 @@ def setup_logging(debug: bool = False, config_file: str = None):
         console_level = "DEBUG" if debug else console_config.get('level', 'INFO')
         console_format = console_config.get(
             'format',
-            '<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>'
+            '<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | <level>{message}</level>'
         )
         colorize = console_config.get('colorize', True)
 

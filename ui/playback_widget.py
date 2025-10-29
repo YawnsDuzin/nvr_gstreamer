@@ -6,14 +6,15 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSlider,
     QLabel, QListWidget, QListWidgetItem, QSplitter, QGroupBox,
-    QComboBox, QDateEdit, QMessageBox, QToolBar, QStyle,
-    QSizePolicy, QHeaderView, QTableWidget, QTableWidgetItem, QAction
+    QComboBox, QDateEdit, QMessageBox, QStyle,
+    QSizePolicy, QHeaderView, QTableWidget, QTableWidgetItem, QCheckBox
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QDateTime, QDate
 from PyQt5.QtGui import QIcon
 from typing import Optional, List
 from datetime import datetime
 from loguru import logger
+from pathlib import Path
 
 from camera.playback import PlaybackManager, PlaybackState, RecordingFile
 
@@ -173,7 +174,7 @@ class RecordingListWidget(QWidget):
 
     # 시그널
     file_selected = pyqtSignal(str)  # 파일 경로
-    file_deleted = pyqtSignal(str)
+    file_deleted = pyqtSignal(list)  # 파일 경로 리스트
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -223,14 +224,19 @@ class RecordingListWidget(QWidget):
 
         filter_layout.addStretch()
 
+        # 새로고침 버튼 (우측 끝)
+        self.refresh_button = QPushButton("새로고침")
+        self.refresh_button.clicked.connect(self.refresh_list)
+        filter_layout.addWidget(self.refresh_button)
+
         filter_group.setLayout(filter_layout)
         layout.addWidget(filter_group)
 
         # 파일 목록 테이블
         self.file_table = QTableWidget()
-        self.file_table.setColumnCount(5)
+        self.file_table.setColumnCount(6)  # 체크박스 컬럼 추가
         self.file_table.setHorizontalHeaderLabels([
-            "카메라", "파일명", "날짜/시간", "재생시간", "크기"
+            "선택", "카메라", "파일명", "날짜/시간", "재생시간", "크기"
         ])
         self.file_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.file_table.setSelectionMode(QTableWidget.SingleSelection)
@@ -240,26 +246,37 @@ class RecordingListWidget(QWidget):
 
         # 컬럼 너비 조정
         header = self.file_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # 카메라
-        header.setSectionResizeMode(1, QHeaderView.Stretch)           # 파일명 (남은 공간 차지)
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # 날짜/시간
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # 재생시간
-        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # 크기
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # 선택 (체크박스)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # 카메라
+        header.setSectionResizeMode(2, QHeaderView.Stretch)           # 파일명 (남은 공간 차지)
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # 날짜/시간
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # 재생시간
+        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # 크기
 
         layout.addWidget(self.file_table)
 
-        # 툴바
-        toolbar = QToolBar()
+        # 버튼 레이아웃
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(5)
 
-        refresh_action = QAction("새로고침", self)
-        refresh_action.triggered.connect(self.refresh_list)
-        toolbar.addAction(refresh_action)
+        # 전체 선택 버튼
+        select_all_btn = QPushButton("전체 선택")
+        select_all_btn.clicked.connect(self._select_all)
+        button_layout.addWidget(select_all_btn)
 
-        delete_action = QAction("삭제", self)
-        delete_action.triggered.connect(self._delete_selected)
-        toolbar.addAction(delete_action)
+        # 전체 해제 버튼
+        deselect_all_btn = QPushButton("전체 해제")
+        deselect_all_btn.clicked.connect(self._deselect_all)
+        button_layout.addWidget(deselect_all_btn)
 
-        layout.addWidget(toolbar)
+        button_layout.addStretch()
+
+        # 선택 삭제 버튼
+        delete_btn = QPushButton("선택 삭제")
+        delete_btn.clicked.connect(self._delete_selected)
+        button_layout.addWidget(delete_btn)
+
+        layout.addLayout(button_layout)
 
     def update_file_list(self, files: List[RecordingFile]):
         """파일 목록 업데이트"""
@@ -310,44 +327,85 @@ class RecordingListWidget(QWidget):
             row = self.file_table.rowCount()
             self.file_table.insertRow(row)
 
-            self.file_table.setItem(row, 0, QTableWidgetItem(file.camera_id))
-            self.file_table.setItem(row, 1, QTableWidgetItem(file.file_name))
-            self.file_table.setItem(row, 2, QTableWidgetItem(
+            # 체크박스 (첫 번째 컬럼)
+            checkbox = QCheckBox()
+            checkbox.setStyleSheet("QCheckBox { margin-left: 10px; }")
+            self.file_table.setCellWidget(row, 0, checkbox)
+
+            # 파일 정보
+            self.file_table.setItem(row, 1, QTableWidgetItem(file.camera_id))
+            self.file_table.setItem(row, 2, QTableWidgetItem(file.file_name))
+            self.file_table.setItem(row, 3, QTableWidgetItem(
                 file.timestamp.strftime("%Y-%m-%d %H:%M:%S")
             ))
-            self.file_table.setItem(row, 3, QTableWidgetItem(file.formatted_duration))
-            self.file_table.setItem(row, 4, QTableWidgetItem(file.formatted_size))
+            self.file_table.setItem(row, 4, QTableWidgetItem(file.formatted_duration))
+            self.file_table.setItem(row, 5, QTableWidgetItem(file.formatted_size))
 
-            # 파일 경로를 행에 저장
-            self.file_table.item(row, 0).setData(Qt.UserRole, file.file_path)
+            # 파일 경로를 행에 저장 (카메라 ID 컬럼에 저장)
+            self.file_table.item(row, 1).setData(Qt.UserRole, file.file_path)
 
     def _on_item_double_clicked(self, item: QTableWidgetItem):
         """아이템 더블클릭"""
         row = item.row()
-        file_path = self.file_table.item(row, 0).data(Qt.UserRole)
+        # 파일 경로는 카메라 ID 컬럼(1번)에 저장되어 있음
+        file_path = self.file_table.item(row, 1).data(Qt.UserRole)
         if file_path:
             self.file_selected.emit(file_path)
 
-    def _delete_selected(self):
-        """선택된 파일 삭제"""
-        current_row = self.file_table.currentRow()
-        if current_row < 0:
-            return
+    def _select_all(self):
+        """전체 선택"""
+        for row in range(self.file_table.rowCount()):
+            checkbox = self.file_table.cellWidget(row, 0)
+            if checkbox:
+                checkbox.setChecked(True)
 
-        file_path = self.file_table.item(current_row, 0).data(Qt.ItemDataRole.UserRole)
-        file_name = self.file_table.item(current_row, 1).text()
+    def _deselect_all(self):
+        """전체 해제"""
+        for row in range(self.file_table.rowCount()):
+            checkbox = self.file_table.cellWidget(row, 0)
+            if checkbox:
+                checkbox.setChecked(False)
+
+    def _delete_selected(self):
+        """선택된 파일들 삭제"""
+        # 체크된 파일 경로 수집
+        selected_files = []
+        for row in range(self.file_table.rowCount()):
+            checkbox = self.file_table.cellWidget(row, 0)
+            if checkbox and checkbox.isChecked():
+                file_path = self.file_table.item(row, 1).data(Qt.UserRole)
+                file_name = self.file_table.item(row, 2).text()
+                if file_path:
+                    selected_files.append((file_path, file_name))
+
+        if not selected_files:
+            QMessageBox.information(
+                self,
+                "선택 없음",
+                "삭제할 파일을 선택해주세요."
+            )
+            return
 
         # 확인 다이얼로그
         reply = QMessageBox.question(
             self,
             "파일 삭제",
-            f"'{file_name}' 파일을 삭제하시겠습니까?",
+            f"{len(selected_files)}개 파일을 삭제하시겠습니까?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No
         )
 
         if reply == QMessageBox.Yes:
-            self.file_deleted.emit(file_path)
+            # 파일 경로 리스트 생성
+            file_paths = [file_path for file_path, file_name in selected_files]
+
+            # 삭제 로그 출력
+            for file_path, file_name in selected_files:
+                logger.info(f"Deleting file: {file_name}")
+
+            # 파일 경로 배열을 한번에 emit
+            self.file_deleted.emit(file_paths)
+
 
     def refresh_list(self):
         """목록 새로고침"""
@@ -467,14 +525,39 @@ class PlaybackWidget(QWidget):
         """재생 속도 설정"""
         self.playback_manager.set_playback_rate(speed)
 
-    def delete_file(self, file_path: str):
-        """파일 삭제"""
-        if self.playback_manager.delete_recording(file_path):
-            QMessageBox.information(self, "삭제 완료", "파일이 삭제되었습니다.")
-            # 목록 새로고침
-            self.scan_recordings()
+    def delete_file(self, file_paths: list):
+        """파일 삭제 (배치 처리)"""
+        if not file_paths:
+            return
+
+        # 여러 파일 삭제
+        success_count = 0
+        fail_count = 0
+        failed_files = []
+
+        for file_path in file_paths:
+            if self.playback_manager.delete_recording(file_path):
+                success_count += 1
+            else:
+                fail_count += 1
+                failed_files.append(file_path)
+
+        # 결과 메시지
+        if fail_count == 0:
+            QMessageBox.information(
+                self,
+                "삭제 완료",
+                f"{success_count}개 파일이 삭제되었습니다."
+            )
         else:
-            QMessageBox.warning(self, "삭제 실패", "파일을 삭제할 수 없습니다.")
+            QMessageBox.warning(
+                self,
+                "삭제 완료 (일부 실패)",
+                f"성공: {success_count}개\n실패: {fail_count}개\n\n실패한 파일:\n" + "\n".join(failed_files[:5])
+            )
+
+        # 목록 새로고침
+        self.scan_recordings()
 
     def on_state_changed(self, state: PlaybackState):
         """재생 상태 변경"""
