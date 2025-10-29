@@ -12,7 +12,7 @@ from pathlib import Path
 # Add current directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from streaming.unified_pipeline import UnifiedPipeline, PipelineMode
+from camera.gst_pipeline import GstPipeline, PipelineMode
 from loguru import logger
 
 
@@ -27,7 +27,7 @@ def test_runtime_mode_switch():
     logger.info("=" * 50)
 
     # 파이프라인 생성 (초기 모드: STREAMING_ONLY)
-    pipeline = UnifiedPipeline(
+    pipeline = GstPipeline(
         rtsp_url=rtsp_url,
         camera_id="test_cam",
         camera_name="Test Camera",
@@ -125,7 +125,7 @@ def test_valve_performance():
     logger.info("Valve 전환 성능 테스트")
     logger.info("=" * 50)
 
-    pipeline = UnifiedPipeline(
+    pipeline = GstPipeline(
         rtsp_url=rtsp_url,
         camera_id="perf_test",
         camera_name="Performance Test",

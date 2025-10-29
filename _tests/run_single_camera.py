@@ -115,7 +115,7 @@ def main():
         # GUI 없이 녹화만 실행
         logger.info("헤드리스 모드: GUI 없이 녹화만 실행")
 
-        from streaming.recording import RecordingManager
+        from camera.recording import RecordingManager
         from core.config import ConfigManager
         import time
 

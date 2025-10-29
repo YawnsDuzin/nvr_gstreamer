@@ -94,10 +94,6 @@ class ConfigManager:
         self.recording_config: Dict[str, Any] = {}  # 녹화 설정 저장
         self.auto_save = auto_save  # 자동 저장 플래그
 
-        # Create default config directory
-        self.config_dir = Path("config")
-        self.config_dir.mkdir(exist_ok=True)
-
         # Load configuration
         self.load_config()
 

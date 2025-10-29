@@ -18,8 +18,8 @@ gi.require_version('Gst', '1.0')
 from gi.repository import Gst
 
 from core.config import ConfigManager
-from streaming.camera_stream import CameraStream
-from streaming.recording import RecordingManager
+from camera.streaming import CameraStream
+from camera.recording import RecordingManager
 
 
 def setup_logging():
@@ -139,9 +139,9 @@ def test_streaming_and_recording():
     logger.info(f"카메라: {camera.name}")
 
     # 통합 파이프라인 사용 (unified_pipeline.py)
-    from streaming.unified_pipeline import UnifiedPipeline, PipelineMode
+    from camera.gst_pipeline import GstPipeline, PipelineMode
 
-    pipeline = UnifiedPipeline(camera.camera_id, camera.rtsp_url)
+    pipeline = GstPipeline(camera.camera_id, camera.rtsp_url)
 
     # 스트리밍과 녹화 모두 활성화
     logger.info("통합 파이프라인으로 스트리밍과 녹화 시작...")

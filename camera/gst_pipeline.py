@@ -14,8 +14,8 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict
 from loguru import logger
-from utils.gstreamer_utils import get_video_sink, get_available_h264_decoder, get_available_decoder, create_video_sink_with_properties
 from core.config import ConfigManager
+from camera.gst_utils import get_video_sink, get_available_h264_decoder, get_available_decoder, create_video_sink_with_properties
 
 # Core imports
 import sys
@@ -25,7 +25,7 @@ from core.enums import PipelineMode
 # Note: GStreamer는 main.py에서 초기화됨
 
 
-class UnifiedPipeline:
+class GstPipeline:
     """스트리밍과 녹화를 하나의 파이프라인으로 처리하는 통합 파이프라인"""
 
     def __init__(self, rtsp_url: str, camera_id: str, camera_name: str,

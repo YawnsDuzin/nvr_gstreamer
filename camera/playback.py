@@ -15,8 +15,8 @@ gi.require_version('Gst', '1.0')
 gi.require_version('GstVideo', '1.0')
 from gi.repository import Gst, GLib, GstVideo
 
-from utils.gstreamer_utils import get_video_sink
 from core.config import ConfigManager
+from camera.gst_utils import get_video_sink
 
 # Core imports
 import sys

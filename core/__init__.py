@@ -9,6 +9,7 @@ Modules:
     - exceptions: 커스텀 예외 클래스
     - config: 설정 관리
     - storage: 스토리지 관리 서비스
+    - system_monitor: 시스템 리소스 모니터링
 """
 
 from .models import Camera, Recording, StreamStatus
@@ -16,6 +17,7 @@ from .enums import CameraStatus, RecordingStatus, PipelineMode
 from .exceptions import NVRException, CameraConnectionError, RecordingError, PipelineError
 from .config import ConfigManager
 from .storage import StorageService
+from .system_monitor import SystemMonitorThread
 
 __all__ = [
     'Camera',
@@ -29,5 +31,6 @@ __all__ = [
     'RecordingError',
     'PipelineError',
     'ConfigManager',
-    'StorageService'
+    'StorageService',
+    'SystemMonitorThread'
 ]

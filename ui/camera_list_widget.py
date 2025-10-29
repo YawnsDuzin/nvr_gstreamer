@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from ui.camera_dialog import CameraDialog
 from core.config import ConfigManager, CameraConfigData
-from streaming.camera_stream import CameraStream, CameraConfig
+from camera.streaming import CameraStream, CameraConfig
 
 
 class CameraListItem(QListWidgetItem):

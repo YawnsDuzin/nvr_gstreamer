@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from streaming.camera_stream import CameraConfig
+from camera.streaming import CameraConfig
 
 
 class CameraDialog(QDialog):
@@ -339,9 +339,9 @@ class CameraDialog(QDialog):
         self.test_btn.setText("Testing...")
 
         try:
-            # Import and test with UnifiedPipeline
-            from streaming.pipeline_manager import PipelineManager
-            from streaming.unified_pipeline import PipelineMode
+            # Import and test with GstPipeline
+            from camera.gst_pipeline import GstPipeline
+            from core.enums import PipelineMode
 
             # Create pipeline manager with unified pipeline
             pipeline = PipelineManager(

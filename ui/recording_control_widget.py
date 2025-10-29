@@ -16,7 +16,7 @@ from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 from PyQt5.QtGui import QColor, QFont
 from loguru import logger
 
-from streaming.recording import RecordingManager, RecordingStatus
+from camera.recording import RecordingManager, RecordingStatus
 from core.config import ConfigManager
 
 
@@ -304,7 +304,7 @@ class RecordingControlWidget(QWidget):
             logger.error(f"No pipeline found for camera {camera_id}")
             return False
 
-        # UnifiedPipeline의 녹화 시작 (콜백이 자동으로 UI 업데이트)
+        # GstPipeline의 녹화 시작 (콜백이 자동으로 UI 업데이트)
         result = camera_stream.gst_pipeline.start_recording()
         if result:
             camera_name = self.cameras[camera_id][0]
@@ -384,7 +384,7 @@ class RecordingControlWidget(QWidget):
             logger.error(f"No pipeline found for camera {camera_id}")
             return False
 
-        # UnifiedPipeline의 녹화 정지 (콜백이 자동으로 UI 업데이트)
+        # GstPipeline의 녹화 정지 (콜백이 자동으로 UI 업데이트)
         result = camera_stream.gst_pipeline.stop_recording()
         if result:
             logger.info(f"Stopped recording: {camera_id}")
@@ -432,11 +432,11 @@ class RecordingControlWidget(QWidget):
         if not camera_stream or not camera_stream.gst_pipeline:
             return False
 
-        # UnifiedPipeline의 녹화 상태 확인
+        # GstPipeline의 녹화 상태 확인
         status = camera_stream.gst_pipeline.get_status()
         return status.get('is_recording', False)
 
     def closeEvent(self, event):
         """종료 시 모든 녹화 정지"""
-        # UnifiedPipeline의 녹화 정지는 main_window에서 처리
+        # GstPipeline의 녹화 정지는 main_window에서 처리
         super().closeEvent(event)

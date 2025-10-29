@@ -6,7 +6,7 @@ Manages individual camera streams with connection management and error handling
 import time
 from typing import Optional, Dict, Any, Union
 from loguru import logger
-from .gst_pipeline import UnifiedPipeline, PipelineMode
+from .gst_pipeline import GstPipeline, PipelineMode
 
 # Core imports
 import sys
@@ -30,7 +30,7 @@ class CameraStream:
             config: Camera configuration (Camera or CameraConfig for backward compatibility)
         """
         self.config = config
-        self.gst_pipeline: Optional[UnifiedPipeline] = None
+        self.gst_pipeline: Optional[GstPipeline] = None
         self.status = StreamStatus.DISCONNECTED
         self._reconnect_count = 0
         self._last_frame_time = 0
@@ -87,15 +87,15 @@ class CameraStream:
             logger.warning(f"No window handle available for {self.config.name} (ID: {self.config.camera_id})")
 
         try:
-            # Frame callback은 UnifiedPipeline에서 지원하지 않음
+            # Frame callback은 GstPipeline에서 지원하지 않음
             if frame_callback:
-                logger.error(f"Frame callback not supported with UnifiedPipeline for {self.config.name}")
-                raise Exception("Frame callback not supported in UnifiedPipeline")
+                logger.error(f"Frame callback not supported with GstPipeline for {self.config.name}")
+                raise Exception("Frame callback not supported in GstPipeline")
 
             # Create pipeline directly (녹화 지원 여부에 따라 모드 결정)
             mode = PipelineMode.BOTH if enable_recording else PipelineMode.STREAMING_ONLY
 
-            self.gst_pipeline = UnifiedPipeline(
+            self.gst_pipeline = GstPipeline(
                 rtsp_url=self.rtsp_url,
                 camera_id=self.config.camera_id,
                 camera_name=self.config.name,

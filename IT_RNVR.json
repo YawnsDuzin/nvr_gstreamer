@@ -6,17 +6,17 @@
   "ui": {
     "theme": "dark",
     "show_status_bar": true,
-    "fullscreen_on_start": true,
+    "fullscreen_on_start": false,
     "window_state": {
-      "x": 0,
+      "x": 1920,
       "y": 0,
       "width": 1920,
-      "height": 1080
+      "height": 1061
     },
     "dock_state": {
-      "camera_visible": false,
-      "recording_visible": false,
-      "playback_visible": false
+      "camera_visible": true,
+      "recording_visible": true,
+      "playback_visible": true
     }
   },
   "streaming": {

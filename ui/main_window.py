@@ -25,10 +25,10 @@ from ui.recording_control_widget import RecordingControlWidget
 from ui.playback_widget import PlaybackWidget
 from core.config import ConfigManager
 from core.storage import StorageService
-from streaming.camera_stream import CameraStream
-from streaming.recording import RecordingManager
-from streaming.playback import PlaybackManager
-from utils.system_monitor import SystemMonitorThread
+from core.system_monitor import SystemMonitorThread
+from camera.streaming import CameraStream
+from camera.recording import RecordingManager
+from camera.playback import PlaybackManager
 
 
 class MainWindow(QMainWindow):
