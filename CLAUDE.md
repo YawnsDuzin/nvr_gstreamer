@@ -54,43 +54,35 @@ python main.py
 python main.py --debug  # With debug logging
 python main.py --config custom_config.json  # Custom configuration
 
-# Single camera launcher (in tests/)
-python tests/run_single_camera.py
-python tests/run_single_camera.py --debug
-python tests/run_single_camera.py --recording  # Auto-start recording
-python tests/run_single_camera.py --headless  # No GUI, recording only
+# Single camera launcher (in _tests/)
+python _tests/run_single_camera.py
+python _tests/run_single_camera.py --debug
+python _tests/run_single_camera.py --recording  # Auto-start recording
+python _tests/run_single_camera.py --headless  # No GUI, recording only
 
 # GStreamer debugging
 GST_DEBUG=3 python main.py
 GST_DEBUG_DUMP_DOT_DIR=/tmp python main.py  # Generates pipeline graphs
 
 # Run with mock GStreamer (Windows without GStreamer)
-python tests/test_main_with_mock.py
+python _tests/test_main_with_mock.py
 ```
 
 ### Testing
 ```bash
 # Configuration tests
-python tests/test_config_loading.py
-python tests/test_config_preservation.py
-python tests/test_simple_config.py
+python _tests/test_config_loading.py
+python _tests/test_config_preservation.py
+python _tests/test_simple_config.py
 
-# Pipeline tests (in reference/)
-python reference/test_stream.py rtsp://admin:password@192.168.0.131:554/stream
-python reference/test_unified_pipeline.py --mode streaming --rtsp rtsp://...
-python reference/test_unified_pipeline.py --mode recording --rtsp rtsp://...
-python reference/test_unified_pipeline.py --mode both --rtsp rtsp://...
-python tests/test_valve_mode_switch.py
-
-# Component tests
-python reference/test_recording.py
-python reference/test_playback.py --mode ui
+# Pipeline tests
+python _tests/test_valve_mode_switch.py
 
 # Memory monitoring
-python tests/memory_monitor.py
+python _tests/memory_monitor.py
 
 # Direct camera connection test
-python -c "from streaming.camera_stream import CameraStream; cs = CameraStream('cam_01', 'rtsp://...'); cs.connect(); input('Press Enter...')"
+python -c "from camera.streaming import CameraStream; from core.models import Camera; cam = Camera(camera_id='cam_01', name='Test', rtsp_url='rtsp://...'); cs = CameraStream(cam); cs.connect(); input('Press Enter...')"
 ```
 
 ## Architecture
@@ -120,14 +112,14 @@ Instead of separate pipelines for streaming and recording (which duplicates deco
    - `storage.py`: Storage management, file cleanup
    - ConfigManager uses singleton pattern - single instance shared across entire application
 
-2. **Streaming & Recording** (`streaming/`) - Consolidated (2025-10-28)
+2. **Camera Management** (`camera/`) - Consolidated (2025-10-28)
    - `gst_pipeline.py`: Unified streaming+recording pipeline with valve control
-   - `camera_stream.py`: Individual camera stream handler with auto-reconnection
-   - `recording.py`: Recording management with splitmuxsink
+   - `streaming.py`: Individual camera stream handler with auto-reconnection
    - `playback.py`: Playback management and control
+   - `gst_utils.py`: Platform-specific GStreamer utilities
    - Adaptive decoder selection: avdec_h264, omxh264dec (RPi 3), v4l2h264dec (RPi 4+)
    - **splitmuxsink** handles automatic file splitting based on `max-size-time`
-   - File organization: `recordings/{camera_id}/{date}/{camera_id}_{timestamp}_00000.mp4`
+   - File organization: `recordings/{camera_id}/{date}/{camera_id}_{timestamp}.mp4`
    - format-location signal handler dynamically generates file names
 
 3. **UI Components** (`ui/`)
@@ -139,10 +131,9 @@ Instead of separate pipelines for streaming and recording (which duplicates deco
    - `recording_control_widget.py`: Recording control interface
    - **Note**: Uses PyQt5 (NOT PyQt6 despite requirements.txt)
 
-4. **Utilities** (`utils/`)
-   - `gstreamer_utils.py`: Platform-specific GStreamer helpers
-   - `system_monitor.py`: Resource monitoring threads
-   - Video sink selection based on platform (Windows/Linux/RPi)
+4. **System Monitoring** (`core/system_monitor.py`)
+   - Resource monitoring and system health checks
+   - Memory, CPU usage tracking
 
 ### Pipeline Modes
 Three operating modes controlled via `PipelineMode` enum:
@@ -154,12 +145,12 @@ Mode switching happens at runtime using valve elements without service interrupt
 
 ### Design Patterns
 - **Singleton Pattern**: ConfigManager ensures single instance across entire application
-- **Service Pattern**: CameraService, StorageService for business logic separation
+- **Service Pattern**: StorageService for business logic separation
 - **Domain Model Pattern**: Core models for Camera, Recording, StreamStatus entities
-- **Manager Pattern**: RecordingManager, PlaybackManager for lifecycle management
 - **State Pattern**: RecordingStatus, PlaybackState, PipelineMode enums for state tracking
 - **Observer Pattern**: GStreamer bus messages, Qt signals/slots for event handling
 - **Tee + Valve Pattern**: Unified pipeline for resource-efficient streaming and recording
+- **Callback Pattern**: Recording state change callbacks for UI synchronization
 
 ## Important Notes
 
@@ -233,8 +224,8 @@ When modifying the codebase:
 4. For UI changes, test with main.py
 5. For recording changes, verify file rotation and directory structure
 6. For pipeline changes, test valve-based mode switching
-7. Run memory monitor to check for leaks: `python tests/memory_monitor.py`
-8. Test configuration preservation with `python tests/test_config_preservation.py`
+7. Run memory monitor to check for leaks: `python _tests/memory_monitor.py`
+8. Test configuration preservation with `python _tests/test_config_preservation.py`
 
 ## Troubleshooting
 
@@ -276,7 +267,7 @@ When modifying the codebase:
 #### Memory Leaks
 ```bash
 # Monitor memory usage
-python tests/memory_monitor.py
+python _tests/memory_monitor.py
 
 # Common leak sources:
 # - Unreleased GStreamer pipelines
@@ -288,7 +279,7 @@ python tests/memory_monitor.py
 
 #### Pipeline Error Recovery
 ```python
-# In gst_pipeline.py
+# In camera/gst_pipeline.py (GstPipeline class)
 def _on_bus_message(self, bus, message):
     if message.type == Gst.MessageType.ERROR:
         # Log error, attempt reconnection, update UI state
@@ -296,7 +287,7 @@ def _on_bus_message(self, bus, message):
 
 #### Stream Reconnection
 ```python
-# In camera_stream.py
+# In camera/streaming.py (CameraStream class)
 # Auto-reconnection with exponential backoff
 # Status tracking: DISCONNECTED → CONNECTING → CONNECTED → ERROR → RECONNECTING
 ```
@@ -329,13 +320,15 @@ def _on_bus_message(self, bus, message):
   - Unified flow: manual and auto-recording use identical code path
   - Valve control: All modes start with `recording_valve` closed
   - Callbacks registered before recording starts, ensuring UI sync
+  - Recording state change notifications via callback pattern
   - Files: `camera/gst_pipeline.py` (valve logic), `ui/main_window.py` (callback flow)
 - **Project structure refactored** (2025-10-28)
   - Folder count reduced from 15 to 8 (47% reduction)
   - `config/` → `core/config.py`
   - `core/services/storage_service.py` → `core/storage.py`
-  - `playback/` → `streaming/playback.py`
-  - `recording/` → `streaming/recording.py`
+  - `streaming/` → `camera/` (consolidated camera-related modules)
+  - `playback/` → `camera/playback.py`
+  - `tests/` → `_tests/` (test files moved)
   - Removed empty folders: config/, playback/, recording/, core/services/
 - **Recording system changed to splitmuxsink** (2025-10-28)
   - Automatic file splitting based on time duration
@@ -343,10 +336,12 @@ def _on_bus_message(self, bus, message):
   - Eliminates manual file rotation logic
 - **Core module added** with domain models and business services
 - **PipelineManager removed** - UnifiedPipeline used directly
-- **File renamed**: `unified_pipeline.py` → `pipeline.py` → `gst_pipeline.py`
+- **File renamed**:
+  - `unified_pipeline.py` → `pipeline.py` → `gst_pipeline.py`
+  - `camera_stream.py` → `streaming.py` (in camera/ folder)
 - Configuration system migrated from YAML to JSON
 - UI state auto-save functionality added
-- **Deprecated folders removed**: gstreamer/, services/, _tests/, _doc/
+- **Deprecated folders removed**: gstreamer/, services/
 
 ### Platform Support
 - **Primary**: Raspberry Pi (3, 4, Zero 2W)

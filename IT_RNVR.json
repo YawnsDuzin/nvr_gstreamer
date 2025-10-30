@@ -60,7 +60,7 @@
     }
   ],
   "recording": {
-    "base_path": "./_recordings",
+    "base_path": "E:/_recordings",
     "file_format": "mkv",
     "rotation_minutes": 2,
     "retention_days": 30,

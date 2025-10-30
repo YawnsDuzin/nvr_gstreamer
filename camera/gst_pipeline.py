@@ -613,7 +613,49 @@ class GstPipeline:
             logger.error(f"Pipeline error from {src_name}: {err}")
             logger.debug(f"Error debug info: {debug}")
 
-            # 녹화 관련 엘리먼트에서 에러 발생 시 특별 처리
+            # 에러 타입 분석
+            error_str = str(err)
+            debug_str = str(debug) if debug else ""
+            error_code = err.code
+
+            # 1. 스트리밍 중 카메라 랜선 끊김 감지
+            # - source 엘리먼트에서 발생
+            # - "Could not read from resource" (error code: 9)
+            # - gstrtspsrc.c 관련 메시지
+            if (src_name == "source" and
+                "Could not read from resource" in error_str and
+                error_code == 9 and
+                "gstrtspsrc" in debug_str):
+                logger.critical(f"[ERROR TYPE] 네트워크 연결 끊김 감지 (카메라 랜선 분리): {self.camera_name}")
+                logger.critical(f"[ERROR TYPE] RTSP 소스로부터 데이터 수신 불가 - 카메라 연결 상태를 확인하세요")
+                # 추가 처리: 재연결 시도 등
+                self.stop()
+                return
+                # TODO: 자동 재연결 로직 추가
+
+            # 2. 스트리밍/녹화 중 USB 연결 끊김 감지
+            # - sink 엘리먼트 (splitmuxsink, GstFileSink)에서 발생
+            # - "Could not write to resource" (error code: 10)
+            # - "Permission denied" 또는 "Error while writing to file descriptor"
+            elif (src_name in ["splitmuxsink", "sink"] and
+                  "Could not write to resource" in error_str and
+                  error_code == 10 and
+                  ("Permission denied" in debug_str or "Error while writing to file descriptor" in debug_str)):
+                logger.critical(f"[ERROR TYPE] 저장소 연결 끊김 감지 (USB/외장 드라이브 분리): {self.camera_name}")
+                logger.critical(f"[ERROR TYPE] 녹화 파일 쓰기 실패 - 저장 장치 연결 상태를 확인하세요")
+                logger.critical(f"[ERROR TYPE] 현재 녹화 파일: {self.current_recording_file}")
+                # 추가 처리: 녹화 중지, 내부 저장소로 폴백 등
+                # 녹화 valve 상태 확인
+                self.stop_recording()
+                logger.debug(f"[RECORDING DEBUG] self.stop_recording()")
+                # if self.recording_valve:
+                #     valve_drop = self.recording_valve.get_property("drop")
+                #     logger.error(f"[RECORDING DEBUG] Current recording_valve drop={valve_drop}")
+
+                return
+                # TODO: 녹화 중지 및 저장소 폴백 로직 추가
+
+            # 3. 녹화 관련 엘리먼트에서 에러 발생 시 특별 처리
             if src_name in ["splitmuxsink", "record_parse", "recording_valve", "record_queue"]:
                 logger.error(f"[RECORDING DEBUG] Recording branch error from {src_name}: {err}")
                 # 녹화 valve 상태 확인
@@ -621,7 +663,7 @@ class GstPipeline:
                     valve_drop = self.recording_valve.get_property("drop")
                     logger.error(f"[RECORDING DEBUG] Current recording_valve drop={valve_drop}")
 
-            # Video sink 에러인 경우 (윈도우 핸들 없음 또는 테스트 모드)
+            # 4. Video sink 에러인 경우 (윈도우 핸들 없음 또는 테스트 모드)
             # 에러를 로깅하지만 파이프라인은 계속 실행
             if "videosink" in src_name or "Output window" in str(err):
                 logger.warning(f"Video sink error (ignoring): {err}")
@@ -630,8 +672,10 @@ class GstPipeline:
                     logger.debug("No window handle - video sink error ignored")
                     return
 
-            # 다른 중요한 에러는 파이프라인 중지
-            self.stop()
+            # # 다른 중요한 에러는 파이프라인 중지
+            # logger.error("[_on_bus_message] Stopping pipeline due to error")
+            # self.stop()
+
         elif t == Gst.MessageType.EOS:
             logger.info("End of stream")
             # EOS는 녹화 중지나 파일 회전에서 발생할 수 있음
