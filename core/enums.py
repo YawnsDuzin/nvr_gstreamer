@@ -32,6 +32,18 @@ class PipelineMode(Enum):
     BOTH = "both"
 
 
+class ErrorType(Enum):
+    """에러 타입 분류"""
+    RTSP_NETWORK = auto()          # RTSP 네트워크 끊김
+    STORAGE_DISCONNECTED = auto()  # USB/HDD 분리
+    DISK_FULL = auto()             # 디스크 공간 부족
+    DECODER = auto()               # 디코더 에러
+    VIDEO_SINK = auto()            # Video sink 에러
+    RECORDING_BRANCH = auto()      # 녹화 브랜치 일반 에러
+    STREAMING_BRANCH = auto()      # 스트리밍 브랜치 일반 에러
+    UNKNOWN = auto()               # 알 수 없는 에러
+
+
 class PlaybackState(Enum):
     """재생 상태"""
     STOPPED = "stopped"
