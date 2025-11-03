@@ -7,6 +7,7 @@ import os
 import json
 import shutil
 import threading
+import hashlib
 from pathlib import Path
 from typing import List, Optional
 from datetime import datetime
@@ -14,7 +15,7 @@ from datetime import datetime
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QProgressBar, QFileDialog, QMessageBox, QTextEdit,
-    QGroupBox
+    QGroupBox, QCheckBox
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QObject, QTimer
 from PyQt5.QtGui import QFont
@@ -34,9 +35,12 @@ class BackupWorkerSignals(QObject):
 class BackupWorker:
     """비동기 백업 작업 수행"""
 
-    def __init__(self, source_files: List[str], destination_path: str):
+    def __init__(self, source_files: List[str], destination_path: str,
+                 verification: bool = True, delete_after: bool = False):
         self.source_files = source_files
         self.destination_path = Path(destination_path)
+        self.verification = verification
+        self.delete_after = delete_after
         self.signals = BackupWorkerSignals()
         self._is_running = False
         self._stop_requested = False
@@ -117,16 +121,42 @@ class BackupWorker:
                     logger.debug(f"Copying: {source} -> {dest_path}")
                     shutil.copy2(source, dest_path)
 
-                    # 파일 검증 (크기 비교)
-                    if source.stat().st_size == dest_path.stat().st_size:
+                    # 파일 검증
+                    verification_passed = False
+
+                    if self.verification:
+                        # MD5 해시 검증
+                        logger.debug(f"Verifying: {source.name}")
+                        source_md5 = self._calculate_md5(source)
+                        dest_md5 = self._calculate_md5(dest_path)
+
+                        if source_md5 == dest_md5:
+                            verification_passed = True
+                            logger.debug(f"MD5 verified: {source.name}")
+                        else:
+                            logger.error(f"MD5 mismatch: {source.name}")
+                    else:
+                        # 크기만 비교 (빠른 검증)
+                        if source.stat().st_size == dest_path.stat().st_size:
+                            verification_passed = True
+
+                    if verification_passed:
                         success_count += 1
                         self.signals.file_completed.emit(str(source), str(dest_path), True)
                         logger.info(f"Backup completed: {source.name}")
+
+                        # 백업 완료 후 원본 삭제 (옵션)
+                        if self.delete_after:
+                            try:
+                                source.unlink()
+                                logger.info(f"Source deleted: {source.name}")
+                            except Exception as e:
+                                logger.warning(f"Failed to delete source: {source.name} - {e}")
                     else:
                         fail_count += 1
-                        failed_files.append(f"{source.name} (크기 불일치)")
+                        failed_files.append(f"{source.name} (검증 실패)")
                         self.signals.file_completed.emit(str(source), str(dest_path), False)
-                        logger.error(f"Backup failed (size mismatch): {source.name}")
+                        logger.error(f"Backup failed (verification failed): {source.name}")
 
                 except Exception as e:
                     fail_count += 1
@@ -160,6 +190,15 @@ class BackupWorker:
 
         finally:
             self._is_running = False
+
+    def _calculate_md5(self, file_path: Path) -> str:
+        """파일의 MD5 해시 계산"""
+        md5_hash = hashlib.md5()
+        with open(file_path, 'rb') as f:
+            # 4KB씩 읽어서 처리 (메모리 효율적)
+            for chunk in iter(lambda: f.read(4096), b""):
+                md5_hash.update(chunk)
+        return md5_hash.hexdigest()
 
 
 class BackupDialog(QDialog):
@@ -225,6 +264,25 @@ class BackupDialog(QDialog):
         path_group.setLayout(path_layout)
         layout.addWidget(path_group)
 
+        # === 백업 옵션 섹션 ===
+        options_group = QGroupBox("백업 옵션")
+        options_layout = QVBoxLayout()
+
+        # 백업 후 검증 옵션
+        self.verification_checkbox = QCheckBox("백업 후 파일 검증 (MD5 해시 비교)")
+        self.verification_checkbox.setChecked(True)
+        self.verification_checkbox.stateChanged.connect(lambda: self._save_backup_config())
+        options_layout.addWidget(self.verification_checkbox)
+
+        # 백업 후 원본 삭제 옵션
+        self.delete_after_checkbox = QCheckBox("백업 완료 후 원본 파일 삭제")
+        self.delete_after_checkbox.setChecked(False)
+        self.delete_after_checkbox.stateChanged.connect(lambda: self._save_backup_config())
+        options_layout.addWidget(self.delete_after_checkbox)
+
+        options_group.setLayout(options_layout)
+        layout.addWidget(options_group)
+
         # === 진행 상황 섹션 ===
         progress_group = QGroupBox("진행 상황")
         progress_layout = QVBoxLayout()
@@ -283,14 +341,17 @@ class BackupDialog(QDialog):
         layout.addLayout(button_layout)
 
     def _load_default_path(self):
-        """기본 백업 경로 로드"""
+        """기본 백업 경로 및 옵션 로드"""
         try:
             config = ConfigManager.get_instance()
-            recording_config = config.get_recording_config()
 
-            # Des_path 가져오기
-            default_path = recording_config.get("Des_path", "")
+            # backup 섹션에서 설정 가져오기
+            backup_config = config.config.get("backup", {})
+            default_path = backup_config.get("destination_path", "")
+            verification = backup_config.get("verification", True)
+            delete_after = backup_config.get("delete_after_backup", False)
 
+            # 경로 설정
             if default_path and Path(default_path).exists():
                 self.path_edit.setText(default_path)
                 self._validate_destination_path()
@@ -298,18 +359,19 @@ class BackupDialog(QDialog):
                 self.path_status_label.setText("⚠ 기본 경로가 설정되지 않았거나 유효하지 않습니다.")
                 self.path_status_label.setStyleSheet("color: orange;")
 
+            # 옵션 설정
+            self.verification_checkbox.setChecked(verification)
+            self.delete_after_checkbox.setChecked(delete_after)
+
         except Exception as e:
             logger.error(f"Failed to load default backup path: {e}")
 
-    def _save_backup_path(self, path: str):
-        """백업 경로를 IT_RNVR.json에 저장"""
+    def _save_backup_config(self, path: str = None):
+        """백업 설정을 IT_RNVR.json에 저장 (경로 및 옵션 통합)"""
         try:
             config = ConfigManager.get_instance()
 
-            # recording_config 업데이트
-            config.recording_config["Des_path"] = path
-
-            # JSON 파일에 recording 섹션만 부분 업데이트
+            # JSON 파일에 backup 섹션 부분 업데이트
             if not config.config_file.exists():
                 logger.error(f"Config file not found: {config.config_file}")
                 return False
@@ -318,21 +380,40 @@ class BackupDialog(QDialog):
             with open(config.config_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
 
-            # recording 섹션의 Des_path만 업데이트
-            if 'recording' not in data:
-                data['recording'] = {}
+            # backup 섹션 업데이트
+            if 'backup' not in data:
+                data['backup'] = {}
 
-            data['recording']['Des_path'] = path
+            # 경로 업데이트 (path가 제공된 경우)
+            if path is not None:
+                data['backup']['destination_path'] = path
+
+            # 옵션 업데이트 (체크박스 상태)
+            data['backup']['verification'] = self.verification_checkbox.isChecked()
+            data['backup']['delete_after_backup'] = self.delete_after_checkbox.isChecked()
 
             # JSON 파일에 저장
             with open(config.config_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
 
-            logger.info(f"Backup path saved to config: {path}")
+            # 메모리 업데이트
+            if 'backup' not in config.config:
+                config.config['backup'] = {}
+
+            if path is not None:
+                config.config['backup']['destination_path'] = path
+            config.config['backup']['verification'] = self.verification_checkbox.isChecked()
+            config.config['backup']['delete_after_backup'] = self.delete_after_checkbox.isChecked()
+
+            if path is not None:
+                logger.info(f"Backup config saved: path={path}, verification={data['backup']['verification']}, delete_after={data['backup']['delete_after_backup']}")
+            else:
+                logger.debug(f"Backup options saved: verification={data['backup']['verification']}, delete_after={data['backup']['delete_after_backup']}")
+
             return True
 
         except Exception as e:
-            logger.error(f"Failed to save backup path: {e}")
+            logger.error(f"Failed to save backup config: {e}")
             return False
 
     def _update_file_info(self):
@@ -383,7 +464,7 @@ class BackupDialog(QDialog):
             self._validate_destination_path()
 
             # 변경된 경로를 IT_RNVR.json에 저장
-            self._save_backup_path(folder)
+            self._save_backup_config(folder)
 
     def _validate_destination_path(self) -> bool:
         """백업 경로 검증"""
@@ -488,14 +569,22 @@ class BackupDialog(QDialog):
         self._add_log("백업을 시작합니다...", "blue")
 
         # 백업 워커 생성 및 시작
-        self.backup_worker = BackupWorker(self.source_files, dest_path)
+        verification = self.verification_checkbox.isChecked()
+        delete_after = self.delete_after_checkbox.isChecked()
+
+        self.backup_worker = BackupWorker(
+            self.source_files,
+            dest_path,
+            verification=verification,
+            delete_after=delete_after
+        )
         self.backup_worker.signals.progress_updated.connect(self._on_progress_updated)
         self.backup_worker.signals.file_completed.connect(self._on_file_completed)
         self.backup_worker.signals.backup_completed.connect(self._on_backup_completed)
         self.backup_worker.signals.error_occurred.connect(self._on_error_occurred)
         self.backup_worker.start()
 
-        logger.info(f"Backup started: {len(self.source_files)} files to {dest_path}")
+        logger.info(f"Backup started: {len(self.source_files)} files to {dest_path} (verification={verification}, delete_after={delete_after})")
 
     def _stop_backup(self):
         """백업 중지"""

@@ -40,11 +40,23 @@ class StorageService:
         self._path_available = self._validate_storage_path()
 
         # 설정에서 임계값 로드
-        self.auto_cleanup_enabled = recording_config.get('auto_cleanup_enabled', True)
-        self.cleanup_interval_hours = recording_config.get('cleanup_interval_hours', 6)
-        self.min_free_space_gb = recording_config.get('min_free_space_gb', 10)
-        self.max_storage_days = recording_config.get('retention_days', 30)
-        self.cleanup_threshold_percent = recording_config.get('cleanup_threshold_percent', 90)
+        # storage 섹션이 있으면 우선 사용, 없으면 recording 섹션 사용 (하위 호환성)
+        storage_config = config_manager.config.get('storage', {})
+
+        self.auto_cleanup_enabled = storage_config.get('auto_cleanup_enabled',
+                                                       recording_config.get('auto_cleanup_enabled', True))
+        self.cleanup_interval_hours = storage_config.get('cleanup_interval_hours',
+                                                         recording_config.get('cleanup_interval_hours', 6))
+        self.min_free_space_gb = storage_config.get('min_free_space_gb',
+                                                    recording_config.get('min_free_space_gb', 10))
+        self.min_free_space_percent = storage_config.get('min_free_space_percent', 5)
+        self.max_storage_days = storage_config.get('retention_days',
+                                                   recording_config.get('retention_days', 30))
+        self.cleanup_threshold_percent = storage_config.get('cleanup_threshold_percent',
+                                                            recording_config.get('cleanup_threshold_percent', 90))
+        self.delete_batch_size = storage_config.get('delete_batch_size', 5)
+        self.delete_batch_delay = storage_config.get('delete_batch_delay_seconds', 1)
+        self.auto_delete_priority = storage_config.get('auto_delete_priority', 'oldest_first')
 
         if self._path_available:
             logger.info(f"Storage service initialized: path={self.recordings_path}, "
@@ -108,7 +120,7 @@ class StorageService:
 
     def check_disk_space(self) -> Tuple[float, bool]:
         """
-        디스크 공간 확인
+        디스크 공간 확인 (GB 기반과 % 기반 이중 체크)
 
         Returns:
             (여유 공간 GB, 충분한지 여부)
@@ -116,10 +128,19 @@ class StorageService:
         try:
             stat = shutil.disk_usage(self.recordings_path)
             free_gb = stat.free / (1024 ** 3)
-            is_sufficient = free_gb >= self.min_free_space_gb
+            total_gb = stat.total / (1024 ** 3)
+            free_percent = (stat.free / stat.total) * 100
+
+            # 이중 체크: GB 기반 OR % 기반 (둘 중 하나라도 부족하면 경고)
+            is_sufficient_gb = free_gb >= self.min_free_space_gb
+            is_sufficient_percent = free_percent >= self.min_free_space_percent
+            is_sufficient = is_sufficient_gb and is_sufficient_percent
 
             if not is_sufficient:
-                logger.warning(f"Low disk space: {free_gb:.1f}GB (minimum: {self.min_free_space_gb}GB)")
+                if not is_sufficient_gb:
+                    logger.warning(f"Low disk space (GB): {free_gb:.1f}GB (minimum: {self.min_free_space_gb}GB)")
+                if not is_sufficient_percent:
+                    logger.warning(f"Low disk space (%): {free_percent:.1f}% (minimum: {self.min_free_space_percent}%)")
 
             return free_gb, is_sufficient
 
@@ -222,10 +243,16 @@ class StorageService:
                     for file in date_dir.glob("*.mp4"):
                         all_files.append((file, file.stat().st_mtime))
 
-            # 오래된 파일부터 정렬
-            all_files.sort(key=lambda x: x[1])
+            # 삭제 우선순위에 따라 정렬
+            if self.auto_delete_priority == 'largest_first':
+                # 큰 파일부터 삭제 (빠른 공간 확보)
+                all_files.sort(key=lambda x: Path(x[0]).stat().st_size, reverse=True)
+            else:
+                # 오래된 파일부터 삭제 (기본값)
+                all_files.sort(key=lambda x: x[1])
 
-            # 필요한 공간만큼 파일 삭제
+            # 배치 단위로 파일 삭제
+            batch_count = 0
             for file_path, _ in all_files:
                 if current_free_gb >= target_free_gb:
                     break
@@ -234,8 +261,16 @@ class StorageService:
                     file_size = file_path.stat().st_size
                     file_path.unlink()
                     deleted_count += 1
+                    batch_count += 1
                     current_free_gb += file_size / (1024 ** 3)
                     logger.debug(f"Deleted: {file_path.name} ({file_size / (1024**2):.1f}MB)")
+
+                    # 배치 단위 대기 (I/O 부하 분산)
+                    if batch_count >= self.delete_batch_size:
+                        logger.debug(f"Batch delete completed: {batch_count} files, waiting {self.delete_batch_delay}s...")
+                        time.sleep(self.delete_batch_delay)
+                        batch_count = 0
+
                 except Exception as e:
                     logger.warning(f"Failed to delete {file_path}: {e}")
 

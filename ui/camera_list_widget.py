@@ -230,7 +230,12 @@ class CameraListWidget(QWidget):
             password=camera_config.password,
             use_hardware_decode=camera_config.use_hardware_decode,
             reconnect_attempts=streaming_config.get("max_reconnect_attempts", 5),
-            reconnect_delay=streaming_config.get("reconnect_delay_seconds", 5)
+            reconnect_delay=streaming_config.get("reconnect_delay_seconds", 5),
+            streaming_enabled_start=camera_config.streaming_enabled_start,
+            recording_enabled_start=camera_config.recording_enabled_start,
+            ptz_type=camera_config.ptz_type,
+            ptz_port=camera_config.ptz_port,
+            ptz_channel=camera_config.ptz_channel
         )
         stream = CameraStream(stream_config)
         self.camera_streams[camera_config.camera_id] = stream
@@ -301,7 +306,12 @@ class CameraListWidget(QWidget):
             enabled=getattr(camera_config, 'enabled', True),
             username=camera_config.username,
             password=camera_config.password,
-            use_hardware_decode=camera_config.use_hardware_decode
+            use_hardware_decode=camera_config.use_hardware_decode,
+            streaming_enabled_start=getattr(camera_config, 'streaming_enabled_start', False),
+            recording_enabled_start=getattr(camera_config, 'recording_enabled_start', False),
+            ptz_type=getattr(camera_config, 'ptz_type', None),
+            ptz_port=getattr(camera_config, 'ptz_port', None),
+            ptz_channel=getattr(camera_config, 'ptz_channel', None)
         )
 
         # Add to configuration
@@ -329,7 +339,12 @@ class CameraListWidget(QWidget):
             rtsp_url=camera_config.rtsp_url,
             username=camera_config.username,
             password=camera_config.password,
-            use_hardware_decode=camera_config.use_hardware_decode
+            use_hardware_decode=camera_config.use_hardware_decode,
+            streaming_enabled_start=camera_config.streaming_enabled_start,
+            recording_enabled_start=camera_config.recording_enabled_start,
+            ptz_type=camera_config.ptz_type,
+            ptz_port=camera_config.ptz_port,
+            ptz_channel=camera_config.ptz_channel
         )
 
         dialog = CameraDialog(camera_config=config, parent=self)
@@ -342,7 +357,12 @@ class CameraListWidget(QWidget):
                 rtsp_url=updated_config.rtsp_url,
                 username=updated_config.username,
                 password=updated_config.password,
-                use_hardware_decode=updated_config.use_hardware_decode
+                use_hardware_decode=updated_config.use_hardware_decode,
+                streaming_enabled_start=getattr(updated_config, 'streaming_enabled_start', False),
+                recording_enabled_start=getattr(updated_config, 'recording_enabled_start', False),
+                ptz_type=getattr(updated_config, 'ptz_type', None),
+                ptz_port=getattr(updated_config, 'ptz_port', None),
+                ptz_channel=getattr(updated_config, 'ptz_channel', None)
             )
             self.config_manager.save_config()
 

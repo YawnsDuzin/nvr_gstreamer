@@ -6,12 +6,12 @@
   "ui": {
     "theme": "dark",
     "show_status_bar": true,
-    "fullscreen_on_start": true,
+    "fullscreen_on_start": false,
     "window_state": {
-      "x": 1920,
-      "y": 23,
+      "x": 57,
+      "y": 131,
       "width": 1920,
-      "height": 1017
+      "height": 906
     },
     "dock_state": {
       "camera_visible": true,
@@ -55,6 +55,9 @@
       "enabled": true,
       "username": null,
       "password": null,
+      "ptz_type": "HIK",
+      "ptz_port": "80",
+      "ptz_channel": "1",
       "streaming_enabled_start": true,
       "recording_enabled_start": true
     }
@@ -75,17 +78,59 @@
   ],
   "recording": {
     "base_path": "E:/_recordings",
-    "Des_path": "E:/sfsfsdf",
     "file_format": "mkv",
     "rotation_minutes": 2,
-    "retention_days": 30,
     "codec": "h264",
-    "fragment_duration_ms": 1000,
+    "fragment_duration_ms": 1000
+  },
+  "backup": {
+    "destination_path": "E:/",
+    "delete_after_backup": true,
+    "verification": true
+  },
+  "storage": {
     "auto_cleanup_enabled": true,
     "cleanup_interval_hours": 6,
-    "cleanup_threshold_percent": 90,
+    "cleanup_on_startup": true,
     "min_free_space_gb": 10,
-    "cleanup_on_startup": true
+    "min_free_space_percent": 5,
+    "cleanup_threshold_percent": 90,
+    "retention_days": 30,
+    "delete_batch_size": 5,
+    "delete_batch_delay_seconds": 1,
+    "auto_delete_priority": "oldest_first"
+  },
+  "menu_keys": {
+    "camera_connect": "F1",
+    "camera_stop": "F2",
+    "prev_group": "N",
+    "camera_connect_all": "F3",
+    "camera_stop_all": "F4",
+    "next_group": "M",
+    "prev_config": "F5",
+    "record_start": "F7",
+    "screen_rotate": "F9",
+    "next_config": "F6",
+    "record_stop": "F8",
+    "screen_flip": "F10",
+    "screen_hide": "Esc",
+    "menu_open": "F11",
+    "program_exit": "F12"
+  },
+  "ptz_keys": {
+    "pan_left": "Q",
+    "up": "W",
+    "right_up": "E",
+    "left": "A",
+    "stop": "S",
+    "right": "D",
+    "pan_down": "Z",
+    "down": "X",
+    "right_down": "C",
+    "zoom_in": "V",
+    "zoom_out": "B",
+    "ptz_speed_up": "R",
+    "ptz_speed_down": "T"
   },
   "logging": {
     "enabled": true,

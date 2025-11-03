@@ -20,6 +20,9 @@ class Camera:
     use_hardware_decode: bool = False
     reconnect_attempts: int = 3
     reconnect_delay: int = 5
+    ptz_type: Optional[str] = None  # PTZ 카메라 타입 (예: "HIK", "ONVIF")
+    ptz_port: Optional[str] = None  # PTZ 제어 포트
+    ptz_channel: Optional[str] = None  # PTZ 채널 번호
     status: CameraStatus = CameraStatus.DISCONNECTED
 
     def build_rtsp_url_with_auth(self) -> str:
@@ -46,6 +49,9 @@ class Camera:
             "use_hardware_decode": self.use_hardware_decode,
             "reconnect_attempts": self.reconnect_attempts,
             "reconnect_delay": self.reconnect_delay,
+            "ptz_type": self.ptz_type,
+            "ptz_port": self.ptz_port,
+            "ptz_channel": self.ptz_channel,
             "status": self.status.value
         }
 

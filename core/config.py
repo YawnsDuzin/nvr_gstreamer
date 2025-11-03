@@ -51,6 +51,9 @@ class CameraConfigData:
     streaming_enabled_start: bool = False
     recording_enabled_start: bool = False
     motion_detection: bool = False
+    ptz_type: Optional[str] = None  # PTZ 카메라 타입 (예: "HIK", "ONVIF")
+    ptz_port: Optional[str] = None  # PTZ 제어 포트
+    ptz_channel: Optional[str] = None  # PTZ 채널 번호
 
 
 class ConfigManager:
@@ -89,6 +92,7 @@ class ConfigManager:
         self.app_config = AppConfig()
         self.ui_config = UIConfig()
         self.cameras: List[CameraConfigData] = []
+        self.config: Dict[str, Any] = {}  # 전체 설정 저장 (storage 등)
         self.logging_config: Dict[str, Any] = {}  # 로깅 설정 저장
         self.streaming_config: Dict[str, Any] = {}  # 스트리밍 설정 저장
         self.recording_config: Dict[str, Any] = {}  # 녹화 설정 저장
@@ -144,6 +148,9 @@ class ConfigManager:
                     data = yaml.safe_load(f)
                 else:
                     data = json.load(f)
+
+            # 전체 설정 저장
+            self.config = data
 
             # Load app config
             if 'app' in data:
