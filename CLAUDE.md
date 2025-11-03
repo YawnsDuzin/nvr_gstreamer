@@ -105,11 +105,12 @@ Instead of separate pipelines for streaming and recording (which duplicates deco
 ### Key Components
 
 1. **Core Business Logic** (`core/`) - Refactored (2025-10-28)
-   - `models.py`: Domain entities (Camera, Recording, StreamStatus, StorageInfo)
+   - `models.py`: Domain entities (Camera, Recording, StreamStatus, StorageInfo, SystemStatus)
+     - PTZ camera support (ptz_type, ptz_port, ptz_channel fields)
    - `enums.py`: System-wide enums (CameraStatus, RecordingStatus, PipelineMode)
    - `exceptions.py`: Custom exception classes
    - `config.py`: **Singleton pattern** JSON configuration handler
-   - `storage.py`: Storage management, file cleanup
+   - `storage.py`: Storage management with automatic cleanup and backup functionality
    - ConfigManager uses singleton pattern - single instance shared across entire application
 
 2. **Camera Management** (`camera/`) - Consolidated (2025-10-28)
@@ -129,6 +130,8 @@ Instead of separate pipelines for streaming and recording (which duplicates deco
    - `video_widget.py`: Video display with window handle management
    - `camera_list_widget.py`: Camera list management
    - `recording_control_widget.py`: Recording control interface
+   - `backup_dialog.py`: Recording file backup with MD5 verification
+   - `camera_dialog.py`: Camera configuration dialog with PTZ support
    - **Note**: Uses PyQt5 (NOT PyQt6 despite requirements.txt)
 
 4. **System Monitoring** (`core/system_monitor.py`)
@@ -154,11 +157,17 @@ Mode switching happens at runtime using valve elements without service interrupt
 
 ## Important Notes
 
-### Configuration System (Updated: 2025-10)
+### Configuration System (Updated: 2025-11)
 **CRITICAL**: Configuration management has been updated:
 - **Format**: JSON (IT_RNVR.json) - migrated from YAML for easier partial updates
 - **Singleton Pattern**: ConfigManager uses singleton pattern - always use `ConfigManager.get_instance()`
 - **Auto-save**: UI state (window geometry, dock visibility) saved automatically on exit
+- **Configuration Sections**:
+  - `system`: System-wide settings (log level, recordings path, retention)
+  - `cameras`: Camera list with RTSP URLs, credentials, PTZ settings
+  - `storage`: Storage management settings (auto cleanup, max days, min space)
+  - `ui`: UI state (window geometry, dock visibility)
+  - `backup`: Backup settings (destination path, verification, delete after backup)
 - **Usage**:
   ```python
   # Correct - get singleton instance
@@ -167,6 +176,10 @@ Mode switching happens at runtime using valve elements without service interrupt
   # Update UI state
   config.update_ui_window_state(x, y, width, height)
   config.save_ui_config()  # Updates only 'ui' section in JSON
+
+  # Access configuration sections
+  cameras = config.config.get("cameras", [])
+  backup_path = config.config.get("backup", {}).get("destination_path", "")
   ```
 
 ### Core Module Usage (Updated: 2025-10-28)
@@ -218,7 +231,7 @@ Critical for ensuring proper video display:
 ## Development Workflow
 
 When modifying the codebase:
-1. Test changes with individual test scripts in `reference/` before integration
+1. Test changes with individual test scripts in `_tests/` before integration
 2. Use `--debug` flag for verbose logging
 3. Check GStreamer pipeline graphs using `GST_DEBUG_DUMP_DOT_DIR=/tmp`
 4. For UI changes, test with main.py
@@ -226,6 +239,16 @@ When modifying the codebase:
 6. For pipeline changes, test valve-based mode switching
 7. Run memory monitor to check for leaks: `python _tests/memory_monitor.py`
 8. Test configuration preservation with `python _tests/test_config_preservation.py`
+
+## Documentation
+
+Detailed technical documentation is available in `_doc/`:
+- `gst_pipeline_architecture.md`: Pipeline architecture and valve control patterns
+- `gstreamer_exception_handling_patterns.md`: Error handling patterns and best practices
+- `gstreamer_bus_message_patterns.md`: GStreamer bus message handling
+- `unified_pipeline_branch_control.md`: Branch control mechanism using valves
+- `camera_disconnect_error_analysis.md`: Network disconnection error recovery
+- `20251029_startup_flow.md`: Application startup sequence and initialization
 
 ## Troubleshooting
 
@@ -252,8 +275,25 @@ When modifying the codebase:
 // Check IT_RNVR.json
 {
   "cameras": [{
-    "recording_enabled": true  // Must be true for auto-recording
+    "recording_enabled_start": true  // Must be true for auto-recording on startup
   }]
+}
+```
+
+#### Backup Issues
+```python
+# Problem: Backup path not accessible or insufficient space
+# Solution: Check backup section in IT_RNVR.json
+# Verify destination path exists and has write permissions
+# Ensure sufficient disk space (110% of source files size)
+
+# Example IT_RNVR.json backup section:
+{
+  "backup": {
+    "destination_path": "E:/backup",
+    "verification": true,  // MD5 hash verification
+    "delete_after_backup": false  // Delete source after successful backup
+  }
 }
 ```
 
@@ -296,24 +336,45 @@ def _on_bus_message(self, bus, message):
 
 ### Working Features
 - Real-time RTSP streaming with low latency
-- Continuous recording with automatic file rotation
-- Auto-recording on camera connection (when `recording_enabled: true`)
+- Continuous recording with automatic file rotation via splitmuxsink
+- Auto-recording on camera connection (when `recording_enabled_start: true`)
+- Recording file backup with MD5 verification and progress tracking
+- Network disconnection detection and automatic reconnection
+- File split on network reconnection (new recording file created)
 - Playback system with timeline navigation and speed control
 - Dockable UI widgets (Camera List, Recording Control, Playback)
 - JSON-based configuration with singleton pattern
 - UI state persistence (window geometry, dock visibility)
-- Auto-reconnection on network failure
+- PTZ camera configuration support (HIK, ONVIF compatible)
 - Hardware acceleration support (RPi OMX/V4L2)
 - Runtime pipeline mode switching via valves
 - Memory-efficient unified pipeline architecture
-- Core services for business logic (CameraService, StorageService)
+- Automatic storage cleanup based on age and disk space
+- System resource monitoring (CPU, memory, disk usage)
 
 ### Known Issues
 - PyQt5/PyQt6 dependency mismatch in requirements.txt (code uses PyQt5)
 - GStreamer required on Windows (use mock_gi for testing without it)
 - Credentials stored in cleartext in IT_RNVR.json
 
-### Recent Updates (2025-10)
+### Recent Updates (2025-10~11)
+- **Backup functionality added** (2025-11-03)
+  - Recording file backup dialog with progress tracking
+  - MD5 hash verification for backup integrity
+  - Optional source file deletion after successful backup
+  - Backup configuration saved to IT_RNVR.json (backup section)
+  - Multi-threaded backup with real-time progress updates
+  - Files: `ui/backup_dialog.py`, `core/storage.py`
+- **PTZ camera support added** (2025-11-03)
+  - PTZ camera type configuration (HIK, ONVIF)
+  - PTZ port and channel settings in camera configuration
+  - Fields added to Camera model: ptz_type, ptz_port, ptz_channel
+  - Files: `core/models.py`, `ui/camera_dialog.py`
+- **Network reconnection improvements** (2025-10-30)
+  - Recording file split on network reconnection
+  - New recording file created when connection restored
+  - Prevents corrupted files from network interruptions
+  - Files: `camera/gst_pipeline.py`, `camera/streaming.py`
 - **Auto-recording UI sync fixed** (2025-10-29)
   - Removed automatic recording start from `GstPipeline.start()`
   - Recording now always starts via explicit `start_recording()` call
@@ -341,7 +402,6 @@ def _on_bus_message(self, bus, message):
   - `camera_stream.py` → `streaming.py` (in camera/ folder)
 - Configuration system migrated from YAML to JSON
 - UI state auto-save functionality added
-- **Deprecated folders removed**: gstreamer/, services/
 
 ### Platform Support
 - **Primary**: Raspberry Pi (3, 4, Zero 2W)

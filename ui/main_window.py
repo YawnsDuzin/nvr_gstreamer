@@ -953,17 +953,10 @@ class MainWindow(QMainWindow):
         # Setting menu
         setting_menu = menubar.addMenu("Setting")
 
-        basic_setting_action = QAction("Basic Setting", self)
-        basic_setting_action.triggered.connect(self._show_basic_setting)
-        setting_menu.addAction(basic_setting_action)
-
-        hotkey_setting_action = QAction("HotKey Setting", self)
-        hotkey_setting_action.triggered.connect(self._show_hotkey_setting)
-        setting_menu.addAction(hotkey_setting_action)
-
-        ptzkey_setting_action = QAction("PTZKey Setting", self)
-        ptzkey_setting_action.triggered.connect(self._show_ptzkey_setting)
-        setting_menu.addAction(ptzkey_setting_action)
+        settings_action = QAction("Settings...", self)
+        settings_action.setShortcut(QKeySequence("Ctrl+,"))
+        settings_action.triggered.connect(self._show_settings_dialog)
+        setting_menu.addAction(settings_action)
 
         # Help menu
         help_menu = menubar.addMenu("Help")
@@ -1549,29 +1542,42 @@ class MainWindow(QMainWindow):
         """Show add camera dialog"""
         self.camera_list._add_camera()
 
-    def _show_basic_setting(self):
-        """Show basic setting dialog"""
-        QMessageBox.information(
-            self,
-            "Basic Setting",
-            "Basic Setting 기능은 아직 준비되지 않았습니다."
-        )
+    def _show_settings_dialog(self):
+        """Show integrated settings dialog"""
+        from ui.settings_dialog import SettingsDialog
 
-    def _show_hotkey_setting(self):
-        """Show hotkey setting dialog"""
-        QMessageBox.information(
-            self,
-            "HotKey Setting",
-            "HotKey Setting 기능은 아직 준비되지 않았습니다."
-        )
+        dialog = SettingsDialog(self)
+        dialog.settings_changed.connect(self._on_settings_changed)
+        dialog.exec_()
 
-    def _show_ptzkey_setting(self):
-        """Show PTZKey setting dialog"""
-        QMessageBox.information(
-            self,
-            "PTZKey Setting",
-            "PTZKey Setting 기능은 아직 준비되지 않았습니다."
-        )
+    def _on_settings_changed(self):
+        """Handle settings changes"""
+        logger.info("Settings changed - reloading configuration")
+
+        # 설정 변경 후 필요한 처리
+        # 예: 테마 적용, 레이아웃 변경, 상태바 표시 등
+
+        # 테마 재적용
+        self._apply_theme()
+
+        # 상태바 표시 상태 업데이트
+        ui_config = self.config_manager.ui_config
+        if ui_config.show_status_bar:
+            self.status_bar.show()
+        else:
+            self.status_bar.hide()
+
+        # Dock 상태 업데이트
+        dock_state = ui_config.dock_state
+        self.camera_dock.setVisible(dock_state.get("camera_visible", True))
+        self.recording_dock.setVisible(dock_state.get("recording_visible", True))
+        self.playback_dock.setVisible(dock_state.get("playback_visible", False))
+
+        # 레이아웃 재적용
+        rows, cols = self.config_manager.get_default_layout()
+        self.grid_view.set_layout(rows, cols)
+
+        logger.info("Settings applied successfully")
 
     def _connect_all_cameras(self):
         """Connect all cameras"""

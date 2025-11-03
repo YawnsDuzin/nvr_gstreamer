@@ -225,11 +225,13 @@ class ConfigManager:
             True if saved successfully
         """
         try:
-            # Prepare data
-            data = {
-                'app': asdict(self.app_config),
-                'cameras': [asdict(camera) for camera in self.cameras]
-            }
+            # self.config에 저장된 전체 설정을 기반으로 시작
+            # 이렇게 하면 기존의 모든 섹션이 보존됨
+            data = self.config.copy()
+
+            # app과 cameras는 항상 최신 상태로 업데이트
+            data['app'] = asdict(self.app_config)
+            data['cameras'] = [asdict(camera) for camera in self.cameras]
 
             # UI 설정 포함 여부
             if save_ui:

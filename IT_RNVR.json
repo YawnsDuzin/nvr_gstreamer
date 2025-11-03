@@ -6,12 +6,12 @@
   "ui": {
     "theme": "dark",
     "show_status_bar": true,
-    "fullscreen_on_start": false,
+    "fullscreen_on_start": true,
     "window_state": {
-      "x": 57,
-      "y": 131,
+      "x": 0,
+      "y": 0,
       "width": 1920,
-      "height": 906
+      "height": 1080
     },
     "dock_state": {
       "camera_visible": true,
@@ -25,7 +25,7 @@
     "show_camera_name": true,
     "osd_font_size": 14,
     "osd_font_color": [
-      255,
+      85,
       255,
       255
     ],
@@ -55,11 +55,13 @@
       "enabled": true,
       "username": null,
       "password": null,
+      "use_hardware_decode": false,
+      "streaming_enabled_start": true,
+      "recording_enabled_start": true,
+      "motion_detection": false,
       "ptz_type": "HIK",
       "ptz_port": "80",
-      "ptz_channel": "1",
-      "streaming_enabled_start": true,
-      "recording_enabled_start": true
+      "ptz_channel": "1"
     }
   ],
   "cameras2": [
@@ -84,20 +86,21 @@
     "fragment_duration_ms": 1000
   },
   "backup": {
-    "destination_path": "E:/",
+    "Des_path": "E:/sfsfsdf",
     "delete_after_backup": true,
-    "verification": true
+    "verification": true,
+    "destination_path": ""
   },
   "storage": {
     "auto_cleanup_enabled": true,
     "cleanup_interval_hours": 6,
     "cleanup_on_startup": true,
-    "min_free_space_gb": 10,
+    "min_free_space_gb": 10.0,
     "min_free_space_percent": 5,
     "cleanup_threshold_percent": 90,
     "retention_days": 30,
-    "delete_batch_size": 5,
-    "delete_batch_delay_seconds": 1,
+    "delete_batch_size": 1,
+    "delete_batch_delay_seconds": 0,
     "auto_delete_priority": "oldest_first"
   },
   "menu_keys": {
