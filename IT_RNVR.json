@@ -7,6 +7,8 @@
     "theme": "dark",
     "show_status_bar": true,
     "fullscreen_on_start": true,
+    "fullscreen_auto_hide_enabled": true,
+    "fullscreen_auto_hide_delay_seconds": 10,
     "window_state": {
       "x": 0,
       "y": 0,
@@ -89,7 +91,7 @@
     "Des_path": "E:/sfsfsdf",
     "delete_after_backup": true,
     "verification": true,
-    "destination_path": ""
+    "destination_path": "E:/"
   },
   "storage": {
     "auto_cleanup_enabled": true,

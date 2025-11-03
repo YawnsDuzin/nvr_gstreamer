@@ -22,9 +22,11 @@ class AppConfig:
 @dataclass
 class UIConfig:
     """UI configuration"""
-    theme: str = "dark"  # dark, light    
+    theme: str = "dark"  # dark, light
     show_status_bar: bool = True
     fullscreen_on_start: bool = False
+    fullscreen_auto_hide_enabled: bool = True  # 전체화면 자동 UI 숨김 활성화
+    fullscreen_auto_hide_delay_seconds: int = 10  # 자동 UI 숨김 지연 시간 (초)
     window_state: Dict[str, int] = field(default_factory=lambda: {
         "width": 1920,
         "height": 1080,

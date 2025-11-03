@@ -5,7 +5,7 @@ Basic Settings Tab
 
 from PyQt5.QtWidgets import (
     QVBoxLayout, QFormLayout, QGroupBox, QLabel,
-    QComboBox, QCheckBox
+    QComboBox, QCheckBox, QSpinBox
 )
 from loguru import logger
 
@@ -61,6 +61,22 @@ class BasicSettingsTab(BaseSettingsTab):
         self.fullscreen_cb = QCheckBox("Fullscreen on Startup")
         self.fullscreen_cb.setToolTip("Start application in fullscreen mode")
         ui_layout.addRow(self.fullscreen_cb)
+
+        # Fullscreen auto-hide section
+        fullscreen_label = QLabel("Fullscreen Auto-Hide:")
+        fullscreen_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        ui_layout.addRow(fullscreen_label)
+
+        self.auto_hide_enabled_cb = QCheckBox("Enable Auto-Hide in Fullscreen")
+        self.auto_hide_enabled_cb.setToolTip("Automatically hide menu bar and docks after inactivity in fullscreen mode")
+        ui_layout.addRow(self.auto_hide_enabled_cb)
+
+        self.auto_hide_delay_spin = QSpinBox()
+        self.auto_hide_delay_spin.setMinimum(1)
+        self.auto_hide_delay_spin.setMaximum(60)
+        self.auto_hide_delay_spin.setSuffix(" seconds")
+        self.auto_hide_delay_spin.setToolTip("Delay before hiding UI (1-60 seconds)")
+        ui_layout.addRow("Auto-Hide Delay:", self.auto_hide_delay_spin)
 
         # Dock visibility section
         dock_label = QLabel("Dock Widgets Visibility:")
@@ -125,6 +141,10 @@ class BasicSettingsTab(BaseSettingsTab):
             # Fullscreen on startup
             self.fullscreen_cb.setChecked(ui.get("fullscreen_on_start", False))
 
+            # Fullscreen auto-hide
+            self.auto_hide_enabled_cb.setChecked(ui.get("fullscreen_auto_hide_enabled", True))
+            self.auto_hide_delay_spin.setValue(ui.get("fullscreen_auto_hide_delay_seconds", 10))
+
             # Dock state
             dock_state = ui.get("dock_state", {})
             self.camera_dock_cb.setChecked(dock_state.get("camera_visible", True))
@@ -147,6 +167,8 @@ class BasicSettingsTab(BaseSettingsTab):
                 "theme": theme,
                 "show_status_bar": ui.get("show_status_bar", True),
                 "fullscreen_on_start": ui.get("fullscreen_on_start", False),
+                "fullscreen_auto_hide_enabled": ui.get("fullscreen_auto_hide_enabled", True),
+                "fullscreen_auto_hide_delay_seconds": ui.get("fullscreen_auto_hide_delay_seconds", 10),
                 "camera_visible": dock_state.get("camera_visible", True),
                 "recording_visible": dock_state.get("recording_visible", True),
                 "playback_visible": dock_state.get("playback_visible", True),
@@ -160,30 +182,29 @@ class BasicSettingsTab(BaseSettingsTab):
     def save_settings(self) -> bool:
         """설정 저장"""
         try:
-            config = self.config_manager.config
-
-            # UI 섹션이 없으면 생성
-            if "ui" not in config:
-                config["ui"] = {}
-
-            # UI settings 업데이트
-            config["ui"]["theme"] = self.theme_combo.currentText()
-            config["ui"]["show_status_bar"] = self.status_bar_cb.isChecked()
-            config["ui"]["fullscreen_on_start"] = self.fullscreen_cb.isChecked()
+            # ConfigManager의 ui_config 객체를 직접 업데이트
+            self.config_manager.ui_config.theme = self.theme_combo.currentText()
+            self.config_manager.ui_config.show_status_bar = self.status_bar_cb.isChecked()
+            self.config_manager.ui_config.fullscreen_on_start = self.fullscreen_cb.isChecked()
+            self.config_manager.ui_config.fullscreen_auto_hide_enabled = self.auto_hide_enabled_cb.isChecked()
+            self.config_manager.ui_config.fullscreen_auto_hide_delay_seconds = self.auto_hide_delay_spin.value()
 
             # Dock state 업데이트
-            if "dock_state" not in config["ui"]:
-                config["ui"]["dock_state"] = {}
+            self.config_manager.ui_config.dock_state = {
+                "camera_visible": self.camera_dock_cb.isChecked(),
+                "recording_visible": self.recording_dock_cb.isChecked(),
+                "playback_visible": self.playback_dock_cb.isChecked()
+            }
 
-            config["ui"]["dock_state"]["camera_visible"] = self.camera_dock_cb.isChecked()
-            config["ui"]["dock_state"]["recording_visible"] = self.recording_dock_cb.isChecked()
-            config["ui"]["dock_state"]["playback_visible"] = self.playback_dock_cb.isChecked()
+            # ConfigManager를 통해 저장 (save_ui=True로 UI 설정 포함)
+            success = self.config_manager.save_config(save_ui=True)
 
-            # ConfigManager를 통해 저장
-            self.config_manager.save_config()
+            if success:
+                logger.info("Basic settings saved successfully")
+            else:
+                logger.error("Failed to save basic settings")
 
-            logger.info("Basic settings saved successfully")
-            return True
+            return success
 
         except Exception as e:
             logger.error(f"Failed to save basic settings: {e}")
@@ -203,6 +224,8 @@ class BasicSettingsTab(BaseSettingsTab):
                 "theme": self.theme_combo.currentText(),
                 "show_status_bar": self.status_bar_cb.isChecked(),
                 "fullscreen_on_start": self.fullscreen_cb.isChecked(),
+                "fullscreen_auto_hide_enabled": self.auto_hide_enabled_cb.isChecked(),
+                "fullscreen_auto_hide_delay_seconds": self.auto_hide_delay_spin.value(),
                 "camera_visible": self.camera_dock_cb.isChecked(),
                 "recording_visible": self.recording_dock_cb.isChecked(),
                 "playback_visible": self.playback_dock_cb.isChecked(),

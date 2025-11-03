@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
     QSplitter, QStatusBar, QMenuBar, QMenu, QAction,
     QMessageBox, QDockWidget, QLabel
 )
-from PyQt5.QtCore import Qt, QTimer, pyqtSlot, QDateTime
+from PyQt5.QtCore import Qt, QTimer, pyqtSlot, QDateTime, QEvent
 from PyQt5.QtGui import QKeySequence, QCloseEvent
 from loguru import logger
 
@@ -55,12 +55,18 @@ class MainWindow(QMainWindow):
 
         self.monitor_thread = None
 
+        # 전체화면 자동 UI 숨김/표시 기능 관련 변수
+        self.ui_hide_timer = None
+        self.ui_hidden = False
+        self.last_activity_time = QDateTime.currentDateTime()
+
         self._setup_ui()
         self._setup_menus()
         self._setup_status_bar()
         self._load_dock_state()  # Dock 상태를 먼저 로드
         self._setup_connections()  # 그 다음 시그널 연결
         self._setup_cleanup_timer()  # 자동 정리 타이머 설정
+        self._setup_fullscreen_auto_hide()  # 전체화면 자동 UI 숨김 설정
 
         # fullscreen_on_start 설정 적용 (모든 UI 설정 완료 후)
         if self.config_manager.ui_config.fullscreen_on_start:
@@ -1042,6 +1048,94 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Auto cleanup failed: {e}")
 
+    def _setup_fullscreen_auto_hide(self):
+        """전체화면 모드에서 UI 자동 숨김/표시 설정"""
+        # 설정에서 자동 숨김 기능 활성화 여부 확인
+        if not self.config_manager.ui_config.fullscreen_auto_hide_enabled:
+            logger.info("Fullscreen auto-hide feature is disabled in settings")
+            return
+
+        # 마우스 추적 활성화 (마우스 움직임 이벤트를 받기 위해 필수)
+        self.setMouseTracking(True)
+        self.centralWidget().setMouseTracking(True)
+
+        # 모든 자식 위젯에도 마우스 추적 활성화
+        for widget in self.findChildren(QWidget):
+            widget.setMouseTracking(True)
+
+        # 이벤트 필터 설치 (모든 이벤트 감지)
+        self.installEventFilter(self)
+
+        # 비활동 체크 타이머 시작
+        self.ui_hide_timer = QTimer(self)
+        self.ui_hide_timer.timeout.connect(self._check_inactivity)
+        self.ui_hide_timer.start(1000)  # 1초마다 체크
+
+        delay = self.config_manager.ui_config.fullscreen_auto_hide_delay_seconds
+        logger.info(f"Fullscreen auto-hide feature initialized (delay: {delay}s)")
+
+    def eventFilter(self, obj, event):
+        """이벤트 필터: 마우스/키보드 활동 감지"""
+        # 전체화면 모드일 때만 동작
+        if self.isFullScreen():
+            # 마우스 이동 또는 키보드 입력 감지
+            if event.type() in [QEvent.MouseMove, QEvent.MouseButtonPress,
+                               QEvent.MouseButtonRelease, QEvent.KeyPress, QEvent.KeyRelease]:
+                self._on_user_activity()
+
+        return super().eventFilter(obj, event)
+
+    def _on_user_activity(self):
+        """사용자 활동 감지 시 호출"""
+        self.last_activity_time = QDateTime.currentDateTime()
+
+        # UI가 숨겨진 상태였다면 다시 표시
+        if self.ui_hidden:
+            self._show_ui()
+
+    def _check_inactivity(self):
+        """비활동 시간 체크 (타이머에서 1초마다 호출)"""
+        # 전체화면 모드가 아니면 무시
+        if not self.isFullScreen():
+            # 전체화면 아닐 때는 UI 표시
+            if self.ui_hidden:
+                self._show_ui()
+            return
+
+        # 마지막 활동 이후 경과 시간 계산
+        elapsed_seconds = self.last_activity_time.secsTo(QDateTime.currentDateTime())
+
+        # 설정된 지연 시간 이상 비활동 시 UI 숨김
+        delay = self.config_manager.ui_config.fullscreen_auto_hide_delay_seconds
+        if elapsed_seconds >= delay and not self.ui_hidden:
+            self._hide_ui()
+
+    def _hide_ui(self):
+        """메뉴바와 Dock 위젯 숨김"""
+        self.menuBar().hide()
+        self.camera_dock.hide()
+        self.recording_dock.hide()
+        self.playback_dock.hide()
+
+        self.ui_hidden = True
+        logger.debug("UI hidden (fullscreen auto-hide)")
+
+    def _show_ui(self):
+        """메뉴바와 Dock 위젯 표시"""
+        self.menuBar().show()
+
+        # Dock 상태 복원 (원래 표시 상태였던 것만 표시)
+        dock_state = self.config_manager.ui_config.dock_state
+        if dock_state.get("camera_visible", True):
+            self.camera_dock.show()
+        if dock_state.get("recording_visible", True):
+            self.recording_dock.show()
+        if dock_state.get("playback_visible", False):
+            self.playback_dock.show()
+
+        self.ui_hidden = False
+        logger.debug("UI shown (user activity detected)")
+
     def _setup_status_bar(self):
         """Setup status bar with system monitoring"""
         self.status_bar = QStatusBar()
@@ -1785,6 +1879,10 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'cleanup_timer') and self.cleanup_timer:
             self.cleanup_timer.stop()
             logger.info("Cleanup timer stopped")
+
+        if hasattr(self, 'ui_hide_timer') and self.ui_hide_timer:
+            self.ui_hide_timer.stop()
+            logger.info("UI hide timer stopped")
 
         # Stop system monitoring thread
         if self.monitor_thread:
