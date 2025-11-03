@@ -1445,6 +1445,26 @@ class MainWindow(QMainWindow):
             stream.gst_pipeline.register_recording_callback(on_recording_state_change)
             logger.debug(f"[UI SYNC] Registered recording callback for {camera_id}")
 
+            # 연결 상태 콜백 등록
+            def on_connection_state_change(cam_id: str, is_connected: bool):
+                """파이프라인에서 연결 상태 변경 시 UI 업데이트"""
+                logger.debug(f"[CONNECTION SYNC] Connection state callback: {cam_id} -> {is_connected}")
+
+                # Update Grid View
+                for channel in self.grid_view.channels:
+                    if channel.camera_id == cam_id:
+                        channel.set_connected(is_connected)
+                        logger.debug(f"[CONNECTION SYNC] Updated Grid View for {cam_id}: connected={is_connected}")
+                        break
+
+                # Update Recording Control Widget
+                if cam_id in self.recording_control.camera_items:
+                    self.recording_control.camera_items[cam_id].set_connected(is_connected)
+                    logger.debug(f"[CONNECTION SYNC] Updated RecordingStatusItem for {cam_id}: connected={is_connected}")
+
+            stream.gst_pipeline.register_connection_callback(on_connection_state_change)
+            logger.debug(f"[CONNECTION SYNC] Registered connection callback for {camera_id}")
+
         # 자동 녹화 시작 (recording_enabled_start 설정 확인)
         camera_config = self.config_manager.get_camera(camera_id)
         if camera_config and camera_config.recording_enabled_start:

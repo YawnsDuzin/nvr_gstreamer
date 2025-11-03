@@ -66,6 +66,9 @@ class GstPipeline:
         # 녹화 상태 변경 콜백
         self._recording_state_callbacks = []  # (camera_id, is_recording) 콜백 리스트
 
+        # 연결 상태 변경 콜백
+        self._connection_state_callbacks = []  # (camera_id, is_connected) 콜백 리스트
+
         # 녹화 설정 로드
         config = ConfigManager.get_instance()
         recording_config = config.get_recording_config()
@@ -111,6 +114,31 @@ class GstPipeline:
         if callback not in self._recording_state_callbacks:
             self._recording_state_callbacks.append(callback)
             logger.debug(f"Recording callback registered for {self.camera_id}")
+
+    def register_connection_callback(self, callback):
+        """
+        연결 상태 변경 콜백 등록
+
+        Args:
+            callback: 콜백 함수 (camera_id, is_connected)를 인자로 받음
+        """
+        if callback not in self._connection_state_callbacks:
+            self._connection_state_callbacks.append(callback)
+            logger.debug(f"Connection callback registered for {self.camera_id}")
+
+    def _notify_connection_state_change(self, is_connected: bool):
+        """
+        연결 상태 변경 시 모든 등록된 콜백 호출
+
+        Args:
+            is_connected: 연결 여부
+        """
+        logger.debug(f"[CONNECTION SYNC] Notifying connection state change: {self.camera_id} -> {is_connected}")
+        for callback in self._connection_state_callbacks:
+            try:
+                callback(self.camera_id, is_connected)
+            except Exception as e:
+                logger.error(f"Error in connection callback: {e}")
 
     def _notify_recording_state_change(self, is_recording: bool):
         """
@@ -479,8 +507,15 @@ class GstPipeline:
     def _create_recording_branch(self):
         """녹화 브랜치 생성 (splitmuxsink + valve 사용)"""
         try:
-            # 녹화 디렉토리 생성
-            self.recording_dir.mkdir(parents=True, exist_ok=True)
+            # 녹화 디렉토리 생성 시도 (실패해도 파이프라인은 생성)
+            try:
+                self.recording_dir.mkdir(parents=True, exist_ok=True)
+                logger.debug(f"[RECORDING DEBUG] Recording directory created: {self.recording_dir}")
+            except Exception as dir_err:
+                logger.error(f"[STORAGE] Failed to create recording directory: {dir_err}")
+                logger.error(f"[STORAGE] Recording will be DISABLED until storage path becomes available")
+                # 녹화 경로 사용 불가 플래그 설정
+                self._recording_branch_error = True
 
             # 녹화 큐 - 안정성을 위한 설정
             record_queue = Gst.ElementFactory.make("queue", "record_queue")
@@ -586,8 +621,6 @@ class GstPipeline:
             logger.error(f"Traceback: {traceback.format_exc()}")
             raise  # 상위로 예외 전파
 
-
-
     def _on_pad_added(self, src, pad, depay):
         """RTSP 소스의 동적 패드 연결"""
         pad_caps = pad.get_current_caps()
@@ -635,82 +668,24 @@ class GstPipeline:
             error_type = self._classify_error(src_name, err, debug, error_code)
 
             # 에러 타입별 처리
+            # - RTSP 네트워크 에러
             if error_type == ErrorType.RTSP_NETWORK:
                 self._handle_rtsp_error(err)
-
+            # - 저장소 분리
             elif error_type == ErrorType.STORAGE_DISCONNECTED:
                 self._handle_storage_error(err)
-
+            # - 디스크 Full
             elif error_type == ErrorType.DISK_FULL:
                 self._handle_disk_full_error(err)
-
+            # - 디코더 에러
             elif error_type == ErrorType.DECODER:
                 self._handle_decoder_error(err)
-
+            # - Video Sink 에러
             elif error_type == ErrorType.VIDEO_SINK:
                 self._handle_videosink_error(err)
-
-            else:
-                # 알 수 없는 에러
+            # - 알 수 없는 에러
+            else:                
                 self._handle_unknown_error(src_name, err)
-
-            # # 1. 스트리밍 중 카메라 랜선 끊김 감지
-            # # - source 엘리먼트에서 발생
-            # # - "Could not read from resource" (error code: 9)
-            # # - gstrtspsrc.c 관련 메시지
-            # if (src_name == "source" and
-            #     "Could not read from resource" in error_str and
-            #     error_code == 9 and
-            #     "gstrtspsrc" in debug_str):
-            #     logger.critical(f"[ERROR TYPE] 네트워크 연결 끊김 감지 (카메라 랜선 분리): {self.camera_name}")
-            #     logger.critical(f"[ERROR TYPE] RTSP 소스로부터 데이터 수신 불가 - 카메라 연결 상태를 확인하세요")
-            #     # 추가 처리: 재연결 시도 등
-            #     self.stop()
-            #     return
-            #     # TODO: 자동 재연결 로직 추가
-
-            # # 2. 스트리밍/녹화 중 USB 연결 끊김 감지
-            # # - sink 엘리먼트 (splitmuxsink, GstFileSink)에서 발생
-            # # - "Could not write to resource" (error code: 10)
-            # # - "Permission denied" 또는 "Error while writing to file descriptor"
-            # elif (src_name in ["splitmuxsink", "sink"] and
-            #       "Could not write to resource" in error_str and
-            #       error_code == 10 and
-            #       ("Permission denied" in debug_str or "Error while writing to file descriptor" in debug_str)):
-            #     logger.critical(f"[ERROR TYPE] 저장소 연결 끊김 감지 (USB/외장 드라이브 분리): {self.camera_name}")
-            #     logger.critical(f"[ERROR TYPE] 녹화 파일 쓰기 실패 - 저장 장치 연결 상태를 확인하세요")
-            #     logger.critical(f"[ERROR TYPE] 현재 녹화 파일: {self.current_recording_file}")
-            #     # 추가 처리: 녹화 중지, 내부 저장소로 폴백 등
-            #     # 녹화 valve 상태 확인
-            #     self.stop_recording()
-            #     logger.debug(f"[RECORDING DEBUG] self.stop_recording()")
-            #     # if self.recording_valve:
-            #     #     valve_drop = self.recording_valve.get_property("drop")
-            #     #     logger.error(f"[RECORDING DEBUG] Current recording_valve drop={valve_drop}")
-
-            #     return
-            #     # TODO: 녹화 중지 및 저장소 폴백 로직 추가
-
-            # # 3. 녹화 관련 엘리먼트에서 에러 발생 시 특별 처리
-            # if src_name in ["splitmuxsink", "record_parse", "recording_valve", "record_queue"]:
-            #     logger.error(f"[RECORDING DEBUG] Recording branch error from {src_name}: {err}")
-            #     # 녹화 valve 상태 확인
-            #     if self.recording_valve:
-            #         valve_drop = self.recording_valve.get_property("drop")
-            #         logger.error(f"[RECORDING DEBUG] Current recording_valve drop={valve_drop}")
-
-            # # 4. Video sink 에러인 경우 (윈도우 핸들 없음 또는 테스트 모드)
-            # # 에러를 로깅하지만 파이프라인은 계속 실행
-            # if "videosink" in src_name or "Output window" in str(err):
-            #     logger.warning(f"Video sink error (ignoring): {err}")
-            #     # 테스트 모드나 윈도우 없는 경우 에러 무시
-            #     if not self.window_handle:
-            #         logger.debug("No window handle - video sink error ignored")
-            #         return
-
-            # # # 다른 중요한 에러는 파이프라인 중지
-            # # logger.error("[_on_bus_message] Stopping pipeline due to error")
-            # # self.stop()
 
         elif t == Gst.MessageType.EOS:
             logger.info("End of stream")
@@ -732,11 +707,14 @@ class GstPipeline:
         error_str = str(err).lower()
         debug_str = str(debug).lower() if debug else ""
 
-        # RTSP 네트워크 에러
-        if (src_name == "source" and
-            error_code == 9 and
-            "could not read" in error_str):
-            return ErrorType.RTSP_NETWORK
+        # RTSP 네트워크 에러 (확장)
+        if src_name == "source":
+            # error_code 9: Could not read
+            # error_code 10: Could not write (파이프라인 정지 중)
+            # error_code 7: Could not open (재연결 타임아웃)
+            # error_code 1: Internal data stream error
+            if error_code in [1, 7, 9, 10]:
+                return ErrorType.RTSP_NETWORK
 
         # 저장소 분리
         if (src_name in ["splitmuxsink", "sink"] and
@@ -764,6 +742,14 @@ class GstPipeline:
     def _handle_rtsp_error(self, err):
         """RTSP 에러 처리 - 전체 재시작"""
         logger.critical(f"[RTSP] Network error: {err}")
+        
+        # 1. 스레드 join 문제 해결 (우선순위: 높음)
+        # 문제: GLib 스레드에서 자기 자신을 join 불가 해결책: 에러 핸들러에서 비동기로 정지 처리
+        # GLib 스레드에서 직접 stop() 호출하지 않고, 별도 스레드로 비동기 처리
+        threading.Thread(target=self._async_stop_and_reconnect, daemon=True).start()
+
+    def _async_stop_and_reconnect(self):
+        """비동기로 파이프라인 정지 및 재연결"""
         self.stop()
         self._schedule_reconnect()
 
@@ -771,15 +757,12 @@ class GstPipeline:
         """저장소 에러 처리 - Recording Branch만 중지"""
         logger.critical(f"[STORAGE] USB disconnected: {err}")
 
-        # 1. 녹화 중지
-        self.stop_recording()
+        # 1. 녹화 중지 (storage_error 플래그로 split-now 신호 건너뛰기)
+        self.stop_recording(storage_error=True)
 
         # 2. 에러 플래그 설정
         self._recording_branch_error = True
         self._last_error_time["recording"] = time.time()
-
-        # 3. UI 알림
-        self._notify_recording_error("저장 장치가 분리되었습니다")
 
         logger.info("[STREAMING] Streaming continues")
 
@@ -815,8 +798,27 @@ class GstPipeline:
 
         logger.info("[RECORDING] Recording continues")
 
+    def _handle_unknown_error(self, src_name, err):
+        """알 수 없는 에러 처리"""
+        logger.warning(f"[UNKNOWN] Unhandled error from {src_name}: {err}")
+
+        # RTSP 소스 관련 에러면 재연결 시도
+        if src_name == "source":
+            logger.info("[UNKNOWN] Source error detected, attempting reconnection")
+            threading.Thread(target=self._async_stop_and_reconnect, daemon=True).start()
+        else:
+            # 다른 소스 에러는 로그만 남기고 무시
+            logger.debug(f"[UNKNOWN] Non-critical error from {src_name}, ignoring")
+
+
+
     def _schedule_reconnect(self):
-        """재연결 스케줄링 (지수 백오프)"""
+        """재연결 스케줄링 (지수 백오프, 중복 방지)"""
+        # 이미 재연결 타이머가 실행 중이면 무시
+        if self.reconnect_timer and self.reconnect_timer.is_alive():
+            logger.debug("Reconnect already scheduled, skipping duplicate")
+            return
+
         if self.retry_count >= self.max_retries:
             logger.error(f"Max retries ({self.max_retries}) reached")
             return
@@ -827,15 +829,18 @@ class GstPipeline:
 
         logger.info(f"Reconnecting in {delay}s (attempt {self.retry_count}/{self.max_retries})")
 
-        if self.reconnect_timer:
-            self.reconnect_timer.cancel()
-
         self.reconnect_timer = threading.Timer(delay, self._reconnect)
         self.reconnect_timer.daemon = True
         self.reconnect_timer.start()
 
     def _reconnect(self):
-        """재연결 수행"""
+        """재연결 수행 (중복 실행 방지)"""
+        # 이미 연결된 상태면 무시
+        if self._is_playing:
+            logger.debug(f"Pipeline already running for {self.camera_name}, skipping reconnect")
+            self.retry_count = 0  # retry count 초기화
+            return
+
         logger.info("Attempting to reconnect...")
 
         success = self.start()
@@ -970,16 +975,32 @@ class GstPipeline:
                     self._start_timestamp_update()
 
             logger.info(f"Pipeline started for {self.camera_name} (mode: {self.mode.value}, recording: {self._is_recording})")
+
+            # 연결 상태 콜백 호출 (UI 동기화)
+            self._notify_connection_state_change(True)
+
             return True
 
         except Exception as e:
             logger.error(f"Error starting pipeline: {e}")
+
+            # 연결 실패 시 콜백 호출
+            self._notify_connection_state_change(False)
+
             return False
 
     def stop(self):
-        """파이프라인 정지"""
-        if self.pipeline and self._is_playing:
+        """파이프라인 정지 (중복 실행 방지)"""
+        # 중복 실행 방지: 이미 정지 중이거나 정지된 상태면 무시
+        if not self.pipeline or not self._is_playing:
+            logger.debug(f"Pipeline already stopped or not running for {self.camera_name}")
+            return
+
+        try:
             logger.info(f"Stopping pipeline for {self.camera_name}")
+
+            # _is_playing을 먼저 False로 설정하여 중복 stop() 호출 방지
+            self._is_playing = False
 
             # 타임스탬프 업데이트 타이머 정지
             self._stop_timestamp_update()
@@ -989,7 +1010,6 @@ class GstPipeline:
                 self.stop_recording()
 
             self.pipeline.set_state(Gst.State.NULL)
-            self._is_playing = False
 
             if self._main_loop:
                 self._main_loop.quit()
@@ -999,33 +1019,33 @@ class GstPipeline:
 
             logger.info(f"Pipeline stopped for {self.camera_name}")
 
+            # 연결 끊김 상태 콜백 호출 (UI 동기화) - 한 번만 호출됨
+            self._notify_connection_state_change(False)
+
+        except Exception as e:
+            logger.error(f"Error during pipeline stop: {e}")
+
     def start_recording(self) -> bool:
-
-        """녹화 시작 (에러 복구 포함)"""
-        # 에러 상태 체크 및 복구
-        if self._recording_branch_error:
-            logger.warning("[RECOVERY] Attempting to recover recording branch...")
-
-            if not self.safe_restart_recording_branch():
-                logger.error("[RECOVERY] Failed to recover")
-                return False
-
-            logger.success("[RECOVERY] Recording branch recovered")
-
-            
-        """녹화 시작 (splitmuxsink + valve 사용)"""
+        """녹화 시작"""
+        # 파이프라인 실행 여부 확인
         if not self._is_playing:
             logger.error("Pipeline is not running")
             return False
 
+        # 이미 녹화 중인지 확인
         if self._is_recording:
             logger.warning(f"Already recording: {self.camera_name}")
             return False
 
         try:
-            # 녹화 디렉토리 생성 (날짜별)
+            # 1. 저장 경로 검증 (녹화 시작 전 필수!)
+            if not self._validate_recording_path():
+                logger.error("[STORAGE] Recording path validation failed")
+                return False
+
+            # 2. 녹화 디렉토리 생성 (날짜별)
             date_dir = self.recording_dir / datetime.now().strftime("%Y%m%d")
-            date_dir.mkdir(exist_ok=True)
+            date_dir.mkdir(parents=True, exist_ok=True)
 
             # 녹화 파일명 생성 (format-location 핸들러에서 사용)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1067,8 +1087,13 @@ class GstPipeline:
             logger.error(f"Traceback: {traceback.format_exc()}")
             return False
 
-    def stop_recording(self) -> bool:
-        """녹화 정지 (splitmuxsink + valve 사용)"""
+    def stop_recording(self, storage_error: bool = False) -> bool:
+        """
+        녹화 정지 (splitmuxsink + valve 사용)
+
+        Args:
+            storage_error: 저장소 에러로 인한 중지인 경우 True (split-now 신호 건너뛰기)
+        """
         if not self._is_recording:
             logger.warning(f"Not recording: {self.camera_name}")
             return False
@@ -1082,7 +1107,8 @@ class GstPipeline:
                 logger.debug("[RECORDING DEBUG] Recording valve closed")
 
             # splitmuxsink에 EOS 이벤트 전송 (현재 파일을 깔끔하게 종료)
-            if self.splitmuxsink:
+            # 단, 저장소 에러인 경우 split-now 신호를 보내지 않음 (seek 에러 방지)
+            if self.splitmuxsink and not storage_error:
                 # splitmuxsink의 split-now 신호를 발생시켜 현재 파일을 마무리하고 새 파일 시작
                 try:
                     self.splitmuxsink.emit("split-now")
@@ -1097,6 +1123,8 @@ class GstPipeline:
                     if pad:
                         pad.send_event(Gst.Event.new_eos())
                         logger.debug("[RECORDING DEBUG] Sent EOS event to splitmuxsink pad")
+            elif storage_error:
+                logger.debug("[RECORDING DEBUG] Skipping split-now due to storage error")
 
             # 짧은 대기 시간 (EOS 처리 및 파일 완료 대기)
             time.sleep(0.5)  # 0.2초에서 0.5초로 증가
@@ -1152,6 +1180,66 @@ class GstPipeline:
         self._recording_fragment_id = fragment_id
 
         return file_path
+
+    def _validate_recording_path(self) -> bool:
+        """
+        녹화 시작 전 저장 경로 검증
+
+        검증 항목:
+        1. 상위 디렉토리 존재 여부
+        2. 디렉토리 접근 권한
+        3. 디스크 공간 확인
+        4. 파일 생성 가능 여부 (테스트 파일 생성)
+
+        Returns:
+            bool: 경로가 유효하면 True, 아니면 False
+        """
+        try:
+            # 1. 상위 디렉토리 존재 여부 확인
+            if not self.recording_dir.exists():
+                logger.warning(f"[STORAGE] Recording directory does not exist: {self.recording_dir}")
+                # 생성 시도
+                try:
+                    self.recording_dir.mkdir(parents=True, exist_ok=True)
+                    logger.info(f"[STORAGE] Created recording directory: {self.recording_dir}")
+                except Exception as e:
+                    logger.error(f"[STORAGE] Failed to create directory: {e}")
+                    return False
+
+            # 2. 디렉토리 접근 권한 확인 (읽기, 쓰기, 실행)
+            if not os.access(str(self.recording_dir), os.R_OK | os.W_OK | os.X_OK):
+                logger.error(f"[STORAGE] No read/write permission for: {self.recording_dir}")
+                return False
+
+            # 3. 디스크 공간 확인 (최소 1GB 필요)
+            import shutil
+            stat = shutil.disk_usage(str(self.recording_dir))
+            free_gb = stat.free / (1024**3)
+
+            if free_gb < 1.0:
+                logger.error(f"[STORAGE] Insufficient disk space: {free_gb:.2f}GB (minimum 1GB required)")
+                return False
+
+            logger.debug(f"[STORAGE] Disk space available: {free_gb:.2f}GB")
+
+            # 4. 파일 생성 테스트 (임시 파일 생성 후 삭제)
+            test_file = self.recording_dir / f".test_{self.camera_id}.tmp"
+            try:
+                test_file.touch()
+                test_file.unlink()
+                logger.debug(f"[STORAGE] Write test successful: {self.recording_dir}")
+            except Exception as e:
+                logger.error(f"[STORAGE] Failed to write test file: {e}")
+                return False
+
+            logger.info(f"[STORAGE] Recording path validated: {self.recording_dir}")
+            return True
+
+        except Exception as e:
+            logger.error(f"[STORAGE] Path validation failed: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return False
 
     def _delayed_valve_open(self):
         """지연된 valve 열기 (키프레임 대기 후) - 이제 사용되지 않음"""

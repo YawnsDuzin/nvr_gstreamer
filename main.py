@@ -20,6 +20,7 @@ from loguru import logger
 from ui.main_window import MainWindow
 from core.config import ConfigManager
 
+# Note: QVector<int> 메타타입 경고는 PyQt5에서 자동 처리되므로 무시 가능
 
 def setup_logging(debug: bool = False, config_file: str = None):
     """

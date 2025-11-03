@@ -35,8 +35,9 @@ class StorageService:
             recordings_path = recording_config.get('base_path', './recordings')
             logger.debug(f"Using recordings base_path from config: {recordings_path}")
 
+        # 경로 검증 (Fallback 없음 - 오류 시 경고만 표시)
         self.recordings_path = Path(recordings_path)
-        self.recordings_path.mkdir(parents=True, exist_ok=True)
+        self._path_available = self._validate_storage_path()
 
         # 설정에서 임계값 로드
         self.auto_cleanup_enabled = recording_config.get('auto_cleanup_enabled', True)
@@ -45,11 +46,15 @@ class StorageService:
         self.max_storage_days = recording_config.get('retention_days', 30)
         self.cleanup_threshold_percent = recording_config.get('cleanup_threshold_percent', 90)
 
-        logger.info(f"Storage service initialized: path={self.recordings_path}, "
-                   f"retention={self.max_storage_days}days, "
-                   f"threshold={self.cleanup_threshold_percent}%, "
-                   f"min_free={self.min_free_space_gb}GB, "
-                   f"auto_cleanup={self.auto_cleanup_enabled}")
+        if self._path_available:
+            logger.info(f"Storage service initialized: path={self.recordings_path}, "
+                       f"retention={self.max_storage_days}days, "
+                       f"threshold={self.cleanup_threshold_percent}%, "
+                       f"min_free={self.min_free_space_gb}GB, "
+                       f"auto_cleanup={self.auto_cleanup_enabled}")
+        else:
+            logger.error(f"Storage service initialized with UNAVAILABLE path: {self.recordings_path}")
+            logger.error("[STORAGE] Recording will be DISABLED until the storage path becomes available!")
 
     def get_storage_info(self) -> StorageInfo:
         """
@@ -377,6 +382,66 @@ class StorageService:
             'cleanup_threshold_percent': self.cleanup_threshold_percent,
             'needs_cleanup': storage_info.needs_cleanup(self.cleanup_threshold_percent)
         }
+
+    def _validate_storage_path(self) -> bool:
+        """
+        저장 경로 검증 (Fallback 없이 오류만 로깅)
+
+        Returns:
+            bool: 경로가 유효하면 True, 아니면 False
+        """
+        try:
+            # 1. Windows: 드라이브 존재 여부 확인
+            if os.name == 'nt':  # Windows
+                drive = os.path.splitdrive(str(self.recordings_path))[0]
+                if drive and not os.path.exists(drive + os.sep):
+                    logger.error(f"[STORAGE] Drive not found: {drive}")
+                    logger.error(f"[STORAGE] Please check if the USB drive is connected: {self.recordings_path}")
+                    return False
+
+            # 2. 디렉토리 생성 시도
+            try:
+                self.recordings_path.mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                logger.error(f"[STORAGE] Failed to create directory: {e}")
+                logger.error(f"[STORAGE] Path: {self.recordings_path}")
+                return False
+
+            # 3. 쓰기 권한 테스트
+            test_file = self.recordings_path / ".write_test.tmp"
+            try:
+                test_file.touch()
+                test_file.unlink()
+            except Exception as e:
+                logger.error(f"[STORAGE] No write permission: {e}")
+                logger.error(f"[STORAGE] Path: {self.recordings_path}")
+                return False
+
+            # 4. 디스크 공간 확인 (경고만, 실패는 아님)
+            try:
+                stat = shutil.disk_usage(str(self.recordings_path))
+                free_gb = stat.free / (1024 ** 3)
+                if free_gb < 1.0:
+                    logger.warning(f"[STORAGE] Low disk space: {free_gb:.2f}GB")
+            except Exception:
+                pass  # 디스크 공간 체크 실패는 무시
+
+            logger.debug(f"[STORAGE] Path validated successfully: {self.recordings_path}")
+            return True
+
+        except Exception as e:
+            logger.error(f"[STORAGE] Path validation failed: {e}")
+            logger.error(f"[STORAGE] Path: {self.recordings_path}")
+            return False
+
+    def is_path_available(self) -> bool:
+        """
+        저장 경로 사용 가능 여부 확인
+
+        Returns:
+            bool: 경로가 사용 가능하면 True
+        """
+        return self._path_available
 
     def _get_directory_size(self, path: Path) -> int:
         """디렉토리 크기 계산"""
