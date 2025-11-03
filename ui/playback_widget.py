@@ -271,6 +271,12 @@ class RecordingListWidget(QWidget):
 
         button_layout.addStretch()
 
+        # 백업 버튼
+        self.backup_btn = QPushButton("백업")
+        self.backup_btn.clicked.connect(self._backup_selected)
+        self.backup_btn.setStyleSheet("background-color: #2196F3; color: white; font-weight: bold;")
+        button_layout.addWidget(self.backup_btn)
+
         # 선택 삭제 버튼
         delete_btn = QPushButton("선택 삭제")
         delete_btn.clicked.connect(self._delete_selected)
@@ -365,6 +371,33 @@ class RecordingListWidget(QWidget):
             checkbox = self.file_table.cellWidget(row, 0)
             if checkbox:
                 checkbox.setChecked(False)
+
+    def _backup_selected(self):
+        """선택된 파일들 백업"""
+        from ui.backup_dialog import BackupDialog
+
+        # 체크된 파일 경로 수집
+        selected_files = []
+        for row in range(self.file_table.rowCount()):
+            checkbox = self.file_table.cellWidget(row, 0)
+            if checkbox and checkbox.isChecked():
+                file_path = self.file_table.item(row, 1).data(Qt.UserRole)
+                if file_path:
+                    selected_files.append(file_path)
+
+        if not selected_files:
+            QMessageBox.information(
+                self,
+                "선택 없음",
+                "백업할 파일을 선택해주세요."
+            )
+            return
+
+        # 백업 다이얼로그 열기
+        dialog = BackupDialog(selected_files, self)
+        dialog.exec_()
+
+        logger.info(f"Backup dialog closed: {len(selected_files)} files selected")
 
     def _delete_selected(self):
         """선택된 파일들 삭제"""

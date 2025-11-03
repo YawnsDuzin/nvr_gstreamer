@@ -101,6 +101,12 @@ class GstPipeline:
         self.max_retries = 10
         self.reconnect_timer = None
 
+        # 녹화 재시도 관리
+        self._recording_retry_timer = None
+        self._recording_retry_count = 0
+        self._max_recording_retry = 20  # 최대 재시도 횟수 (20회 = 약 2분)
+        self._recording_retry_interval = 6.0  # 재시도 간격 (초)
+        self._recording_should_auto_resume = False  # 자동 재개 플래그
 
         logger.debug(f"Recording config loaded: base_path={base_path}, rotation={rotation_minutes}min, format={self.file_format}, codec={self.video_codec}")
 
@@ -750,7 +756,20 @@ class GstPipeline:
 
     def _async_stop_and_reconnect(self):
         """비동기로 파이프라인 정지 및 재연결"""
+        # 녹화 중이었는지 확인 (stop() 호출 전에 저장)
+        was_recording = self._is_recording
+
+        logger.debug(f"[RECONNECT] Async stop initiated - was_recording: {was_recording}")
+
+        # 파이프라인 정지
         self.stop()
+
+        # 녹화 중이었으면 자동 재개 플래그 설정
+        if was_recording:
+            self._recording_should_auto_resume = True
+            logger.info("[RECONNECT] Will auto-resume recording after reconnection")
+
+        # 재연결 스케줄링
         self._schedule_reconnect()
 
     def _handle_storage_error(self, err):
@@ -764,7 +783,14 @@ class GstPipeline:
         self._recording_branch_error = True
         self._last_error_time["recording"] = time.time()
 
+        # 3. 자동 재개 플래그 설정 (녹화 중이었으므로 USB 복구 시 자동 재개)
+        self._recording_should_auto_resume = True
+
+        # 4. 녹화 재시도 스케줄링 시작
+        self._schedule_recording_retry()
+
         logger.info("[STREAMING] Streaming continues")
+        logger.info("[RECORDING] Will automatically resume when storage is available")
 
     def _handle_disk_full_error(self, err):
         """디스크 Full 처리 - 자동 정리"""
@@ -812,6 +838,26 @@ class GstPipeline:
 
 
 
+    def _schedule_recording_retry(self):
+        """녹화 재시도 타이머 시작"""
+        # 이미 타이머가 실행 중이면 무시
+        if self._recording_retry_timer and self._recording_retry_timer.is_alive():
+            logger.debug("[RECORDING RETRY] Timer already running")
+            return
+
+        # 재시도 카운터 초기화
+        self._recording_retry_count = 0
+
+        # 타이머 시작 (첫 재시도는 6초 후)
+        self._recording_retry_timer = threading.Timer(
+            self._recording_retry_interval,
+            self._retry_recording
+        )
+        self._recording_retry_timer.daemon = True
+        self._recording_retry_timer.start()
+
+        logger.info(f"[RECORDING RETRY] Scheduled (interval: {self._recording_retry_interval}s, max attempts: {self._max_recording_retry})")
+
     def _schedule_reconnect(self):
         """재연결 스케줄링 (지수 백오프, 중복 방지)"""
         # 이미 재연결 타이머가 실행 중이면 무시
@@ -833,6 +879,56 @@ class GstPipeline:
         self.reconnect_timer.daemon = True
         self.reconnect_timer.start()
 
+    def _retry_recording(self):
+        """녹화 재시도 실행"""
+        # 자동 재개 플래그가 꺼져있으면 중단
+        if not self._recording_should_auto_resume:
+            logger.debug("[RECORDING RETRY] Auto-resume disabled, stopping retry")
+            return
+
+        # 최대 재시도 횟수 초과 시 중단
+        self._recording_retry_count += 1
+        if self._recording_retry_count > self._max_recording_retry:
+            logger.warning(f"[RECORDING RETRY] Max retry count reached ({self._max_recording_retry})")
+            self._recording_should_auto_resume = False
+            return
+
+        logger.debug(f"[RECORDING RETRY] Attempt {self._recording_retry_count}/{self._max_recording_retry}")
+
+        # 저장소 경로 검증
+        if self._validate_recording_path():
+            logger.success(f"[RECORDING RETRY] Storage path available!")
+
+            # 에러 플래그 초기화
+            self._recording_branch_error = False
+
+            # 녹화 시작 시도
+            if self.start_recording():
+                logger.success("[RECORDING RETRY] Recording resumed successfully!")
+                self._recording_should_auto_resume = False  # 성공 시 플래그 초기화
+                return
+            else:
+                logger.warning("[RECORDING RETRY] Failed to start recording (pipeline issue)")
+        else:
+            logger.debug(f"[RECORDING RETRY] Storage path still unavailable (retry {self._recording_retry_count}/{self._max_recording_retry})")
+
+        # 다음 재시도 스케줄링
+        self._recording_retry_timer = threading.Timer(
+            self._recording_retry_interval,
+            self._retry_recording
+        )
+        self._recording_retry_timer.daemon = True
+        self._recording_retry_timer.start()
+
+    def _cancel_recording_retry(self):
+        """녹화 재시도 취소"""
+        self._recording_should_auto_resume = False
+
+        if self._recording_retry_timer and self._recording_retry_timer.is_alive():
+            self._recording_retry_timer.cancel()
+            self._recording_retry_timer = None
+            logger.info("[RECORDING RETRY] Retry cancelled")
+
     def _reconnect(self):
         """재연결 수행 (중복 실행 방지)"""
         # 이미 연결된 상태면 무시
@@ -848,6 +944,22 @@ class GstPipeline:
         if success:
             logger.success("Reconnected successfully")
             self.retry_count = 0
+
+            # 녹화 자동 재개 확인
+            if self._recording_should_auto_resume:
+                logger.info("[RECONNECT] Attempting to auto-resume recording...")
+
+                # 짧은 대기 (파이프라인 안정화)
+                time.sleep(1.0)
+
+                # 녹화 시작 시도 (skip_splitmux_restart=True: 파이프라인이 새로 생성되었으므로 splitmuxsink 재시작 불필요)
+                if self.start_recording(skip_splitmux_restart=True):
+                    logger.success("[RECONNECT] Recording auto-resumed successfully!")
+                    self._recording_should_auto_resume = False
+                else:
+                    logger.warning("[RECONNECT] Failed to auto-resume recording, will retry via timer")
+                    # 실패 시 녹화 재시도 타이머 시작
+                    self._schedule_recording_retry()
         else:
             logger.error("Reconnect failed")
             self._schedule_reconnect()
@@ -884,30 +996,10 @@ class GstPipeline:
                     logger.error(f"Error detail: {err}, Debug: {debug}")
                 return False
 
-            # 녹화 파일명 설정 (READY 상태에서 안전하게 설정)
-            # splitmuxsink는 location 패턴을 사용하여 자동으로 파일을 생성
-            if self.mode in [PipelineMode.RECORDING_ONLY, PipelineMode.BOTH]:
-                # recording_valve의 drop 속성 확인
-                valve_drop = self.recording_valve.get_property("drop")
-                logger.debug(f"[RECORDING DEBUG] Mode: {self.mode.value}, recording_valve drop: {valve_drop}")
-
-                if not valve_drop:  # drop=False면 녹화 예정
-                    # 녹화 파일명 패턴 생성 (아직 설정되지 않은 경우)
-                    if not self.current_recording_file:
-                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                        date_dir = self.recording_dir / datetime.now().strftime("%Y%m%d")
-                        date_dir.mkdir(exist_ok=True)
-                        # splitmuxsink용 파일명 패턴 (%05d는 파일 인덱스)
-                        location_pattern = str(date_dir / f"{self.camera_id}_{timestamp}_%05d.{self.file_format}")
-
-                        # splitmuxsink location 설정
-                        if self.splitmuxsink:
-                            self.splitmuxsink.set_property("location", location_pattern)
-
-                        self.current_recording_file = str(date_dir / f"{self.camera_id}_{timestamp}.{self.file_format}")
-                        logger.info(f"[RECORDING DEBUG] Initial recording pattern set: {location_pattern}")
-                else:
-                    logger.debug(f"[RECORDING DEBUG] Recording valve is closed (drop=True), skipping file setup")
+            # ⭐ 중요: splitmuxsink는 format-location 핸들러를 사용하므로
+            #    여기서 location 속성을 설정하면 핸들러가 무시됨!
+            # → 파일명은 start_recording() 메서드에서 format-location 핸들러를 통해 동적으로 생성됨
+            logger.debug("[RECORDING DEBUG] Splitmuxsink will use format-location handler for file naming")
 
             # PLAYING 상태로 전환
             ret = self.pipeline.set_state(Gst.State.PLAYING)
@@ -1005,6 +1097,9 @@ class GstPipeline:
             # 타임스탬프 업데이트 타이머 정지
             self._stop_timestamp_update()
 
+            # 녹화 재시도 타이머 취소
+            self._cancel_recording_retry()
+
             # 녹화 중이면 먼저 정지
             if self._is_recording:
                 self.stop_recording()
@@ -1025,8 +1120,14 @@ class GstPipeline:
         except Exception as e:
             logger.error(f"Error during pipeline stop: {e}")
 
-    def start_recording(self) -> bool:
-        """녹화 시작"""
+    def start_recording(self, skip_splitmux_restart: bool = False) -> bool:
+        """
+        녹화 시작
+
+        Args:
+            skip_splitmux_restart: True면 splitmuxsink 재시작 건너뛰기 (네트워크 재연결 후 호출 시)
+                                  False면 splitmuxsink 재시작 (USB 저장소 복구 시)
+        """
         # 파이프라인 실행 여부 확인
         if not self._is_playing:
             logger.error("Pipeline is not running")
@@ -1047,28 +1148,55 @@ class GstPipeline:
             date_dir = self.recording_dir / datetime.now().strftime("%Y%m%d")
             date_dir.mkdir(parents=True, exist_ok=True)
 
-            # 녹화 파일명 생성 (format-location 핸들러에서 사용)
+            # 3. 녹화 파일명 생성
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            # ⭐ 중요: splitmuxsink는 location 속성과 format-location 핸들러를 동시에 사용할 수 없음!
+            # location 속성을 설정하면 format-location 핸들러가 무시됨
+            # → 파일 분할을 위해서는 format-location 핸들러만 사용해야 함
+
+            # 4. 기본 파일명 저장 (로그용 - 실제 파일명은 format-location에서 결정)
             self.current_recording_file = str(date_dir / f"{self.camera_id}_{timestamp}.{self.file_format}")
             self._recording_fragment_id = 0  # 프래그먼트 ID 초기화
 
-            # valve 상태 확인
+            logger.debug(f"[RECORDING DEBUG] Recording will start with base file: {self.current_recording_file}")
+
+            # 5. valve 상태 확인
             if self.recording_valve:
                 valve_drop = self.recording_valve.get_property("drop")
                 if not valve_drop:
                     logger.error("[RECORDING DEBUG] Valve is already open!")
                     return False
 
-            # 상태 업데이트 (valve 열기 전에 설정)
+            # 6. 상태 업데이트 (valve 열기 전에 설정)
             self._is_recording = True
             self.recording_start_time = time.time()
 
             logger.info(f"[RECORDING DEBUG] Recording state set, base file: {self.current_recording_file}")
 
-            # 짧은 대기 후 Valve 열기 (location 설정이 완료되도록)
-            time.sleep(0.1)
+            # 7. splitmuxsink 상태 확인 및 재시작 (EOS 상태에서 복구)
+            # 단, 전체 파이프라인이 새로 생성된 경우(재연결 후)는 건너뛰기
+            if self.splitmuxsink and not skip_splitmux_restart:
+                current_state = self.splitmuxsink.get_state(0)[1]
+                logger.debug(f"[RECORDING DEBUG] splitmuxsink current state: {current_state.value_nick}")
 
-            # Valve 열기 (녹화 시작)
+                # splitmuxsink를 READY로 전환 후 다시 PLAYING으로 전환 (EOS 상태 초기화)
+                self.splitmuxsink.set_state(Gst.State.READY)
+                time.sleep(0.1)
+
+                # ⭐ 중요: READY 상태에서 설정이 초기화되므로 max-size-time 다시 설정
+                self.splitmuxsink.set_property("max-size-time", self.file_duration_ns)
+                logger.debug(f"[RECORDING DEBUG] Re-applied max-size-time: {self.file_duration_ns / Gst.SECOND}s")
+
+                self.splitmuxsink.set_state(Gst.State.PLAYING)
+                logger.debug("[RECORDING DEBUG] splitmuxsink restarted (READY -> PLAYING)")
+            elif skip_splitmux_restart:
+                logger.info("[RECORDING DEBUG] Skipping splitmuxsink restart (fresh pipeline after reconnection)")
+
+            # 8. 짧은 대기 후 Valve 열기 (splitmuxsink 초기화 완료 대기)
+            time.sleep(0.2)
+
+            # 9. Valve 열기 (녹화 시작 - 데이터 흐름 시작)
             if self.recording_valve:
                 self.recording_valve.set_property("drop", False)
                 logger.debug("[RECORDING DEBUG] Recording valve opened")
@@ -1136,6 +1264,11 @@ class GstPipeline:
             self.current_recording_file = None  # 파일 경로 초기화
 
             logger.info(f"Recording stopped: {saved_file}")
+
+            # 사용자가 수동으로 녹화를 중지한 경우 (storage_error=False)
+            # 자동 재개 플래그 초기화 및 재시도 타이머 취소
+            if not storage_error:
+                self._cancel_recording_retry()
 
             # 녹화 정지 콜백 호출 (UI 동기화)
             self._notify_recording_state_change(False)

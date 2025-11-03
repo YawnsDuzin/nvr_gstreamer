@@ -6,12 +6,12 @@
   "ui": {
     "theme": "dark",
     "show_status_bar": true,
-    "fullscreen_on_start": false,
+    "fullscreen_on_start": true,
     "window_state": {
       "x": 1920,
-      "y": 0,
+      "y": 23,
       "width": 1920,
-      "height": 1061
+      "height": 1017
     },
     "dock_state": {
       "camera_visible": true,
@@ -59,8 +59,23 @@
       "recording_enabled_start": true
     }
   ],
+  "cameras2": [
+    {
+      "camera_id": "cam_01",
+      "name": "Main Camera",
+      "rtsp_url": "rtsp://210.99.70.120:1935/live/cctv001.stream",
+      "rtsp_url1": "rtsp://admin:trolleycam1~@192.168.0.131:554/Streaming/Channels/102",
+      "rtsp_url2": "rtsp://210.99.70.120:1935/live/cctv001.stream",
+      "enabled": true,
+      "username": null,
+      "password": null,
+      "streaming_enabled_start": true,
+      "recording_enabled_start": true
+    }
+  ],
   "recording": {
     "base_path": "E:/_recordings",
+    "Des_path": "E:/sfsfsdf",
     "file_format": "mkv",
     "rotation_minutes": 2,
     "retention_days": 30,
