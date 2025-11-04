@@ -72,10 +72,11 @@ class GstPipeline:
         # 녹화 설정 로드
         config = ConfigManager.get_instance()
         recording_config = config.get_recording_config()
+        storage_config = config.config.get('storage', {})
 
-        # 녹화 디렉토리 설정
-        base_path = recording_config.get('base_path', './recordings')
-        self.recording_dir = Path(base_path) / camera_id
+        # 녹화 디렉토리 설정 (storage.recording_path 사용)
+        recording_path = storage_config.get('recording_path', './recordings')
+        self.recording_dir = Path(recording_path) / camera_id
 
         self.current_recording_file = None
         self.recording_start_time = None
@@ -108,7 +109,7 @@ class GstPipeline:
         self._recording_retry_interval = 6.0  # 재시도 간격 (초)
         self._recording_should_auto_resume = False  # 자동 재개 플래그
 
-        logger.debug(f"Recording config loaded: base_path={base_path}, rotation={rotation_minutes}min, format={self.file_format}, codec={self.video_codec}")
+        logger.debug(f"Recording config loaded: recording_path={recording_path}, rotation={rotation_minutes}min, format={self.file_format}, codec={self.video_codec}")
 
     def register_recording_callback(self, callback):
         """

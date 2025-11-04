@@ -71,6 +71,7 @@ class MainWindow(QMainWindow):
         # fullscreen_on_start 설정 적용 (모든 UI 설정 완료 후)
         if self.config_manager.ui_config.fullscreen_on_start:
             self.showFullScreen()
+            self.fullscreen_action.setChecked(True)
             logger.info("Window shown in fullscreen mode")
 
         logger.info("Enhanced main window initialized")
@@ -913,10 +914,11 @@ class MainWindow(QMainWindow):
 
         view_menu.addSeparator()
 
-        fullscreen_action = QAction("Fullscreen", self)
-        fullscreen_action.setShortcut(QKeySequence("F11"))
-        fullscreen_action.triggered.connect(self.toggle_fullscreen)
-        view_menu.addAction(fullscreen_action)
+        self.fullscreen_action = QAction("Fullscreen", self)
+        self.fullscreen_action.setShortcut(QKeySequence("F11"))
+        self.fullscreen_action.setCheckable(True)
+        self.fullscreen_action.triggered.connect(self.toggle_fullscreen)
+        view_menu.addAction(self.fullscreen_action)
 
         view_menu.addSeparator()
 
@@ -963,6 +965,14 @@ class MainWindow(QMainWindow):
         settings_action.setShortcut(QKeySequence("Ctrl+,"))
         settings_action.triggered.connect(self._show_settings_dialog)
         setting_menu.addAction(settings_action)
+
+        # Logs menu
+        logs_menu = menubar.addMenu("Logs")
+
+        log_search_action = QAction("Log Search...", self)
+        log_search_action.setShortcut(QKeySequence("Ctrl+L"))
+        log_search_action.triggered.connect(self._show_log_viewer)
+        logs_menu.addAction(log_search_action)
 
         # Help menu
         help_menu = menubar.addMenu("Help")
@@ -1111,17 +1121,21 @@ class MainWindow(QMainWindow):
             self._hide_ui()
 
     def _hide_ui(self):
-        """메뉴바와 Dock 위젯 숨김"""
+        """메뉴바, Dock 위젯 및 controls_bar 숨김"""
         self.menuBar().hide()
         self.camera_dock.hide()
         self.recording_dock.hide()
         self.playback_dock.hide()
 
+        # Grid view의 controls_bar도 숨김
+        if self.grid_view and hasattr(self.grid_view, 'controls_bar'):
+            self.grid_view.controls_bar.hide()
+
         self.ui_hidden = True
         logger.debug("UI hidden (fullscreen auto-hide)")
 
     def _show_ui(self):
-        """메뉴바와 Dock 위젯 표시"""
+        """메뉴바, Dock 위젯 및 controls_bar 표시"""
         self.menuBar().show()
 
         # Dock 상태 복원 (원래 표시 상태였던 것만 표시)
@@ -1132,6 +1146,10 @@ class MainWindow(QMainWindow):
             self.recording_dock.show()
         if dock_state.get("playback_visible", False):
             self.playback_dock.show()
+
+        # Grid view의 controls_bar도 표시
+        if self.grid_view and hasattr(self.grid_view, 'controls_bar'):
+            self.grid_view.controls_bar.show()
 
         self.ui_hidden = False
         logger.debug("UI shown (user activity detected)")
@@ -1644,6 +1662,13 @@ class MainWindow(QMainWindow):
         dialog.settings_changed.connect(self._on_settings_changed)
         dialog.exec_()
 
+    def _show_log_viewer(self):
+        """Show log viewer dialog"""
+        from ui.log_viewer_dialog import LogViewerDialog
+
+        dialog = LogViewerDialog(self.config_manager, self)
+        dialog.exec_()
+
     def _on_settings_changed(self):
         """Handle settings changes"""
         logger.info("Settings changed - reloading configuration")
@@ -1721,8 +1746,10 @@ class MainWindow(QMainWindow):
         """Toggle fullscreen mode"""
         if self.isFullScreen():
             self.showNormal()
+            self.fullscreen_action.setChecked(False)
         else:
             self.showFullScreen()
+            self.fullscreen_action.setChecked(True)
 
     def _open_playback_mode(self):
         """재생 모드 열기"""

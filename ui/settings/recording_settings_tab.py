@@ -33,34 +33,7 @@ class RecordingSettingsTab(BaseSettingsTab):
         """UI 구성"""
         layout = QVBoxLayout(self)
 
-        # Recording Path Group
-        path_group = QGroupBox("Recording Path")
-        path_layout = QVBoxLayout()
-
-        # Base path selection
-        base_path_layout = QHBoxLayout()
-        self.base_path_edit = QLineEdit()
-        self.base_path_edit.setPlaceholderText("Select recording base path...")
-        self.base_path_edit.setToolTip("Base directory for all recordings")
-
-        self.browse_btn = QPushButton("Browse...")
-        self.browse_btn.clicked.connect(self._browse_base_path)
-
-        base_path_layout.addWidget(self.base_path_edit)
-        base_path_layout.addWidget(self.browse_btn)
-        path_layout.addLayout(base_path_layout)
-
-        # Path preview
-        self.path_preview_label = QLabel()
-        self.path_preview_label.setWordWrap(True)
-        self.path_preview_label.setStyleSheet(
-            "color: #999999; font-style: italic; padding: 5px; "
-            "background-color: #3a3a3a; border-radius: 3px;"
-        )
-        path_layout.addWidget(self.path_preview_label)
-
-        path_group.setLayout(path_layout)
-        layout.addWidget(path_group)
+        # Note: Recording Path has been moved to Storage Settings Tab
 
         # Recording Format Group
         format_group = QGroupBox("Recording Format")
@@ -125,38 +98,9 @@ class RecordingSettingsTab(BaseSettingsTab):
 
         logger.debug("RecordingSettingsTab UI setup complete")
 
-    def _browse_base_path(self):
-        """녹화 경로 선택"""
-        current_path = self.base_path_edit.text()
-        if not current_path or not os.path.exists(current_path):
-            current_path = os.path.expanduser("~")
-
-        path = QFileDialog.getExistingDirectory(
-            self,
-            "Select Recording Base Path",
-            current_path,
-            QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
-        )
-
-        if path:
-            self.base_path_edit.setText(path)
-            self._update_preview()
-
     def _update_preview(self):
-        """경로 미리보기 업데이트"""
-        base_path = self.base_path_edit.text().strip()
-        file_format = self.file_format_combo.currentText()
+        """파일 포맷 및 회전 정보 업데이트"""
         rotation_minutes = self.rotation_minutes_spin.value()
-
-        if base_path:
-            # Example preview
-            preview = (
-                f"Example: {base_path}/cam_01/2025-11-03/cam_01_20251103_143000.{file_format}\n"
-                f"Files will be split every {rotation_minutes} minutes"
-            )
-            self.path_preview_label.setText(preview)
-        else:
-            self.path_preview_label.setText("Select a base path to see preview")
 
         # Rotation info
         hours = rotation_minutes / 60
@@ -170,10 +114,6 @@ class RecordingSettingsTab(BaseSettingsTab):
         try:
             config = self.config_manager.config
             recording = config.get("recording", {})
-
-            # Base path
-            base_path = recording.get("base_path", "")
-            self.base_path_edit.setText(base_path)
 
             # File format
             file_format = recording.get("file_format", "mkv")
@@ -200,7 +140,6 @@ class RecordingSettingsTab(BaseSettingsTab):
 
             # Store original data
             self._store_original_data({
-                "base_path": base_path,
                 "file_format": file_format,
                 "codec": codec,
                 "fragment_duration_ms": fragment_duration,
@@ -221,8 +160,7 @@ class RecordingSettingsTab(BaseSettingsTab):
             if "recording" not in config:
                 config["recording"] = {}
 
-            # Recording settings 업데이트
-            config["recording"]["base_path"] = self.base_path_edit.text().strip()
+            # Recording settings 업데이트 (base_path는 storage 섹션으로 이동됨)
             config["recording"]["file_format"] = self.file_format_combo.currentText()
             config["recording"]["codec"] = self.codec_combo.currentText()
             config["recording"]["fragment_duration_ms"] = self.fragment_duration_spin.value()
@@ -239,25 +177,7 @@ class RecordingSettingsTab(BaseSettingsTab):
             return False
 
     def validate_settings(self) -> tuple[bool, str]:
-        """설정 검증"""
-        base_path = self.base_path_edit.text().strip()
-
-        # 경로가 비어있으면 에러
-        if not base_path:
-            return False, "Recording base path is required"
-
-        # 경로가 존재하지 않으면 생성 시도
-        if not os.path.exists(base_path):
-            try:
-                os.makedirs(base_path, exist_ok=True)
-                logger.info(f"Created recording directory: {base_path}")
-            except Exception as e:
-                return False, f"Failed to create recording directory:\n{base_path}\n{str(e)}"
-
-        # 쓰기 권한 확인
-        if not os.access(base_path, os.W_OK):
-            return False, f"No write permission for recording path:\n{base_path}"
-
+        """설정 검증 (recording_path는 storage 탭에서 검증)"""
         # Rotation minutes 검증 (1 ~ 1440분)
         rotation_minutes = self.rotation_minutes_spin.value()
         if rotation_minutes < 1 or rotation_minutes > 1440:
@@ -270,7 +190,6 @@ class RecordingSettingsTab(BaseSettingsTab):
         try:
             original = self._get_original_data()
             current = {
-                "base_path": self.base_path_edit.text().strip(),
                 "file_format": self.file_format_combo.currentText(),
                 "codec": self.codec_combo.currentText(),
                 "fragment_duration_ms": self.fragment_duration_spin.value(),

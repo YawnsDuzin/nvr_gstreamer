@@ -377,8 +377,11 @@ class PlaybackPipeline:
         def update_position():
             if self.state == PlaybackState.PLAYING:
                 position = self.get_position()
-                if self.on_position_changed:
-                    self.on_position_changed(position, self.duration)
+                duration = self.get_duration()  # 매번 duration도 업데이트
+
+                # duration이 유효한 경우에만 콜백 호출
+                if self.on_position_changed and duration > 0:
+                    self.on_position_changed(position, duration)
                 return True  # Continue timer
             return False  # Stop timer
 
@@ -407,9 +410,9 @@ class PlaybackManager:
         # 녹화 디렉토리가 지정되지 않으면 설정파일에서 로드
         if recordings_dir is None:
             config_manager = ConfigManager.get_instance()
-            recording_config = config_manager.get_recording_config()
-            recordings_dir = recording_config.get('base_path', './recordings')
-            logger.debug(f"Using recordings base_path from config: {recordings_dir}")
+            storage_config = config_manager.config.get('storage', {})
+            recordings_dir = storage_config.get('recording_path', './recordings')
+            logger.debug(f"Using recordings recording_path from config: {recordings_dir}")
 
         self.recordings_dir = Path(recordings_dir)
         self.playback_pipeline = None

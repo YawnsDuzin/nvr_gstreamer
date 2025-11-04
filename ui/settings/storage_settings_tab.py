@@ -39,6 +39,39 @@ class StorageSettingsTab(BaseSettingsTab):
         scroll_content = QWidget()
         layout = QVBoxLayout(scroll_content)
 
+        # Recording Path Group (moved from recording_settings_tab)
+        from PyQt5.QtWidgets import QLineEdit, QFileDialog, QPushButton, QHBoxLayout
+        import os
+
+        path_group = QGroupBox("Recording Path")
+        path_layout = QVBoxLayout()
+
+        # Base path selection
+        base_path_layout = QHBoxLayout()
+        self.recording_path_edit = QLineEdit()
+        self.recording_path_edit.setPlaceholderText("Select recording path...")
+        self.recording_path_edit.setToolTip("Base directory for all recordings")
+
+        self.browse_btn = QPushButton("Browse...")
+        self.browse_btn.clicked.connect(self._browse_recording_path)
+
+        base_path_layout.addWidget(self.recording_path_edit)
+        base_path_layout.addWidget(self.browse_btn)
+        path_layout.addLayout(base_path_layout)
+
+        # Path preview
+        from PyQt5.QtWidgets import QLabel
+        self.path_preview_label = QLabel()
+        self.path_preview_label.setWordWrap(True)
+        self.path_preview_label.setStyleSheet(
+            "color: #999999; font-style: italic; padding: 5px; "
+            "background-color: #3a3a3a; border-radius: 3px;"
+        )
+        path_layout.addWidget(self.path_preview_label)
+
+        path_group.setLayout(path_layout)
+        layout.addWidget(path_group)
+
         # Auto Cleanup Group
         cleanup_group = QGroupBox("Auto Cleanup")
         cleanup_layout = QVBoxLayout()
@@ -174,6 +207,39 @@ class StorageSettingsTab(BaseSettingsTab):
 
         logger.debug("StorageSettingsTab UI setup complete")
 
+    def _browse_recording_path(self):
+        """녹화 경로 선택"""
+        import os
+        current_path = self.recording_path_edit.text()
+        if not current_path or not os.path.exists(current_path):
+            current_path = os.path.expanduser("~")
+
+        from PyQt5.QtWidgets import QFileDialog
+        path = QFileDialog.getExistingDirectory(
+            self,
+            "Select Recording Path",
+            current_path,
+            QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
+        )
+
+        if path:
+            self.recording_path_edit.setText(path)
+            self._update_path_preview()
+
+    def _update_path_preview(self):
+        """경로 미리보기 업데이트"""
+        recording_path = self.recording_path_edit.text().strip()
+
+        if recording_path:
+            # Example preview
+            preview = (
+                f"Example: {recording_path}/cam_01/20251103/cam_01_20251103_143000.mkv\n"
+                f"Recordings will be organized by camera and date"
+            )
+            self.path_preview_label.setText(preview)
+        else:
+            self.path_preview_label.setText("Select a recording path to see preview")
+
     def _on_auto_cleanup_toggled(self, checked: bool):
         """자동 정리 토글 시 관련 위젯 활성화/비활성화"""
         self.cleanup_interval_spin.setEnabled(checked)
@@ -189,9 +255,9 @@ class StorageSettingsTab(BaseSettingsTab):
     def _update_storage_status(self):
         """현재 스토리지 상태 업데이트"""
         try:
-            # Get recording path from config
+            # Get recording path from config (storage.recording_path 사용)
             config = self.config_manager.config
-            recording_path = config.get("recording", {}).get("base_path", "")
+            recording_path = config.get("storage", {}).get("recording_path", "")
 
             if not recording_path:
                 self.storage_status_label.setText(
@@ -274,6 +340,11 @@ class StorageSettingsTab(BaseSettingsTab):
             config = self.config_manager.config
             storage = config.get("storage", {})
 
+            # Recording path
+            recording_path = storage.get("recording_path", "")
+            self.recording_path_edit.setText(recording_path)
+            self._update_path_preview()
+
             # Auto cleanup
             auto_cleanup = storage.get("auto_cleanup_enabled", True)
             self.auto_cleanup_cb.setChecked(auto_cleanup)
@@ -304,6 +375,7 @@ class StorageSettingsTab(BaseSettingsTab):
 
             # Store original data
             self._store_original_data({
+                "recording_path": recording_path,
                 "auto_cleanup_enabled": auto_cleanup,
                 "cleanup_interval_hours": storage.get("cleanup_interval_hours", 6),
                 "cleanup_on_startup": storage.get("cleanup_on_startup", True),
@@ -330,6 +402,7 @@ class StorageSettingsTab(BaseSettingsTab):
                 config["storage"] = {}
 
             # Update settings
+            config["storage"]["recording_path"] = self.recording_path_edit.text().strip()
             config["storage"]["auto_cleanup_enabled"] = self.auto_cleanup_cb.isChecked()
             config["storage"]["cleanup_interval_hours"] = self.cleanup_interval_spin.value()
             config["storage"]["cleanup_on_startup"] = self.cleanup_on_startup_cb.isChecked()
@@ -354,6 +427,25 @@ class StorageSettingsTab(BaseSettingsTab):
 
     def validate_settings(self) -> tuple[bool, str]:
         """설정 검증"""
+        import os
+        recording_path = self.recording_path_edit.text().strip()
+
+        # 경로가 비어있으면 에러
+        if not recording_path:
+            return False, "Recording path is required"
+
+        # 경로가 존재하지 않으면 생성 시도
+        if not os.path.exists(recording_path):
+            try:
+                os.makedirs(recording_path, exist_ok=True)
+                logger.info(f"Created recording directory: {recording_path}")
+            except Exception as e:
+                return False, f"Failed to create recording directory:\n{recording_path}\n{str(e)}"
+
+        # 쓰기 권한 확인
+        if not os.access(recording_path, os.W_OK):
+            return False, f"No write permission for recording path:\n{recording_path}"
+
         # Min free space validation
         min_free_gb = self.min_free_space_gb_spin.value()
         if min_free_gb < 1.0:
@@ -376,6 +468,7 @@ class StorageSettingsTab(BaseSettingsTab):
         try:
             original = self._get_original_data()
             current = {
+                "recording_path": self.recording_path_edit.text().strip(),
                 "auto_cleanup_enabled": self.auto_cleanup_cb.isChecked(),
                 "cleanup_interval_hours": self.cleanup_interval_spin.value(),
                 "cleanup_on_startup": self.cleanup_on_startup_cb.isChecked(),

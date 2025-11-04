@@ -6,14 +6,14 @@
   "ui": {
     "theme": "dark",
     "show_status_bar": true,
-    "fullscreen_on_start": true,
+    "fullscreen_on_start": false,
     "fullscreen_auto_hide_enabled": true,
     "fullscreen_auto_hide_delay_seconds": 10,
     "window_state": {
-      "x": 0,
+      "x": 1920,
       "y": 0,
       "width": 1920,
-      "height": 1080
+      "height": 1061
     },
     "dock_state": {
       "camera_visible": true,
@@ -27,7 +27,7 @@
     "show_camera_name": true,
     "osd_font_size": 14,
     "osd_font_color": [
-      85,
+      255,
       255,
       255
     ],
@@ -81,7 +81,6 @@
     }
   ],
   "recording": {
-    "base_path": "E:/_recordings",
     "file_format": "mkv",
     "rotation_minutes": 2,
     "codec": "h264",
@@ -90,18 +89,19 @@
   "backup": {
     "Des_path": "E:/sfsfsdf",
     "delete_after_backup": true,
-    "verification": true,
+    "verification": false,
     "destination_path": "E:/"
   },
   "storage": {
+    "recording_path": "E:/_recordings",
     "auto_cleanup_enabled": true,
-    "cleanup_interval_hours": 6,
+    "cleanup_interval_hours": 1,
     "cleanup_on_startup": true,
     "min_free_space_gb": 10.0,
     "min_free_space_percent": 5,
     "cleanup_threshold_percent": 90,
     "retention_days": 30,
-    "delete_batch_size": 1,
+    "delete_batch_size": 5,
     "delete_batch_delay_seconds": 0,
     "auto_delete_priority": "oldest_first"
   },

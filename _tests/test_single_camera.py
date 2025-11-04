@@ -105,7 +105,8 @@ def test_recording_only():
 
         # 녹화 디렉토리 확인
         recording_config = config_manager.get_recording_config()
-        recordings_path = Path(recording_config.get('base_path', './recordings'))
+        storage_config = config_manager.config.get('storage', {})
+        recordings_path = Path(storage_config.get('recording_path', './recordings'))
         if recordings_path.exists():
             files = list(recordings_path.rglob("*.mp4"))
             total_size = sum(f.stat().st_size for f in files)

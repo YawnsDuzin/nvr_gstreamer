@@ -28,32 +28,24 @@ class StorageService:
         # 설정 로드
         from core.config import ConfigManager
         config_manager = ConfigManager.get_instance()
-        recording_config = config_manager.get_recording_config()
+        storage_config = config_manager.config.get('storage', {})
 
-        # 녹화 경로 설정
+        # 녹화 경로 설정 (storage.recording_path 사용)
         if recordings_path is None:
-            recordings_path = recording_config.get('base_path', './recordings')
-            logger.debug(f"Using recordings base_path from config: {recordings_path}")
+            recordings_path = storage_config.get('recording_path', './recordings')
+            logger.debug(f"Using recordings recording_path from config: {recordings_path}")
 
         # 경로 검증 (Fallback 없음 - 오류 시 경고만 표시)
         self.recordings_path = Path(recordings_path)
         self._path_available = self._validate_storage_path()
 
-        # 설정에서 임계값 로드
-        # storage 섹션이 있으면 우선 사용, 없으면 recording 섹션 사용 (하위 호환성)
-        storage_config = config_manager.config.get('storage', {})
-
-        self.auto_cleanup_enabled = storage_config.get('auto_cleanup_enabled',
-                                                       recording_config.get('auto_cleanup_enabled', True))
-        self.cleanup_interval_hours = storage_config.get('cleanup_interval_hours',
-                                                         recording_config.get('cleanup_interval_hours', 6))
-        self.min_free_space_gb = storage_config.get('min_free_space_gb',
-                                                    recording_config.get('min_free_space_gb', 10))
+        # 설정에서 임계값 로드 (storage 섹션 사용)
+        self.auto_cleanup_enabled = storage_config.get('auto_cleanup_enabled', True)
+        self.cleanup_interval_hours = storage_config.get('cleanup_interval_hours', 6)
+        self.min_free_space_gb = storage_config.get('min_free_space_gb', 10)
         self.min_free_space_percent = storage_config.get('min_free_space_percent', 5)
-        self.max_storage_days = storage_config.get('retention_days',
-                                                   recording_config.get('retention_days', 30))
-        self.cleanup_threshold_percent = storage_config.get('cleanup_threshold_percent',
-                                                            recording_config.get('cleanup_threshold_percent', 90))
+        self.max_storage_days = storage_config.get('retention_days', 30)
+        self.cleanup_threshold_percent = storage_config.get('cleanup_threshold_percent', 90)
         self.delete_batch_size = storage_config.get('delete_batch_size', 5)
         self.delete_batch_delay = storage_config.get('delete_batch_delay_seconds', 1)
         self.auto_delete_priority = storage_config.get('auto_delete_priority', 'oldest_first')

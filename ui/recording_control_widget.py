@@ -146,10 +146,11 @@ class RecordingControlWidget(QWidget):
         # 설정 값들 가져오기
         config_manager = ConfigManager.get_instance()
         recording_config = config_manager.get_recording_config()
+        storage_config = config_manager.config.get('storage', {})
 
-        # 저장 경로
-        base_path = recording_config.get('base_path', './recordings')
-        self.path_label = QLabel(f"Storage Path: {base_path}")
+        # 저장 경로 (storage.recording_path 사용)
+        recording_path = storage_config.get('recording_path', './recordings')
+        self.path_label = QLabel(f"Storage Path: {recording_path}")
         settings_info_layout.addWidget(self.path_label)
 
         # 파일 포맷
@@ -383,10 +384,11 @@ class RecordingControlWidget(QWidget):
         """녹화 설정 정보 표시 업데이트"""
         config_manager = ConfigManager.get_instance()
         recording_config = config_manager.get_recording_config()
+        storage_config = config_manager.config.get('storage', {})
 
-        # 저장 경로 업데이트
-        base_path = recording_config.get('base_path', './recordings')
-        self.path_label.setText(f"Storage Path: {base_path}")
+        # 저장 경로 업데이트 (storage.recording_path 사용)
+        recording_path = storage_config.get('recording_path', './recordings')
+        self.path_label.setText(f"Storage Path: {recording_path}")
 
         # 파일 포맷 업데이트
         file_format = recording_config.get('file_format', 'mp4')
@@ -401,8 +403,8 @@ class RecordingControlWidget(QWidget):
         from pathlib import Path
         # 설정에서 녹화 디렉토리 가져오기
         config_manager = ConfigManager.get_instance()
-        recording_config = config_manager.get_recording_config()
-        recordings_path = recording_config.get('base_path', './recordings')
+        storage_config = config_manager.config.get('storage', {})
+        recordings_path = storage_config.get('recording_path', './recordings')
         recordings_dir = Path(recordings_path)
 
         if recordings_dir.exists():
@@ -462,8 +464,8 @@ class RecordingControlWidget(QWidget):
 
         # 설정에서 녹화 디렉토리 가져오기
         config_manager = ConfigManager.get_instance()
-        recording_config = config_manager.get_recording_config()
-        recordings_path = recording_config.get('base_path', './recordings')
+        storage_config = config_manager.config.get('storage', {})
+        recordings_path = storage_config.get('recording_path', './recordings')
         recordings_dir = Path(recordings_path)
 
         if not recordings_dir.exists():

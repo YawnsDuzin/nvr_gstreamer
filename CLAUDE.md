@@ -132,6 +132,9 @@ Instead of separate pipelines for streaming and recording (which duplicates deco
    - `recording_control_widget.py`: Recording control interface
    - `backup_dialog.py`: Recording file backup with MD5 verification
    - `camera_dialog.py`: Camera configuration dialog with PTZ support
+   - `settings_dialog.py`: Unified settings dialog with multiple tabs
+   - **Settings Tabs** (in order): Basic, Cameras, Streaming, Recording, Storage, Backup, Hot Keys, PTZ Keys
+   - `ui/settings/`: Individual settings tab implementations
    - **Note**: Uses PyQt5 (NOT PyQt6 despite requirements.txt)
 
 4. **System Monitoring** (`core/system_monitor.py`)
@@ -163,15 +166,24 @@ Mode switching happens at runtime using valve elements without service interrupt
 - **Singleton Pattern**: ConfigManager uses singleton pattern - always use `ConfigManager.get_instance()`
 - **Auto-save**: UI state (window geometry, dock visibility) saved automatically on exit
 - **Configuration Sections**:
-  - `system`: System-wide settings (log level, recordings path, retention)
+  - `system`: System-wide settings (log level, retention)
   - `cameras`: Camera list with RTSP URLs, credentials, PTZ settings
-  - `storage`: Storage management settings (auto cleanup, max days, min space)
+  - `recording`: Recording settings (file format, rotation minutes, codec, fragment duration)
+  - `storage`: Storage management settings (recording_path, auto cleanup, max days, min space)
   - `ui`: UI state (window geometry, dock visibility)
   - `backup`: Backup settings (destination path, verification, delete after backup)
+- **Recording Path Migration** (2025-11-04):
+  - Recording path moved from `recording.base_path` to `storage.recording_path`
+  - All code now uses `storage_config.get('recording_path')` pattern
+  - Settings UI: Recording path control moved from Recording tab to Storage tab
 - **Usage**:
   ```python
   # Correct - get singleton instance
   config = ConfigManager.get_instance()
+
+  # Access recording path (IMPORTANT: use storage section)
+  storage_config = config.config.get('storage', {})
+  recording_path = storage_config.get('recording_path', './recordings')
 
   # Update UI state
   config.update_ui_window_state(x, y, width, height)
@@ -358,6 +370,14 @@ def _on_bus_message(self, bus, message):
 - Credentials stored in cleartext in IT_RNVR.json
 
 ### Recent Updates (2025-10~11)
+- **Configuration path migration** (2025-11-04)
+  - Recording path moved from `recording.base_path` to `storage.recording_path`
+  - Updated 8 files to use new configuration path
+  - Settings UI reorganized: recording path control moved to Storage tab
+  - Settings dialog tab order adjusted: Storage tab now appears before Backup tab
+  - Files modified: `IT_RNVR.json`, `camera/gst_pipeline.py`, `core/storage.py`, `camera/playback.py`,
+    `ui/recording_control_widget.py`, `ui/settings/storage_settings_tab.py`,
+    `ui/settings/recording_settings_tab.py`, `ui/settings_dialog.py`, `_tests/test_single_camera.py`
 - **Backup functionality added** (2025-11-03)
   - Recording file backup dialog with progress tracking
   - MD5 hash verification for backup integrity

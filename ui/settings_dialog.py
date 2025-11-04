@@ -79,11 +79,11 @@ class SettingsDialog(QDialog):
         self.recording_tab = RecordingSettingsTab(self.config_manager)
         self.tab_widget.addTab(self.recording_tab, "Recording")
 
-        self.backup_tab = BackupSettingsTab(self.config_manager)
-        self.tab_widget.addTab(self.backup_tab, "Backup")
-
         self.storage_tab = StorageSettingsTab(self.config_manager)
         self.tab_widget.addTab(self.storage_tab, "Storage")
+
+        self.backup_tab = BackupSettingsTab(self.config_manager)
+        self.tab_widget.addTab(self.backup_tab, "Backup")
 
         self.hotkey_tab = HotKeySettingsTab(self.config_manager)
         self.tab_widget.addTab(self.hotkey_tab, "Hot Keys")
