@@ -100,9 +100,6 @@ class BackupSettingsTab(BaseSettingsTab):
 
         layout.addStretch()
 
-        # Apply theme
-        self.apply_theme()
-
         logger.debug("BackupSettingsTab UI setup complete")
 
     def _browse_destination(self):

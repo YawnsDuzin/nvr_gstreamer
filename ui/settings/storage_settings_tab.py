@@ -202,9 +202,6 @@ class StorageSettingsTab(BaseSettingsTab):
         main_layout = QVBoxLayout(self)
         main_layout.addWidget(scroll)
 
-        # Apply theme
-        self.apply_theme()
-
         logger.debug("StorageSettingsTab UI setup complete")
 
     def _browse_recording_path(self):

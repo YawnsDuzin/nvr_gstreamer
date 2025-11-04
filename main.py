@@ -172,6 +172,20 @@ def main():
     if hasattr(Qt, 'AA_UseHighDpiPixmaps'):
         app.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 
+    # Apply theme before creating main window
+    from ui.theme import ThemeManager
+    theme_manager = ThemeManager()
+
+    # Get theme from configuration
+    ui_config = config_manager.ui_config
+    theme = ui_config.theme if ui_config.theme in ['dark', 'light'] else 'dark'
+
+    # Set initial theme and apply to application
+    theme_manager.set_theme(theme, force_update=True)
+    stylesheet = theme_manager.get_application_stylesheet()
+    app.setStyleSheet(stylesheet)
+    logger.info(f"Applied {theme} theme to application at startup")
+
     # Create and show main window
     try:
         window = MainWindow()

@@ -4,10 +4,10 @@
 """
 
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QSlider,
+    QVBoxLayout, QHBoxLayout, QPushButton, QSlider,
     QLabel, QListWidget, QListWidgetItem, QSplitter, QGroupBox,
     QComboBox, QDateEdit, QMessageBox, QStyle,
-    QSizePolicy, QHeaderView, QTableWidget, QTableWidgetItem, QCheckBox
+    QSizePolicy, QHeaderView, QTableWidget, QTableWidgetItem, QCheckBox, QWidget
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QDateTime, QDate
 from PyQt5.QtGui import QIcon
@@ -16,10 +16,11 @@ from datetime import datetime
 from loguru import logger
 from pathlib import Path
 
+from ui.theme import ThemedWidget
 from camera.playback import PlaybackManager, PlaybackState, RecordingFile
 
 
-class PlaybackControlWidget(QWidget):
+class PlaybackControlWidget(ThemedWidget):
     """재생 컨트롤 위젯"""
 
     # 시그널
@@ -169,7 +170,7 @@ class PlaybackControlWidget(QWidget):
         self.speed_combo.setCurrentText("1.0x")
 
 
-class RecordingListWidget(QWidget):
+class RecordingListWidget(ThemedWidget):
     """녹화 파일 목록 위젯"""
 
     # 시그널
@@ -196,9 +197,10 @@ class RecordingListWidget(QWidget):
         self.camera_combo = QComboBox()
         self.camera_combo.addItem("전체")
         self.camera_combo.currentTextChanged.connect(self._apply_filter)
+        self.camera_combo.setMinimumWidth(100)
         filter_layout.addWidget(self.camera_combo)
 
-        filter_layout.addSpacing(15)
+        filter_layout.addSpacing(20)
 
         # 시작 날짜
         start_label = QLabel("시작:")
@@ -207,10 +209,12 @@ class RecordingListWidget(QWidget):
         self.start_date = QDateEdit()
         self.start_date.setCalendarPopup(True)
         self.start_date.setDate(QDate.currentDate().addDays(-7))
+        self.start_date.setDisplayFormat("yyyy-MM-dd")
         self.start_date.dateChanged.connect(self._apply_filter)
+        self.start_date.setMinimumWidth(120)
         filter_layout.addWidget(self.start_date)
 
-        filter_layout.addSpacing(10)
+        filter_layout.addSpacing(20)
 
         # 종료 날짜
         end_label = QLabel("종료:")
@@ -219,7 +223,9 @@ class RecordingListWidget(QWidget):
         self.end_date = QDateEdit()
         self.end_date.setCalendarPopup(True)
         self.end_date.setDate(QDate.currentDate())
+        self.end_date.setDisplayFormat("yyyy-MM-dd")
         self.end_date.dateChanged.connect(self._apply_filter)
+        self.end_date.setMinimumWidth(120)
         filter_layout.addWidget(self.end_date)
 
         filter_layout.addStretch()
@@ -274,7 +280,7 @@ class RecordingListWidget(QWidget):
         # 백업 버튼
         self.backup_btn = QPushButton("백업")
         self.backup_btn.clicked.connect(self._backup_selected)
-        self.backup_btn.setStyleSheet("background-color: #2196F3; color: white; font-weight: bold;")
+        # Theme color will be applied by ThemeManager - no hardcoded style
         button_layout.addWidget(self.backup_btn)
 
         # 선택 삭제 버튼
@@ -452,7 +458,7 @@ class RecordingListWidget(QWidget):
             parent_widget = parent_widget.parent()
 
 
-class PlaybackWidget(QWidget):
+class PlaybackWidget(ThemedWidget):
     """통합 재생 위젯"""
 
     def __init__(self, parent=None):

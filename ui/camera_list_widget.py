@@ -4,7 +4,7 @@ Manages and displays list of configured cameras
 """
 
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QListWidget,
+    QVBoxLayout, QHBoxLayout, QListWidget,
     QListWidgetItem, QPushButton, QLabel, QMenu,
     QAction, QMessageBox, QGroupBox
 )
@@ -18,6 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from ui.camera_dialog import CameraDialog
+from ui.theme import ThemedWidget
 from core.config import ConfigManager, CameraConfigData
 from camera.streaming import CameraStream, CameraConfig
 
@@ -59,7 +60,7 @@ class CameraListItem(QListWidgetItem):
         self.update_display()
 
 
-class CameraListWidget(QWidget):
+class CameraListWidget(ThemedWidget):
     """Widget for managing camera list"""
 
     # Signals

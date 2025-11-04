@@ -111,9 +111,6 @@ class BasicSettingsTab(BaseSettingsTab):
 
         layout.addStretch()
 
-        # Apply theme
-        self.apply_theme()
-
         logger.debug("BasicSettingsTab UI setup complete")
 
     def load_settings(self):

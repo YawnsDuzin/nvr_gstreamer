@@ -99,9 +99,6 @@ class HotKeySettingsTab(BaseSettingsTab):
 
         layout.addLayout(btn_layout)
 
-        # Apply theme
-        self.apply_theme()
-
         logger.debug("HotKeySettingsTab UI setup complete")
 
     def _on_key_changed(self):

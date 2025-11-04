@@ -42,9 +42,6 @@ class CamerasSettingsTab(BaseSettingsTab):
         right_widget = self._create_camera_detail_panel()
         layout.addWidget(right_widget, 1)
 
-        # Apply theme
-        self.apply_theme()
-
         logger.debug("CamerasSettingsTab UI setup complete")
 
     def _create_camera_list_panel(self) -> QWidget:

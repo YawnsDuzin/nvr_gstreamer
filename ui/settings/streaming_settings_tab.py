@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
     QComboBox, QCheckBox, QSpinBox, QPushButton, QListWidget,
     QScrollArea, QWidget, QColorDialog
 )
-from PyQt5.QtGui import QColor
+from PyQt5.QtGui import QColor, QPixmap, QIcon
 from PyQt5.QtCore import Qt
 from loguru import logger
 
@@ -33,20 +33,22 @@ class ColorPickerButton(QPushButton):
             self._update_style()
 
     def _update_style(self):
-        """버튼 스타일 업데이트"""
-        self.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {self._color.name()};
-                border: 1px solid #4a4a4a;
-                border-radius: 3px;
-                min-width: 80px;
-                min-height: 30px;
-            }}
-            QPushButton:hover {{
-                border: 2px solid #5a9fd4;
-            }}
-        """)
+        """버튼 스타일 업데이트 - 색상 아이콘과 텍스트 표시"""
+        # 색상 사각형 아이콘 생성
+        pixmap = QPixmap(16, 16)
+        pixmap.fill(self._color)
+        icon = QIcon(pixmap)
+
+        # 아이콘 설정
+        self.setIcon(icon)
+        self.setIconSize(pixmap.size())
+
+        # 텍스트는 색상 코드 표시
         self.setText(self._color.name().upper())
+
+        # 기본 버튼 스타일 유지 (테마 시스템이 적용됨)
+        self.setMinimumWidth(100)
+        self.setMinimumHeight(30)
 
     def get_color(self) -> list:
         """RGB 리스트 반환"""
@@ -222,9 +224,6 @@ class StreamingSettingsTab(BaseSettingsTab):
         # 메인 레이아웃
         main_layout = QVBoxLayout(self)
         main_layout.addWidget(scroll)
-
-        # Apply theme
-        self.apply_theme()
 
         logger.debug("StreamingSettingsTab UI setup complete")
 

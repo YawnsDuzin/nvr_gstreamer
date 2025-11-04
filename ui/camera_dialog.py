@@ -4,10 +4,10 @@ UI for adding and editing camera settings
 """
 
 from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
+    QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QLineEdit, QPushButton, QCheckBox,
     QComboBox, QGroupBox, QDialogButtonBox,
-    QMessageBox, QSpinBox
+    QMessageBox, QSpinBox, QDialog
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QFont
@@ -19,9 +19,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from camera.streaming import CameraConfig
+from ui.theme import ThemedDialog
 
 
-class CameraDialog(QDialog):
+class CameraDialog(ThemedDialog):
     """Dialog for camera configuration"""
 
     # Signal emitted when camera is saved
@@ -154,65 +155,6 @@ class CameraDialog(QDialog):
         layout.addWidget(buttons)
 
         self.setLayout(layout)
-
-        # Apply dark theme
-        self._apply_theme()
-
-    def _apply_theme(self):
-        """Apply dark theme to dialog"""
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #2a2a2a;
-                color: #ffffff;
-            }
-            QGroupBox {
-                border: 1px solid #4a4a4a;
-                border-radius: 5px;
-                margin-top: 10px;
-                font-weight: bold;
-                padding-top: 10px;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px 0 5px;
-            }
-            QLineEdit {
-                background-color: #3a3a3a;
-                border: 1px solid #4a4a4a;
-                padding: 5px;
-                border-radius: 3px;
-                color: #ffffff;
-            }
-            QLineEdit:focus {
-                border: 1px solid #5a5a5a;
-            }
-            QPushButton {
-                background-color: #3a3a3a;
-                border: 1px solid #4a4a4a;
-                padding: 5px 15px;
-                border-radius: 3px;
-                color: #ffffff;
-            }
-            QPushButton:hover {
-                background-color: #4a4a4a;
-            }
-            QPushButton:pressed {
-                background-color: #2a2a2a;
-            }
-            QCheckBox {
-                color: #ffffff;
-            }
-            QSpinBox {
-                background-color: #3a3a3a;
-                border: 1px solid #4a4a4a;
-                padding: 3px;
-                color: #ffffff;
-            }
-            QLabel {
-                color: #ffffff;
-            }
-        """)
 
     def _load_camera_config(self):
         """Load existing camera configuration"""

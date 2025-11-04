@@ -140,9 +140,6 @@ class PTZKeySettingsTab(BaseSettingsTab):
 
         main_layout.addLayout(btn_layout)
 
-        # Apply theme
-        self.apply_theme()
-
         logger.debug("PTZKeySettingsTab UI setup complete")
 
     def _on_key_changed(self):

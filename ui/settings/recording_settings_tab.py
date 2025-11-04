@@ -93,9 +93,6 @@ class RecordingSettingsTab(BaseSettingsTab):
 
         layout.addStretch()
 
-        # Apply theme
-        self.apply_theme()
-
         logger.debug("RecordingSettingsTab UI setup complete")
 
     def _update_preview(self):

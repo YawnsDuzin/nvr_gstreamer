@@ -4,13 +4,14 @@ Settings Dialog
 """
 
 from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QTabWidget, QDialogButtonBox,
+    QVBoxLayout, QTabWidget, QDialogButtonBox,
     QMessageBox
 )
 from PyQt5.QtCore import pyqtSignal
 from loguru import logger
 
 from core.config import ConfigManager
+from ui.theme import ThemedDialog
 from ui.settings.basic_settings_tab import BasicSettingsTab
 from ui.settings.backup_settings_tab import BackupSettingsTab
 from ui.settings.recording_settings_tab import RecordingSettingsTab
@@ -21,7 +22,7 @@ from ui.settings.hotkey_settings_tab import HotKeySettingsTab
 from ui.settings.ptz_key_settings_tab import PTZKeySettingsTab
 
 
-class SettingsDialog(QDialog):
+class SettingsDialog(ThemedDialog):
     """
     메인 설정 다이얼로그
     모든 설정 탭을 통합 관리
@@ -103,57 +104,7 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(button_box)
 
-        # 테마 적용
-        self._apply_theme()
-
         logger.debug("SettingsDialog UI setup complete")
-
-    def _apply_theme(self):
-        """다크 테마 적용"""
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #2a2a2a;
-                color: #ffffff;
-            }
-            QTabWidget::pane {
-                border: 1px solid #4a4a4a;
-                background-color: #2a2a2a;
-            }
-            QTabBar::tab {
-                background-color: #3a3a3a;
-                color: #ffffff;
-                padding: 8px 16px;
-                border: 1px solid #4a4a4a;
-                border-bottom: none;
-                margin-right: 2px;
-            }
-            QTabBar::tab:selected {
-                background-color: #2a2a2a;
-                border-bottom: 2px solid #5a9fd4;
-            }
-            QTabBar::tab:hover {
-                background-color: #4a4a4a;
-            }
-            QDialogButtonBox QPushButton {
-                background-color: #3a3a3a;
-                border: 1px solid #4a4a4a;
-                border-radius: 3px;
-                padding: 6px 20px;
-                color: #ffffff;
-                min-width: 80px;
-            }
-            QDialogButtonBox QPushButton:hover {
-                background-color: #4a4a4a;
-                border-color: #5a9fd4;
-            }
-            QDialogButtonBox QPushButton:pressed {
-                background-color: #2a2a2a;
-            }
-            QDialogButtonBox QPushButton:default {
-                background-color: #5a9fd4;
-                border-color: #5a9fd4;
-            }
-        """)
 
     def _load_all_settings(self):
         """모든 설정 로드"""

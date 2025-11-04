@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
+    QVBoxLayout, QHBoxLayout, QGroupBox,
     QPushButton, QLabel,
     QListWidget, QListWidgetItem, QMessageBox
 )
@@ -16,6 +16,7 @@ from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 from PyQt5.QtGui import QColor, QFont
 from loguru import logger
 
+from ui.theme import ThemedWidget
 from core.config import ConfigManager
 
 
@@ -69,7 +70,7 @@ class RecordingStatusItem(QListWidgetItem):
         self.update_display()
 
 
-class RecordingControlWidget(QWidget):
+class RecordingControlWidget(ThemedWidget):
     """녹화 컨트롤 위젯"""
 
     # 시그널

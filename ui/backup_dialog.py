@@ -13,7 +13,7 @@ from typing import List, Optional
 from datetime import datetime
 
 from PyQt5.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QProgressBar, QFileDialog, QMessageBox, QTextEdit,
     QGroupBox, QCheckBox
 )
@@ -22,6 +22,7 @@ from PyQt5.QtGui import QFont
 from loguru import logger
 
 from core.config import ConfigManager
+from ui.theme import ThemedDialog
 
 
 class BackupWorkerSignals(QObject):
@@ -201,7 +202,7 @@ class BackupWorker:
         return md5_hash.hexdigest()
 
 
-class BackupDialog(QDialog):
+class BackupDialog(ThemedDialog):
     """백업 다이얼로그"""
 
     def __init__(self, source_files: List[str], parent=None):
