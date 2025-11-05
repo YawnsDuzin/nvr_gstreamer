@@ -140,6 +140,43 @@ class CameraDialog(ThemedDialog):
         advanced_group.setLayout(advanced_layout)
         layout.addWidget(advanced_group)
 
+        # Video Transform Group
+        transform_group = QGroupBox("Video Transform")
+        transform_layout = QGridLayout()
+
+        # Enable Transform
+        self.transform_enabled_cb = QCheckBox("Enable Video Transform")
+        self.transform_enabled_cb.setToolTip("Enable video flip/rotation")
+        self.transform_enabled_cb.toggled.connect(self._toggle_transform_controls)
+        transform_layout.addWidget(self.transform_enabled_cb, 0, 0, 1, 2)
+
+        # Flip Mode
+        transform_layout.addWidget(QLabel("Flip:"), 1, 0)
+        self.flip_combo = QComboBox()
+        self.flip_combo.addItems(["None", "Horizontal", "Vertical", "Both"])
+        self.flip_combo.setToolTip(
+            "None: No flip\n"
+            "Horizontal: Mirror image (left ↔ right)\n"
+            "Vertical: Upside down (top ↔ bottom)\n"
+            "Both: Horizontal + Vertical (= 180° rotation)"
+        )
+        transform_layout.addWidget(self.flip_combo, 1, 1)
+
+        # Rotation
+        transform_layout.addWidget(QLabel("Rotation:"), 2, 0)
+        self.rotation_combo = QComboBox()
+        self.rotation_combo.addItems(["0°", "90°", "180°", "270°"])
+        self.rotation_combo.setToolTip(
+            "0°: No rotation\n"
+            "90°: Clockwise 90° (portrait mode)\n"
+            "180°: Upside down\n"
+            "270°: Counter-clockwise 90°"
+        )
+        transform_layout.addWidget(self.rotation_combo, 2, 1)
+
+        transform_group.setLayout(transform_layout)
+        layout.addWidget(transform_group)
+
         # Enable Camera Checkbox
         self.enabled_cb = QCheckBox("Enable Camera")
         self.enabled_cb.setChecked(True)
@@ -181,6 +218,29 @@ class CameraDialog(ThemedDialog):
             self.recording_cb.setChecked(self.camera_config.recording_enabled)
         if hasattr(self.camera_config, 'motion_detection'):
             self.motion_detection_cb.setChecked(self.camera_config.motion_detection)
+
+        # Load video transform settings
+        if hasattr(self.camera_config, 'video_transform') and self.camera_config.video_transform:
+            transform = self.camera_config.video_transform
+            self.transform_enabled_cb.setChecked(transform.get('enabled', False))
+
+            # Flip mode
+            flip = transform.get('flip', 'none').lower()
+            flip_map = {'none': 0, 'horizontal': 1, 'vertical': 2, 'both': 3}
+            self.flip_combo.setCurrentIndex(flip_map.get(flip, 0))
+
+            # Rotation
+            rotation = transform.get('rotation', 0)
+            rotation_map = {0: 0, 90: 1, 180: 2, 270: 3}
+            self.rotation_combo.setCurrentIndex(rotation_map.get(rotation, 0))
+
+        # Initial toggle state
+        self._toggle_transform_controls(self.transform_enabled_cb.isChecked())
+
+    def _toggle_transform_controls(self, enabled):
+        """Enable/disable transform controls based on checkbox"""
+        self.flip_combo.setEnabled(enabled)
+        self.rotation_combo.setEnabled(enabled)
 
     def _toggle_password_visibility(self, checked):
         """Toggle password field visibility"""
@@ -246,6 +306,29 @@ class CameraDialog(ThemedDialog):
         config.enabled = self.enabled_cb.isChecked()
         config.recording_enabled = self.recording_cb.isChecked()
         config.motion_detection = self.motion_detection_cb.isChecked()
+
+        # Add video transform settings
+        if self.transform_enabled_cb.isChecked():
+            # Map flip combo index to string value
+            flip_map = {0: 'none', 1: 'horizontal', 2: 'vertical', 3: 'both'}
+            flip_value = flip_map.get(self.flip_combo.currentIndex(), 'none')
+
+            # Map rotation combo index to degree value
+            rotation_map = {0: 0, 1: 90, 2: 180, 3: 270}
+            rotation_value = rotation_map.get(self.rotation_combo.currentIndex(), 0)
+
+            config.video_transform = {
+                'enabled': True,
+                'flip': flip_value,
+                'rotation': rotation_value
+            }
+        else:
+            # Transform disabled
+            config.video_transform = {
+                'enabled': False,
+                'flip': 'none',
+                'rotation': 0
+            }
 
         # Emit signal with configuration
         self.camera_saved.emit(config)

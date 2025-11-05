@@ -62,16 +62,20 @@ class RecordingFile:
 class PlaybackPipeline:
     """재생 파이프라인"""
 
-    def __init__(self, file_path: str, window_handle=None):
+    def __init__(self, file_path: str, window_handle=None, flip_mode: str = "none", rotation: int = 0):
         """
         재생 파이프라인 초기화
 
         Args:
             file_path: 재생할 파일 경로
             window_handle: 윈도우 핸들
+            flip_mode: 반전 모드 ("none", "horizontal", "vertical", "both")
+            rotation: 회전 각도 (0, 90, 180, 270)
         """
         self.file_path = file_path
         self.window_handle = window_handle
+        self.flip_mode = flip_mode
+        self.rotation = rotation
         self.pipeline = None
         self.video_sink = None
         self.bus = None
@@ -88,6 +92,48 @@ class PlaybackPipeline:
         # 타이머
         self._position_timer = None
 
+    def _get_videoflip_method(self) -> Optional[int]:
+        """
+        flip/rotation 설정을 GStreamer videoflip method로 변환
+
+        Returns:
+            videoflip method 값 (0-7), None이면 변환 불필요
+        """
+        flip = self.flip_mode
+        rotation = self.rotation
+
+        # 변환이 필요 없는 경우
+        if flip == "none" and rotation == 0:
+            return None
+
+        # Rotation이 90° 또는 270°인 경우, rotation 우선 처리 (flip 무시)
+        if rotation == 90:
+            return 1  # clockwise-90
+        elif rotation == 270:
+            return 3  # counterclockwise-90
+
+        # Rotation이 0° 또는 180°인 경우, flip과 조합
+        if rotation == 0:
+            if flip == "horizontal":
+                return 4  # horizontal-flip
+            elif flip == "vertical":
+                return 5  # vertical-flip
+            elif flip == "both":
+                return 2  # both = 180° rotation
+            else:  # none
+                return 0  # none (no transformation)
+        elif rotation == 180:
+            if flip == "horizontal":
+                return 5  # 180° + horizontal = vertical-flip
+            elif flip == "vertical":
+                return 4  # 180° + vertical = horizontal-flip
+            elif flip == "both":
+                return 0  # 180° + both = no transformation
+            else:  # none
+                return 2  # rotate-180
+
+        # 기본값: 변환 없음
+        return 0
 
     def create_pipeline(self) -> bool:
         """
@@ -105,15 +151,28 @@ class PlaybackPipeline:
             # 플랫폼별 비디오 싱크 선택 (공통 유틸리티 사용)
             video_sink = get_video_sink()
 
+            # videoflip method 계산
+            videoflip_method = self._get_videoflip_method()
+
             # 파이프라인 문자열 생성
-            pipeline_str = (
-                f"filesrc location=\"{self.file_path}\" ! "
-                "decodebin name=decoder ! "
-                "videoconvert ! "
-                "videoscale ! "
-                "video/x-raw,width=1280,height=720 ! "
+            pipeline_parts = [
+                f"filesrc location=\"{self.file_path}\"",
+                "decodebin name=decoder",
+                "videoconvert",
+            ]
+
+            # videoflip 추가 (필요한 경우)
+            if videoflip_method is not None:
+                pipeline_parts.append(f"videoflip method={videoflip_method}")
+                logger.info(f"Playback transform enabled: flip={self.flip_mode}, rotation={self.rotation}, method={videoflip_method}")
+
+            pipeline_parts.extend([
+                "videoscale",
+                "video/x-raw,width=1280,height=720",
                 f"{video_sink} name=videosink sync=true"
-            )
+            ])
+
+            pipeline_str = " ! ".join(pipeline_parts)
 
             logger.debug(f"Creating playback pipeline: {pipeline_str}")
             self.pipeline = Gst.parse_launch(pipeline_str)
@@ -531,13 +590,15 @@ class PlaybackManager:
 
         return 0
 
-    def play_file(self, file_path: str, window_handle=None) -> bool:
+    def play_file(self, file_path: str, window_handle=None, flip_mode: str = "none", rotation: int = 0) -> bool:
         """
         파일 재생
 
         Args:
             file_path: 재생할 파일 경로
             window_handle: 윈도우 핸들
+            flip_mode: 반전 모드 ("none", "horizontal", "vertical", "both")
+            rotation: 회전 각도 (0, 90, 180, 270)
 
         Returns:
             성공 여부
@@ -553,7 +614,7 @@ class PlaybackManager:
                 break
 
         # 재생 파이프라인 생성
-        self.playback_pipeline = PlaybackPipeline(file_path, window_handle)
+        self.playback_pipeline = PlaybackPipeline(file_path, window_handle, flip_mode, rotation)
 
         if self.playback_pipeline.create_pipeline():
             return self.playback_pipeline.play()

@@ -8,6 +8,22 @@ from .enums import CameraStatus, RecordingStatus
 
 
 @dataclass
+class VideoTransform:
+    """영상 변환 설정"""
+    enabled: bool = False
+    flip: str = "none"  # "none", "horizontal", "vertical", "both"
+    rotation: int = 0  # 0, 90, 180, 270
+
+    def to_dict(self) -> dict:
+        """딕셔너리 변환"""
+        return {
+            "enabled": self.enabled,
+            "flip": self.flip,
+            "rotation": self.rotation
+        }
+
+
+@dataclass
 class Camera:
     """카메라 도메인 엔티티"""
     camera_id: str
@@ -23,6 +39,7 @@ class Camera:
     ptz_type: Optional[str] = None  # PTZ 카메라 타입 (예: "HIK", "ONVIF")
     ptz_port: Optional[str] = None  # PTZ 제어 포트
     ptz_channel: Optional[str] = None  # PTZ 채널 번호
+    video_transform: Optional[VideoTransform] = None  # 영상 변환 설정
     status: CameraStatus = CameraStatus.DISCONNECTED
 
     def build_rtsp_url_with_auth(self) -> str:
@@ -52,6 +69,7 @@ class Camera:
             "ptz_type": self.ptz_type,
             "ptz_port": self.ptz_port,
             "ptz_channel": self.ptz_channel,
+            "video_transform": self.video_transform.to_dict() if self.video_transform else None,
             "status": self.status.value
         }
 

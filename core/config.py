@@ -56,6 +56,7 @@ class CameraConfigData:
     ptz_type: Optional[str] = None  # PTZ 카메라 타입 (예: "HIK", "ONVIF")
     ptz_port: Optional[str] = None  # PTZ 제어 포트
     ptz_channel: Optional[str] = None  # PTZ 채널 번호
+    video_transform: Optional[Dict[str, Any]] = None  # 영상 변환 설정
 
 
 class ConfigManager:

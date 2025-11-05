@@ -5,6 +5,7 @@ PyQt6-sip>=13.4.0
 loguru>=0.7.0
 pyyaml>=6.0
 psutil>=5.9.0  # System resource monitoring
+requests>=2.31.0  # HTTP requests for PTZ control
 
 # GStreamer Python bindings
 # Note: PyGObject requires system-level GStreamer installation

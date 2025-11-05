@@ -152,6 +152,30 @@ class CamerasSettingsTab(BaseSettingsTab):
         ptz_group.setLayout(ptz_form)
         scroll_layout.addWidget(ptz_group)
 
+        # Video Transform Group
+        transform_group = QGroupBox("Video Transform")
+        transform_layout = QVBoxLayout()
+
+        self.transform_enabled_cb = QCheckBox("Enable Video Transform")
+        self.transform_enabled_cb.toggled.connect(self._toggle_transform_controls)
+        transform_layout.addWidget(self.transform_enabled_cb)
+
+        transform_form = QFormLayout()
+
+        self.flip_combo = QComboBox()
+        self.flip_combo.addItems(["None", "Horizontal", "Vertical", "Both"])
+        self.flip_combo.setToolTip("Flip video horizontally, vertically, or both")
+        transform_form.addRow("Flip:", self.flip_combo)
+
+        self.rotation_combo = QComboBox()
+        self.rotation_combo.addItems(["0°", "90°", "180°", "270°"])
+        self.rotation_combo.setToolTip("Rotate video clockwise")
+        transform_form.addRow("Rotation:", self.rotation_combo)
+
+        transform_layout.addLayout(transform_form)
+        transform_group.setLayout(transform_layout)
+        scroll_layout.addWidget(transform_group)
+
         # Startup Options Group
         startup_group = QGroupBox("Startup Options")
         startup_layout = QVBoxLayout()
@@ -187,6 +211,7 @@ class CamerasSettingsTab(BaseSettingsTab):
             self.camera_id_edit, self.camera_name_edit, self.rtsp_url_edit,
             self.enabled_cb, self.username_edit, self.password_edit,
             self.ptz_type_combo, self.ptz_port_edit, self.ptz_channel_edit,
+            self.transform_enabled_cb, self.flip_combo, self.rotation_combo,
             self.streaming_start_cb, self.recording_start_cb,
             self.apply_camera_btn
         ]
@@ -201,6 +226,11 @@ class CamerasSettingsTab(BaseSettingsTab):
         enabled = ptz_type != "None"
         self.ptz_port_edit.setEnabled(enabled)
         self.ptz_channel_edit.setEnabled(enabled)
+
+    def _toggle_transform_controls(self, checked: bool):
+        """Video Transform 활성화/비활성화 시 컨트롤 토글"""
+        self.flip_combo.setEnabled(checked)
+        self.rotation_combo.setEnabled(checked)
 
     def _set_detail_panel_enabled(self, enabled: bool):
         """상세 패널 활성화/비활성화"""
@@ -219,6 +249,11 @@ class CamerasSettingsTab(BaseSettingsTab):
             "ptz_type": None,
             "ptz_port": None,
             "ptz_channel": None,
+            "video_transform": {
+                "enabled": False,
+                "flip": "none",
+                "rotation": 0
+            },
             "streaming_enabled_start": False,
             "recording_enabled_start": False
         }
@@ -299,6 +334,22 @@ class CamerasSettingsTab(BaseSettingsTab):
         self.ptz_port_edit.setText(camera.get("ptz_port") or "")
         self.ptz_channel_edit.setText(camera.get("ptz_channel") or "")
 
+        # Load video transform settings
+        transform = camera.get("video_transform", {})
+        self.transform_enabled_cb.setChecked(transform.get("enabled", False))
+
+        # Map flip string to combo index
+        flip_value = transform.get("flip", "none")
+        flip_map = {"none": 0, "horizontal": 1, "vertical": 2, "both": 3}
+        flip_index = flip_map.get(flip_value, 0)
+        self.flip_combo.setCurrentIndex(flip_index)
+
+        # Map rotation degree to combo index
+        rotation_value = transform.get("rotation", 0)
+        rotation_map = {0: 0, 90: 1, 180: 2, 270: 3}
+        rotation_index = rotation_map.get(rotation_value, 0)
+        self.rotation_combo.setCurrentIndex(rotation_index)
+
         self.streaming_start_cb.setChecked(camera.get("streaming_enabled_start", False))
         self.recording_start_cb.setChecked(camera.get("recording_enabled_start", False))
 
@@ -324,6 +375,28 @@ class CamerasSettingsTab(BaseSettingsTab):
         camera["ptz_type"] = ptz_type if ptz_type != "None" else None
         camera["ptz_port"] = self.ptz_port_edit.text().strip() or None
         camera["ptz_channel"] = self.ptz_channel_edit.text().strip() or None
+
+        # Update video transform settings
+        if self.transform_enabled_cb.isChecked():
+            # Map flip combo index to string value
+            flip_map = {0: 'none', 1: 'horizontal', 2: 'vertical', 3: 'both'}
+            flip_value = flip_map.get(self.flip_combo.currentIndex(), 'none')
+
+            # Map rotation combo index to degree value
+            rotation_map = {0: 0, 1: 90, 2: 180, 3: 270}
+            rotation_value = rotation_map.get(self.rotation_combo.currentIndex(), 0)
+
+            camera["video_transform"] = {
+                'enabled': True,
+                'flip': flip_value,
+                'rotation': rotation_value
+            }
+        else:
+            camera["video_transform"] = {
+                'enabled': False,
+                'flip': 'none',
+                'rotation': 0
+            }
 
         camera["streaming_enabled_start"] = self.streaming_start_cb.isChecked()
         camera["recording_enabled_start"] = self.recording_start_cb.isChecked()

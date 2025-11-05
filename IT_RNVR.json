@@ -13,7 +13,7 @@
       "x": 1920,
       "y": 0,
       "width": 1920,
-      "height": 1061
+      "height": 1080
     },
     "dock_state": {
       "camera_visible": true,
@@ -27,7 +27,7 @@
     "show_camera_name": true,
     "osd_font_size": 14,
     "osd_font_color": [
-      255,
+      0,
       255,
       255
     ],
@@ -42,7 +42,7 @@
       "avdec_h264"
     ],
     "buffer_size": 10485760,
-    "latency_ms": 200,
+    "latency_ms": 100,
     "tcp_timeout": 10000,
     "auto_reconnect": true,
     "max_reconnect_attempts": 5,
@@ -63,7 +63,12 @@
       "motion_detection": false,
       "ptz_type": "HIK",
       "ptz_port": "80",
-      "ptz_channel": "1"
+      "ptz_channel": "1",
+      "video_transform": {
+        "enabled": false,
+        "flip": "none",
+        "rotation": 0
+      }
     }
   ],
   "cameras2": [
@@ -171,20 +176,11 @@
     }
   },
   "performance": {
+    "alert_enabled": false,
+    "alert_warning_check_interval_seconds": 30,
+    "alert_critical_check_interval_seconds": 15,
     "max_cpu_percent": 80,
     "max_memory_mb": 2048,
-    "pipeline_queue_size": 200,
-    "max_dropped_frames": 10,
-    "enable_gpu": true,
-    "gpu_device": "/dev/dri/renderD128"
-  },
-  "security": {
-    "require_authentication": false,
-    "session_timeout_minutes": 60,
-    "max_login_attempts": 3,
-    "password_min_length": 8,
-    "enable_ssl": false,
-    "ssl_cert_path": "",
-    "ssl_key_path": ""
+    "max_temp": 75
   }
 }

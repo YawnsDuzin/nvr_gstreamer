@@ -69,3 +69,10 @@ class FileFormat(Enum):
     MKV = "mkv"
     AVI = "avi"
     TS = "ts"
+
+
+class AlertLevel(Enum):
+    """시스템 경고 레벨"""
+    NORMAL = "normal"      # 정상
+    WARNING = "warning"    # 경고 (임계값 근접)
+    CRITICAL = "critical"  # 위험 (임계값 초과)

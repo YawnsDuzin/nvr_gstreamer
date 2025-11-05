@@ -20,6 +20,7 @@ from ui.settings.storage_settings_tab import StorageSettingsTab
 from ui.settings.cameras_settings_tab import CamerasSettingsTab
 from ui.settings.hotkey_settings_tab import HotKeySettingsTab
 from ui.settings.ptz_key_settings_tab import PTZKeySettingsTab
+from ui.settings.logging_settings_tab import LoggingSettingsTab
 
 
 class SettingsDialog(ThemedDialog):
@@ -50,6 +51,7 @@ class SettingsDialog(ThemedDialog):
         self.storage_tab = None
         self.hotkey_tab = None
         self.ptz_key_tab = None
+        self.logging_tab = None
 
         self._setup_ui()
         self._load_all_settings()
@@ -92,6 +94,9 @@ class SettingsDialog(ThemedDialog):
         self.ptz_key_tab = PTZKeySettingsTab(self.config_manager)
         self.tab_widget.addTab(self.ptz_key_tab, "PTZ Keys")
 
+        self.logging_tab = LoggingSettingsTab(self.config_manager)
+        self.tab_widget.addTab(self.logging_tab, "Logging")
+
         layout.addWidget(self.tab_widget)
 
         # 버튼박스
@@ -126,6 +131,8 @@ class SettingsDialog(ThemedDialog):
                 self.hotkey_tab.load_settings()
             if self.ptz_key_tab:
                 self.ptz_key_tab.load_settings()
+            if self.logging_tab:
+                self.logging_tab.load_settings()
 
             logger.debug("All settings loaded")
         except Exception as e:
@@ -157,6 +164,8 @@ class SettingsDialog(ThemedDialog):
             tabs.append(("Hot Keys", self.hotkey_tab))
         if self.ptz_key_tab:
             tabs.append(("PTZ Keys", self.ptz_key_tab))
+        if self.logging_tab:
+            tabs.append(("Logging", self.logging_tab))
 
         for tab_name, tab in tabs:
             valid, error_msg = tab.validate_settings()
@@ -198,6 +207,8 @@ class SettingsDialog(ThemedDialog):
                 success &= self.hotkey_tab.save_settings()
             if self.ptz_key_tab:
                 success &= self.ptz_key_tab.save_settings()
+            if self.logging_tab:
+                success &= self.logging_tab.save_settings()
 
             if success:
                 self.settings_changed.emit()
@@ -238,6 +249,8 @@ class SettingsDialog(ThemedDialog):
             has_changes |= self.hotkey_tab.has_changes()
         if self.ptz_key_tab:
             has_changes |= self.ptz_key_tab.has_changes()
+        if self.logging_tab:
+            has_changes |= self.logging_tab.has_changes()
 
         return has_changes
 

@@ -230,6 +230,25 @@ class RecordingListWidget(ThemedWidget):
 
         filter_layout.addStretch()
 
+        # 비디오 변환 필터
+        transform_label = QLabel("비디오 변환:")
+        transform_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        filter_layout.addWidget(transform_label)
+
+        self.flip_combo = QComboBox()
+        self.flip_combo.addItems(["None", "Horizontal", "Vertical", "Both"])
+        self.flip_combo.setToolTip("좌우/상하 반전")
+        self.flip_combo.setMinimumWidth(100)
+        filter_layout.addWidget(self.flip_combo)
+
+        self.rotation_combo = QComboBox()
+        self.rotation_combo.addItems(["0°", "90°", "180°", "270°"])
+        self.rotation_combo.setToolTip("회전")
+        self.rotation_combo.setMinimumWidth(80)
+        filter_layout.addWidget(self.rotation_combo)
+
+        filter_layout.addStretch()
+
         # 새로고침 버튼 (우측 끝)
         self.refresh_button = QPushButton("새로고침")
         self.refresh_button.clicked.connect(self.refresh_list)
@@ -520,8 +539,15 @@ class PlaybackWidget(ThemedWidget):
         # 비디오 위젯 ID 가져오기
         window_handle = self.playback_control.get_video_widget_id()
 
+        # Transform 설정 가져오기
+        flip_map = {"None": "none", "Horizontal": "horizontal", "Vertical": "vertical", "Both": "both"}
+        flip_mode = flip_map.get(self.file_list.flip_combo.currentText(), "none")
+
+        rotation_map = {"0°": 0, "90°": 90, "180°": 180, "270°": 270}
+        rotation = rotation_map.get(self.file_list.rotation_combo.currentText(), 0)
+
         # 재생 시작
-        if self.playback_manager.play_file(file_path, window_handle):
+        if self.playback_manager.play_file(file_path, window_handle, flip_mode, rotation):
             # 재생 파이프라인 콜백 설정
             pipeline = self.playback_manager.playback_pipeline
             if pipeline:

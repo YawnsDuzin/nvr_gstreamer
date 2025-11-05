@@ -29,6 +29,7 @@ from core.storage import StorageService
 from core.system_monitor import SystemMonitorThread
 from camera.streaming import CameraStream
 from camera.playback import PlaybackManager
+from camera.ptz_controller import PTZController
 
 
 class MainWindow(QMainWindow):
@@ -65,10 +66,16 @@ class MainWindow(QMainWindow):
         self.ui_hidden = False
         self.last_activity_time = QDateTime.currentDateTime()
 
+        # PTZ 제어 관련 변수
+        self.ptz_controller = None
+        self.ptz_speed = 5  # 기본 PTZ 속도 (1-9)
+        self.ptz_keys = {}  # PTZ 키 설정
+
         self._setup_ui()
         self._setup_menus()
         self._setup_status_bar()
         self._load_dock_state()  # Dock 상태를 먼저 로드
+        self._load_ptz_keys()  # PTZ 키 설정 로드
         self._setup_connections()  # 그 다음 시그널 연결
         self._setup_cleanup_timer()  # 자동 정리 타이머 설정
         self._setup_fullscreen_auto_hide()  # 전체화면 자동 UI 숨김 설정
@@ -394,12 +401,11 @@ class MainWindow(QMainWindow):
         logger.info(f"Fullscreen auto-hide feature initialized (delay: {delay}s)")
 
     def eventFilter(self, obj, event):
-        """이벤트 필터: 마우스/키보드 활동 감지"""
+        """이벤트 필터: 마우스 활동 감지 (키보드는 제외)"""
         # 전체화면 모드일 때만 동작
         if self.isFullScreen():
-            # 마우스 이동 또는 키보드 입력 감지
-            if event.type() in [QEvent.MouseMove, QEvent.MouseButtonPress,
-                               QEvent.MouseButtonRelease, QEvent.KeyPress, QEvent.KeyRelease]:
+            # 마우스 이동 또는 클릭만 감지 (키보드 이벤트는 제외)
+            if event.type() in [QEvent.MouseMove, QEvent.MouseButtonPress, QEvent.MouseButtonRelease]:
                 self._on_user_activity()
 
         return super().eventFilter(obj, event)
@@ -519,6 +525,7 @@ class MainWindow(QMainWindow):
         # 시스템 모니터링 스레드 시작
         self.monitor_thread = SystemMonitorThread(update_interval=5)
         self.monitor_thread.status_updated.connect(self._update_system_status)
+        self.monitor_thread.alert_triggered.connect(self._on_system_alert)
         self.monitor_thread.start()
 
         # 시계 업데이트 타이머 (1초마다)
@@ -559,37 +566,86 @@ class MainWindow(QMainWindow):
             temp: 시스템 온도 (°C)
             disk_free: 남은 디스크 공간 (GB)
         """
-        # CPU 경고 (80% 이상)
-        if cpu >= 80:
-            self.cpu_label.setStyleSheet("color: #ff4444; font-weight: bold;")
+        # Performance config에서 임계값 가져오기
+        perf_config = self.config_manager.config.get('performance', {})
+        max_cpu = perf_config.get('max_cpu_percent', 80)
+        max_memory_mb = perf_config.get('max_memory_mb', 2048)
+        max_temp = perf_config.get('max_temp', 75)
+
+        # 메모리를 MB로 변환 (memory는 퍼센트이므로 실제 MB로 변환)
+        import psutil
+        memory_info = psutil.virtual_memory()
+        memory_mb = memory_info.used / (1024**2)
+
+        # Warning 임계값 (80%)
+        warning_cpu = max_cpu * 0.8
+        warning_memory_mb = max_memory_mb * 0.8
+        warning_temp = max_temp * 0.9
+
+        # CPU 상태 표시
+        if cpu >= max_cpu:
+            self.cpu_label.setStyleSheet("color: #ff4444; font-weight: bold;")  # CRITICAL
+        elif cpu >= warning_cpu:
+            self.cpu_label.setStyleSheet("color: #ffaa00; font-weight: bold;")  # WARNING
         else:
-            self.cpu_label.setStyleSheet("color: #ffffff;")
+            self.cpu_label.setStyleSheet("")  # NORMAL
         self.cpu_label.setText(f"CPU: {cpu:.1f}%")
 
-        # 메모리 경고 (85% 이상)
-        if memory >= 85:
-            self.memory_label.setStyleSheet("color: #ff4444; font-weight: bold;")
+        # 메모리 상태 표시
+        if memory_mb >= max_memory_mb:
+            self.memory_label.setStyleSheet("color: #ff4444; font-weight: bold;")  # CRITICAL
+        elif memory_mb >= warning_memory_mb:
+            self.memory_label.setStyleSheet("color: #ffaa00; font-weight: bold;")  # WARNING
         else:
-            self.memory_label.setStyleSheet("color: #ffffff;")
+            self.memory_label.setStyleSheet("")  # NORMAL
         self.memory_label.setText(f"Memory: {memory:.1f}%")
 
         # 온도 표시
         if temp > 0:
-            # 온도 경고 (70°C 이상)
-            if temp >= 70:
-                self.temp_label.setStyleSheet("color: #ff4444; font-weight: bold;")
+            if temp >= max_temp:
+                self.temp_label.setStyleSheet("color: #ff4444; font-weight: bold;")  # CRITICAL
+            elif temp >= warning_temp:
+                self.temp_label.setStyleSheet("color: #ffaa00; font-weight: bold;")  # WARNING
             else:
-                self.temp_label.setStyleSheet("color: #ffffff;")
+                self.temp_label.setStyleSheet("")  # NORMAL
             self.temp_label.setText(f"Temp: {temp:.1f}°C")
         else:
+            self.temp_label.setStyleSheet("")
             self.temp_label.setText("Temp: N/A")
 
         # 디스크 경고 (10GB 미만)
         if disk_free < 10:
             self.disk_label.setStyleSheet("color: #ff4444; font-weight: bold;")
         else:
-            self.disk_label.setStyleSheet("color: #ffffff;")
+            self.disk_label.setStyleSheet("")
         self.disk_label.setText(f"Disk: {disk_free:.1f}GB free")
+
+    def _on_system_alert(self, alert_level: str, message: str):
+        """
+        시스템 경고 발생 시 호출
+
+        Args:
+            alert_level: 경고 레벨 ('normal', 'warning', 'critical')
+            message: 경고 메시지
+        """
+        from core.enums import AlertLevel
+
+        # 상태바에 경고 메시지 표시 (5초 동안)
+        if alert_level == AlertLevel.CRITICAL.value:
+            # Critical 경고는 팝업으로도 표시
+            self.status_bar.showMessage(f"⚠ CRITICAL: {message}", 10000)
+            logger.critical(f"System Alert - {message}")
+
+            # 사용자에게 알림 (선택적)
+            # QMessageBox.critical(self, "System Critical Alert", message)
+
+        elif alert_level == AlertLevel.WARNING.value:
+            self.status_bar.showMessage(f"⚠ WARNING: {message}", 7000)
+            logger.warning(f"System Alert - {message}")
+
+        elif alert_level == AlertLevel.NORMAL.value:
+            self.status_bar.showMessage("✓ System resources normal", 3000)
+            logger.info("System Alert - Resources returned to normal")
 
     def _update_clock(self):
         """시계 업데이트"""
@@ -767,9 +823,27 @@ class MainWindow(QMainWindow):
         # 300ms 후에 재연결 시작 (위젯 생성 및 파이프라인 정리 완료 대기)
         QTimer.singleShot(300, reconnect_streams)
 
+    def _load_ptz_keys(self):
+        """PTZ 키 설정 로드"""
+        self.ptz_keys = self.config_manager.config.get("ptz_keys", {})
+        logger.info(f"PTZ keys loaded: {len(self.ptz_keys)} keys")
+
     def _on_camera_selected(self, camera_id: str):
         """Handle camera selection from list"""
         logger.debug(f"Camera selected: {camera_id}")
+
+        # PTZ Controller 생성 (카메라가 PTZ 지원하는 경우)
+        camera = self.config_manager.get_camera(camera_id)
+        if camera and camera.ptz_type and camera.ptz_type.upper() != "NONE":
+            try:
+                self.ptz_controller = PTZController(camera)
+                logger.info(f"PTZ Controller created for camera: {camera_id} (type: {camera.ptz_type})")
+            except Exception as e:
+                logger.error(f"Failed to create PTZ Controller: {e}")
+                self.ptz_controller = None
+        else:
+            self.ptz_controller = None
+            logger.debug(f"Camera {camera_id} does not support PTZ")
 
     def _on_camera_added(self, camera_config):
         """Handle camera added"""
@@ -798,6 +872,25 @@ class MainWindow(QMainWindow):
     def _on_camera_connected(self, camera_id: str):
         """Handle camera connected"""
         logger.info(f"Camera connected: {camera_id}")
+
+        # PTZ Controller 생성 (연결된 카메라가 PTZ 지원하는 경우)
+        camera = self.config_manager.get_camera(camera_id)
+        if camera and camera.ptz_type and camera.ptz_type.upper() != "NONE":
+            try:
+                self.ptz_controller = PTZController(camera)
+                # Grid View에 PTZ Controller 전달
+                if self.grid_view:
+                    self.grid_view.ptz_controller = self.ptz_controller
+                    self.grid_view.ptz_speed = self.ptz_speed
+                logger.success(f"✓ PTZ Controller activated for camera: {camera_id} (type: {camera.ptz_type})")
+            except Exception as e:
+                logger.error(f"Failed to create PTZ Controller: {e}")
+                self.ptz_controller = None
+        else:
+            self.ptz_controller = None
+            if self.grid_view:
+                self.grid_view.ptz_controller = None
+            logger.debug(f"Camera {camera_id} does not support PTZ")
 
         # Get camera stream
         stream = self.camera_list.get_camera_stream(camera_id)
@@ -1197,6 +1290,119 @@ class MainWindow(QMainWindow):
         self.config_manager.save_ui_config()
 
         logger.info(f"UI state saved to JSON - Window: {geometry.x()},{geometry.y()} {geometry.width()}x{geometry.height()}, Docks: Camera={self.camera_dock.isVisible()}, Recording={self.recording_dock.isVisible()}, Playback={self.playback_dock.isVisible()}")
+
+    def keyPressEvent(self, event):
+        """키보드 누름 이벤트 처리 (PTZ 제어)"""
+        # 자동 반복 이벤트는 무시
+        if event.isAutoRepeat():
+            event.accept()
+            return
+
+        key = event.text().upper()
+
+        # PTZ 키 액션 찾기
+        ptz_action = None
+        for action, config_key in self.ptz_keys.items():
+            if config_key.upper() == key:
+                ptz_action = action
+                break
+
+        if ptz_action:
+            self._execute_ptz_action(ptz_action, pressed=True)
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):
+        """키보드 뗌 이벤트 처리 (PTZ 제어)"""
+        # 자동 반복 이벤트는 무시
+        if event.isAutoRepeat():
+            event.accept()
+            return
+
+        key = event.text().upper()
+
+        # PTZ 키 액션 찾기
+        ptz_action = None
+        for action, config_key in self.ptz_keys.items():
+            if config_key.upper() == key:
+                ptz_action = action
+                break
+
+        if ptz_action:
+            self._execute_ptz_action(ptz_action, pressed=False)
+            event.accept()
+        else:
+            super().keyReleaseEvent(event)
+
+    def _execute_ptz_action(self, action: str, pressed: bool):
+        """
+        PTZ 액션 실행
+
+        Args:
+            action: PTZ 액션 (zoom_in, zoom_out, up, down 등)
+            pressed: True=키 누름, False=키 뗌
+        """
+        if not self.ptz_controller:
+            logger.debug("PTZ Controller not available")
+            return
+
+        # 키를 뗄 때
+        if not pressed:
+            # Zoom 명령의 경우 STOP 전송
+            if action in ['zoom_in', 'zoom_out']:
+                self.ptz_controller.zoom_stop()
+                logger.debug(f"PTZ action released: {action} -> ZOOMSTOP")
+            # 방향키도 STOP 전송
+            elif action in ['pan_left', 'up', 'right_up', 'left', 'right', 'pan_down', 'down', 'right_down']:
+                self.ptz_controller.stop()
+                logger.debug(f"PTZ action released: {action} -> STOP")
+            return
+
+        # 키를 누를 때
+        if action == 'zoom_in':
+            self.ptz_controller.zoom_in(self.ptz_speed)
+            self.statusBar().showMessage(f"PTZ: Zoom In (Speed: {self.ptz_speed})", 1000)
+        elif action == 'zoom_out':
+            self.ptz_controller.zoom_out(self.ptz_speed)
+            self.statusBar().showMessage(f"PTZ: Zoom Out (Speed: {self.ptz_speed})", 1000)
+        elif action == 'ptz_speed_up':
+            self.ptz_speed = min(9, self.ptz_speed + 1)
+            self.statusBar().showMessage(f"PTZ Speed: {self.ptz_speed}/9", 2000)
+            logger.info(f"PTZ speed increased: {self.ptz_speed}/9")
+        elif action == 'ptz_speed_down':
+            self.ptz_speed = max(1, self.ptz_speed - 1)
+            self.statusBar().showMessage(f"PTZ Speed: {self.ptz_speed}/9", 2000)
+            logger.info(f"PTZ speed decreased: {self.ptz_speed}/9")
+        elif action == 'up':
+            self.ptz_controller.move_up(self.ptz_speed)
+            self.statusBar().showMessage(f"PTZ: Up", 1000)
+        elif action == 'down':
+            self.ptz_controller.move_down(self.ptz_speed)
+            self.statusBar().showMessage(f"PTZ: Down", 1000)
+        elif action == 'left':
+            self.ptz_controller.move_left(self.ptz_speed)
+            self.statusBar().showMessage(f"PTZ: Left", 1000)
+        elif action == 'right':
+            self.ptz_controller.move_right(self.ptz_speed)
+            self.statusBar().showMessage(f"PTZ: Right", 1000)
+        elif action == 'pan_left':
+            self.ptz_controller.send_command("UPLEFT", self.ptz_speed)
+            self.statusBar().showMessage(f"PTZ: Up-Left", 1000)
+        elif action == 'right_up':
+            self.ptz_controller.send_command("UPRIGHT", self.ptz_speed)
+            self.statusBar().showMessage(f"PTZ: Up-Right", 1000)
+        elif action == 'pan_down':
+            self.ptz_controller.send_command("DOWNLEFT", self.ptz_speed)
+            self.statusBar().showMessage(f"PTZ: Down-Left", 1000)
+        elif action == 'right_down':
+            self.ptz_controller.send_command("DOWNRIGHT", self.ptz_speed)
+            self.statusBar().showMessage(f"PTZ: Down-Right", 1000)
+        elif action == 'stop':
+            self.ptz_controller.stop()
+            self.statusBar().showMessage(f"PTZ: Stop", 1000)
+
+        logger.debug(f"PTZ action executed: {action} (pressed={pressed}, speed={self.ptz_speed})")
 
     def closeEvent(self, event: QCloseEvent):
         """Handle application close event"""

@@ -335,6 +335,27 @@ class GstPipeline:
             # 비디오 변환
             convert = Gst.ElementFactory.make("videoconvert", "convert")
 
+            # ===== 영상 변환 (Flip/Rotation) 추가 =====
+            videoflip = None
+            camera_config = self._get_camera_config()
+            transform_config = camera_config.get("video_transform", {}) if camera_config else {}
+
+            if transform_config.get("enabled", False):
+                flip_mode = transform_config.get("flip", "none")
+                rotation = transform_config.get("rotation", 0)
+
+                method = self._get_videoflip_method(flip_mode, rotation)
+
+                if method is not None:
+                    videoflip = Gst.ElementFactory.make("videoflip", "videoflip")
+                    if videoflip:
+                        videoflip.set_property("method", method)
+                        logger.info(f"Video transform enabled: flip={flip_mode}, rotation={rotation}, method={method}")
+                    else:
+                        logger.warning("Failed to create videoflip element")
+                else:
+                    logger.debug("Video transform disabled (method=none)")
+
             # OSD (Text Overlay) - 카메라 이름 및 타임스탬프
             show_timestamp = streaming_config.get("show_timestamp", True)
             show_camera_name = streaming_config.get("show_camera_name", True)
@@ -444,6 +465,8 @@ class GstPipeline:
             self.pipeline.add(self.streaming_valve)
             self.pipeline.add(decoder)
             self.pipeline.add(convert)
+            if videoflip:
+                self.pipeline.add(videoflip)
             if self.text_overlay:
                 self.pipeline.add(self.text_overlay)
             self.pipeline.add(scale)
@@ -466,20 +489,27 @@ class GstPipeline:
                 raise Exception("Failed to link decoder → convert")
             logger.debug("[STREAMING DEBUG] Linked: decoder → convert")
 
-            # OSD가 활성화된 경우 convert → textoverlay → scale
-            # OSD가 비활성화된 경우 convert → scale
-            if self.text_overlay:
-                if not convert.link(self.text_overlay):
-                    raise Exception("Failed to link convert → text_overlay")
-                logger.debug("[STREAMING DEBUG] Linked: convert → text_overlay")
+            # 연결 순서: convert → [videoflip] → [textoverlay] → scale
+            current_element = convert
 
-                if not self.text_overlay.link(scale):
-                    raise Exception("Failed to link text_overlay → scale")
-                logger.debug("[STREAMING DEBUG] Linked: text_overlay → scale")
-            else:
-                if not convert.link(scale):
-                    raise Exception("Failed to link convert → scale")
-                logger.debug("[STREAMING DEBUG] Linked: convert → scale")
+            # videoflip이 있으면 연결
+            if videoflip:
+                if not current_element.link(videoflip):
+                    raise Exception(f"Failed to link {current_element.get_name()} → videoflip")
+                logger.debug(f"[STREAMING DEBUG] Linked: {current_element.get_name()} → videoflip")
+                current_element = videoflip
+
+            # textoverlay가 있으면 연결
+            if self.text_overlay:
+                if not current_element.link(self.text_overlay):
+                    raise Exception(f"Failed to link {current_element.get_name()} → text_overlay")
+                logger.debug(f"[STREAMING DEBUG] Linked: {current_element.get_name()} → text_overlay")
+                current_element = self.text_overlay
+
+            # scale 연결
+            if not current_element.link(scale):
+                raise Exception(f"Failed to link {current_element.get_name()} → scale")
+            logger.debug(f"[STREAMING DEBUG] Linked: {current_element.get_name()} → scale")
 
             if not scale.link(caps_filter):
                 raise Exception("Failed to link scale → caps_filter")
@@ -1374,6 +1404,70 @@ class GstPipeline:
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
             return False
+
+    def _get_camera_config(self) -> Optional[Dict]:
+        """
+        현재 카메라의 설정 가져오기
+
+        Returns:
+            dict or None: 카메라 설정 딕셔너리
+        """
+        try:
+            config = ConfigManager.get_instance()
+            cameras = config.config.get("cameras", [])
+
+            for cam in cameras:
+                if cam.get("camera_id") == self.camera_id:
+                    return cam
+
+            logger.warning(f"Camera config not found for {self.camera_id}")
+            return None
+
+        except Exception as e:
+            logger.error(f"Failed to get camera config: {e}")
+            return None
+
+    def _get_videoflip_method(self, flip_mode: str, rotation: int) -> Optional[int]:
+        """
+        flip과 rotation 설정을 videoflip method로 변환
+
+        Args:
+            flip_mode: "none", "horizontal", "vertical", "both"
+            rotation: 0, 90, 180, 270
+
+        Returns:
+            int or None: videoflip method 값
+                0 = none (identity)
+                1 = clockwise (90도)
+                2 = rotate-180
+                3 = counterclockwise (270도)
+                4 = horizontal-flip
+                5 = vertical-flip
+                6 = upper-left-diagonal
+                7 = upper-right-diagonal
+        """
+        # 회전이 우선 (90, 270도는 flip과 조합 불가)
+        if rotation == 90:
+            return 1  # clockwise
+        elif rotation == 270:
+            return 3  # counterclockwise
+        elif rotation == 180:
+            if flip_mode == "horizontal":
+                return 5  # vertical-flip (180도 + 좌우반전 = 상하반전)
+            elif flip_mode == "vertical":
+                return 4  # horizontal-flip (180도 + 상하반전 = 좌우반전)
+            else:
+                return 2  # rotate-180
+
+        # 회전 없음 - flip만 적용
+        if flip_mode == "horizontal":
+            return 4  # horizontal-flip
+        elif flip_mode == "vertical":
+            return 5  # vertical-flip
+        elif flip_mode == "both":
+            return 2  # rotate-180 (좌우+상하 = 180도 회전)
+
+        return None  # none (변환 없음)
 
     def _delayed_valve_open(self):
         """지연된 valve 열기 (키프레임 대기 후) - 이제 사용되지 않음"""
