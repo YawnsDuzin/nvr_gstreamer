@@ -111,13 +111,17 @@ Instead of separate pipelines for streaming and recording (which duplicates deco
    - `exceptions.py`: Custom exception classes
    - `config.py`: **Singleton pattern** JSON configuration handler
    - `storage.py`: Storage management with automatic cleanup and backup functionality
+   - `system_monitor.py`: Resource monitoring and system health checks
    - ConfigManager uses singleton pattern - single instance shared across entire application
 
 2. **Camera Management** (`camera/`) - Consolidated (2025-10-28)
    - `gst_pipeline.py`: Unified streaming+recording pipeline with valve control
+     - Video transform support (flip, rotation)
+     - Window handle validation for Raspberry Pi X Window compatibility
    - `streaming.py`: Individual camera stream handler with auto-reconnection
    - `playback.py`: Playback management and control
    - `gst_utils.py`: Platform-specific GStreamer utilities
+   - `ptz_controller.py`: PTZ camera control (HIK, ONVIF)
    - Adaptive decoder selection: avdec_h264, omxh264dec (RPi 3), v4l2h264dec (RPi 4+)
    - **splitmuxsink** handles automatic file splitting based on `max-size-time`
    - File organization: `recordings/{camera_id}/{date}/{camera_id}_{timestamp}.mp4`
@@ -131,15 +135,17 @@ Instead of separate pipelines for streaming and recording (which duplicates deco
    - `camera_list_widget.py`: Camera list management
    - `recording_control_widget.py`: Recording control interface
    - `backup_dialog.py`: Recording file backup with MD5 verification
+   - `delete_dialog.py`: Async delete dialog with progress tracking
    - `camera_dialog.py`: Camera configuration dialog with PTZ support
    - `settings_dialog.py`: Unified settings dialog with multiple tabs
-   - **Settings Tabs** (in order): Basic, Cameras, Streaming, Recording, Storage, Backup, Hot Keys, PTZ Keys
-   - `ui/settings/`: Individual settings tab implementations
+   - `log_viewer_dialog.py`: Real-time log viewer
+   - **Settings Tabs** (`ui/settings/`):
+     - Basic, Cameras, Streaming, Recording, Storage, Backup
+     - Performance (CPU/memory/temperature monitoring thresholds)
+     - Logging (comprehensive logging configuration)
+     - Hot Keys, PTZ Keys
+   - **Theme System** (`ui/theme/`): Centralized theme management
    - **Note**: Uses PyQt5 (NOT PyQt6 despite requirements.txt)
-
-4. **System Monitoring** (`core/system_monitor.py`)
-   - Resource monitoring and system health checks
-   - Memory, CPU usage tracking
 
 ### Pipeline Modes
 Three operating modes controlled via `PipelineMode` enum:
@@ -157,6 +163,7 @@ Mode switching happens at runtime using valve elements without service interrupt
 - **Observer Pattern**: GStreamer bus messages, Qt signals/slots for event handling
 - **Tee + Valve Pattern**: Unified pipeline for resource-efficient streaming and recording
 - **Callback Pattern**: Recording state change callbacks for UI synchronization
+- **Worker Thread Pattern**: Async operations (backup, delete) with progress tracking
 
 ## Important Notes
 
@@ -167,11 +174,13 @@ Mode switching happens at runtime using valve elements without service interrupt
 - **Auto-save**: UI state (window geometry, dock visibility) saved automatically on exit
 - **Configuration Sections**:
   - `system`: System-wide settings (log level, retention)
-  - `cameras`: Camera list with RTSP URLs, credentials, PTZ settings
+  - `cameras`: Camera list with RTSP URLs, credentials, PTZ settings, video transform
   - `recording`: Recording settings (file format, rotation minutes, codec, fragment duration)
   - `storage`: Storage management settings (recording_path, auto cleanup, max days, min space)
   - `ui`: UI state (window geometry, dock visibility)
   - `backup`: Backup settings (destination path, verification, delete after backup)
+  - `performance`: System monitoring thresholds (CPU, memory, temperature)
+  - `logging`: Comprehensive logging configuration (console, file, error, JSON logs)
 - **Recording Path Migration** (2025-11-04):
   - Recording path moved from `recording.base_path` to `storage.recording_path`
   - All code now uses `storage_config.get('recording_path')` pattern
@@ -198,9 +207,10 @@ Mode switching happens at runtime using valve elements without service interrupt
 Business logic in core module:
 - **ConfigManager**: Singleton pattern configuration handler
 - **StorageService**: Automatic file cleanup based on age/space
+- **SystemMonitor**: CPU, memory, temperature monitoring with alert thresholds
 - **Usage**:
   ```python
-  from core import ConfigManager, StorageService
+  from core import ConfigManager, StorageService, SystemMonitor
 
   # Get config instance (singleton)
   config = ConfigManager.get_instance()
@@ -210,6 +220,10 @@ Business logic in core module:
 
   # Auto cleanup old recordings
   storage_service.auto_cleanup()
+
+  # System monitoring
+  monitor = SystemMonitor()
+  status = monitor.get_system_status()
   ```
 
 ### PyQt Version Mismatch
@@ -225,6 +239,7 @@ Different pipeline configurations based on platform:
 - Recording optimization: Uses `h264parse → splitmuxsink` for automatic file splitting
   - splitmuxsink internally uses mp4mux/matroskamux based on file format
   - Automatic file rotation based on `max-size-time` property
+- Video transform: `videoflip` and `videorotate` elements for flip/rotation
 
 ### Performance Optimization
 System optimized for Raspberry Pi:
@@ -233,12 +248,14 @@ System optimized for Raspberry Pi:
 - Hardware acceleration support
 - Adaptive decoder selection
 - Fragment-based MP4 muxing for reduced I/O
+- System monitoring with configurable alert thresholds
 
 ### Window Handle Management
 Critical for ensuring proper video display:
 1. Window handles must be assigned after widget creation
 2. 500ms delay required for handle reassignment
 3. Platform-specific handling for Windows/Linux
+4. **Raspberry Pi X Window Fix** (2025-11-05): Validates window handle before setting to prevent BadWindow errors
 
 ## Development Workflow
 
@@ -261,6 +278,7 @@ Detailed technical documentation is available in `_doc/`:
 - `unified_pipeline_branch_control.md`: Branch control mechanism using valves
 - `camera_disconnect_error_analysis.md`: Network disconnection error recovery
 - `20251029_startup_flow.md`: Application startup sequence and initialization
+- `settings_dialog_implementation_plan.md`: Settings dialog architecture
 
 ## Troubleshooting
 
@@ -271,6 +289,22 @@ Detailed technical documentation is available in `_doc/`:
 # Problem: Window handles not properly assigned
 # Solution: Check window handle assignment in main_window.py
 # Verify 500ms delay is present for handle assignment
+```
+
+#### Raspberry Pi X Window Error
+```python
+# Problem: "BadWindow (invalid Window parameter)" error on Raspberry Pi
+# Solution: Window handle validation added in gst_pipeline.py
+# Video output disabled if handle is invalid (headless mode)
+# Recording continues to function properly
+```
+
+#### Video Transform Not Working
+```python
+# Problem: Video flip/rotation settings not applied
+# Solution: Check case sensitivity in JSON configuration
+# Code expects lowercase: "vertical", "horizontal", "both"
+# Fixed with .lower() normalization in cameras_settings_tab.py and gst_pipeline.py
 ```
 
 #### Recording Files 0MB or Not Created
@@ -314,6 +348,7 @@ Detailed technical documentation is available in `_doc/`:
 # Problem: Using separate pipelines for streaming and recording
 # Solution: Ensure gst_pipeline.py (UnifiedPipeline) is used
 # Check valve states with get_status() method
+# Configure performance monitoring thresholds in settings
 ```
 
 #### Memory Leaks
@@ -351,18 +386,23 @@ def _on_bus_message(self, bus, message):
 - Continuous recording with automatic file rotation via splitmuxsink
 - Auto-recording on camera connection (when `recording_enabled_start: true`)
 - Recording file backup with MD5 verification and progress tracking
+- Async file deletion with progress dialog
 - Network disconnection detection and automatic reconnection
 - File split on network reconnection (new recording file created)
 - Playback system with timeline navigation and speed control
 - Dockable UI widgets (Camera List, Recording Control, Playback)
 - JSON-based configuration with singleton pattern
 - UI state persistence (window geometry, dock visibility)
-- PTZ camera configuration support (HIK, ONVIF compatible)
+- PTZ camera control support (HIK, ONVIF compatible)
+- Video transform (flip, rotation) with case-insensitive configuration
 - Hardware acceleration support (RPi OMX/V4L2)
 - Runtime pipeline mode switching via valves
 - Memory-efficient unified pipeline architecture
 - Automatic storage cleanup based on age and disk space
-- System resource monitoring (CPU, memory, disk usage)
+- System resource monitoring with configurable alert thresholds
+- Comprehensive logging system with multiple output formats
+- Real-time log viewer dialog
+- Theme system with centralized management
 
 ### Known Issues
 - PyQt5/PyQt6 dependency mismatch in requirements.txt (code uses PyQt5)
@@ -370,58 +410,51 @@ def _on_bus_message(self, bus, message):
 - Credentials stored in cleartext in IT_RNVR.json
 
 ### Recent Updates (2025-10~11)
+- **Raspberry Pi X Window Fix** (2025-11-05)
+  - Added window handle validation to prevent BadWindow errors
+  - Video output disabled if handle is invalid (headless mode)
+  - Recording continues to function properly
+- **Video Transform Case Fix** (2025-11-05)
+  - Fixed case sensitivity issue with flip settings
+  - Added .lower() normalization for JSON values
+- **Performance Settings Tab** (2025-11-05)
+  - Added performance monitoring configuration UI
+  - CPU, memory, temperature threshold settings
+  - Alert interval configuration
+- **Async Delete Dialog** (2025-11-05)
+  - Implemented multi-threaded file deletion with progress
+  - Real-time log display and error handling
+- **PTZ Controller** (2025-11-05)
+  - HIK camera PTZ control via HTTP/XML
+  - Basic and Digest authentication support
+  - Zoom and directional movement commands
+- **Logging Settings Tab** (2025-11-05)
+  - Comprehensive logging configuration UI
+  - Console, file, error, JSON log settings
+  - Log rotation and retention configuration
 - **Configuration path migration** (2025-11-04)
   - Recording path moved from `recording.base_path` to `storage.recording_path`
   - Updated 8 files to use new configuration path
   - Settings UI reorganized: recording path control moved to Storage tab
-  - Settings dialog tab order adjusted: Storage tab now appears before Backup tab
-  - Files modified: `IT_RNVR.json`, `camera/gst_pipeline.py`, `core/storage.py`, `camera/playback.py`,
-    `ui/recording_control_widget.py`, `ui/settings/storage_settings_tab.py`,
-    `ui/settings/recording_settings_tab.py`, `ui/settings_dialog.py`, `_tests/test_single_camera.py`
 - **Backup functionality added** (2025-11-03)
   - Recording file backup dialog with progress tracking
   - MD5 hash verification for backup integrity
   - Optional source file deletion after successful backup
-  - Backup configuration saved to IT_RNVR.json (backup section)
-  - Multi-threaded backup with real-time progress updates
-  - Files: `ui/backup_dialog.py`, `core/storage.py`
 - **PTZ camera support added** (2025-11-03)
   - PTZ camera type configuration (HIK, ONVIF)
   - PTZ port and channel settings in camera configuration
-  - Fields added to Camera model: ptz_type, ptz_port, ptz_channel
-  - Files: `core/models.py`, `ui/camera_dialog.py`
 - **Network reconnection improvements** (2025-10-30)
   - Recording file split on network reconnection
   - New recording file created when connection restored
-  - Prevents corrupted files from network interruptions
-  - Files: `camera/gst_pipeline.py`, `camera/streaming.py`
 - **Auto-recording UI sync fixed** (2025-10-29)
-  - Removed automatic recording start from `GstPipeline.start()`
   - Recording now always starts via explicit `start_recording()` call
   - Unified flow: manual and auto-recording use identical code path
-  - Valve control: All modes start with `recording_valve` closed
-  - Callbacks registered before recording starts, ensuring UI sync
-  - Recording state change notifications via callback pattern
-  - Files: `camera/gst_pipeline.py` (valve logic), `ui/main_window.py` (callback flow)
 - **Project structure refactored** (2025-10-28)
   - Folder count reduced from 15 to 8 (47% reduction)
-  - `config/` → `core/config.py`
-  - `core/services/storage_service.py` → `core/storage.py`
-  - `streaming/` → `camera/` (consolidated camera-related modules)
-  - `playback/` → `camera/playback.py`
-  - `tests/` → `_tests/` (test files moved)
-  - Removed empty folders: config/, playback/, recording/, core/services/
+  - Consolidated camera-related modules in `camera/` folder
 - **Recording system changed to splitmuxsink** (2025-10-28)
   - Automatic file splitting based on time duration
   - format-location signal handler for dynamic file naming
-  - Eliminates manual file rotation logic
-- **Core module added** with domain models and business services
-- **PipelineManager removed** - UnifiedPipeline used directly
-- **File renamed**:
-  - `unified_pipeline.py` → `pipeline.py` → `gst_pipeline.py`
-  - `camera_stream.py` → `streaming.py` (in camera/ folder)
-- Configuration system migrated from YAML to JSON
-- UI state auto-save functionality added
 
 ### Platform Support
 - **Primary**: Raspberry Pi (3, 4, Zero 2W)

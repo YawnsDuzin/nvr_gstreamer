@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import Optional, Dict
 from loguru import logger
 from core.config import ConfigManager
-from camera.gst_utils import get_video_sink, get_available_h264_decoder, get_available_decoder, create_video_sink_with_properties, get_gstreamer_version, is_gstreamer_1_20_or_later
+from camera.gst_utils import get_video_sink, get_available_h264_decoder, get_available_decoder, create_video_sink_with_properties
 
 # Core imports
 import sys
@@ -205,55 +205,38 @@ class GstPipeline:
 
             rtspsrc.set_property("retry", 5)
 
-            # rtspsrc를 파이프라인에 추가
+            # 디페이로드 및 파서 (코덱에 따라 선택)
+            if self.video_codec == 'h265' or self.video_codec == 'hevc':
+                depay = Gst.ElementFactory.make("rtph265depay", "depay")
+                parse = Gst.ElementFactory.make("h265parse", "parse")
+                parse.set_property("config-interval", 1)
+                logger.debug("Using H.265/HEVC codec")
+            else:  # 기본값: h264
+                depay = Gst.ElementFactory.make("rtph264depay", "depay")
+                parse = Gst.ElementFactory.make("h264parse", "parse")
+                parse.set_property("config-interval", 1)
+                logger.debug("Using H.264 codec")
+
+            if not depay or not parse:
+                raise Exception(f"Failed to create depay/parse elements for codec: {self.video_codec}")
+
+            # Tee 엘리먼트 - 스트림 분기점
+            self.tee = Gst.ElementFactory.make("tee", "tee")
+            self.tee.set_property("allow-not-linked", True)
+            logger.debug("Tee element created with allow-not-linked=True")
+
+            # 엘리먼트를 파이프라인에 추가
             self.pipeline.add(rtspsrc)
-            logger.debug("RTSP source added to pipeline")
+            self.pipeline.add(depay)
+            self.pipeline.add(parse)
+            self.pipeline.add(self.tee)
 
-            # GStreamer 버전에 따라 다른 파이프라인 구조 사용
-            if is_gstreamer_1_20_or_later():
-                # GStreamer 1.20+ (Windows): 기존 방식 사용
-                # rtspsrc → depay → parse → tee
-                logger.debug("[VERSION] GStreamer 1.20+ detected - using legacy pipeline structure")
+            # 기본 체인 연결 (소스는 나중에 pad-added 시그널로 연결)
+            depay.link(parse)
+            parse.link(self.tee)
 
-                # 디페이로드 및 파서 (코덱에 따라 선택)
-                if self.video_codec == 'h265' or self.video_codec == 'hevc':
-                    depay = Gst.ElementFactory.make("rtph265depay", "depay")
-                    parse = Gst.ElementFactory.make("h265parse", "parse")
-                    parse.set_property("config-interval", 1)
-                    logger.debug("Using H.265/HEVC codec")
-                else:  # 기본값: h264
-                    depay = Gst.ElementFactory.make("rtph264depay", "depay")
-                    parse = Gst.ElementFactory.make("h264parse", "parse")
-                    parse.set_property("config-interval", 1)
-                    logger.debug("Using H.264 codec")
-
-                if not depay or not parse:
-                    raise Exception(f"Failed to create depay/parse elements for codec: {self.video_codec}")
-
-                # Tee 엘리먼트 - 스트림 분기점
-                self.tee = Gst.ElementFactory.make("tee", "tee")
-                self.tee.set_property("allow-not-linked", True)
-                logger.debug("Tee element created with allow-not-linked=True")
-
-                # 엘리먼트를 파이프라인에 추가
-                self.pipeline.add(depay)
-                self.pipeline.add(parse)
-                self.pipeline.add(self.tee)
-
-                # 기본 체인 연결 (소스는 나중에 pad-added 시그널로 연결)
-                depay.link(parse)
-                parse.link(self.tee)
-
-                # RTSP 소스의 동적 패드 연결
-                rtspsrc.connect("pad-added", self._on_pad_added, depay)
-
-            else:
-                # GStreamer 1.18 (Raspberry Pi): 새로운 방식 사용
-                # rtspsrc → jitterbuffer → depay → parse → tee
-                logger.debug("[VERSION] GStreamer 1.18 detected - using new pipeline structure with jitterbuffer")
-                if not self._create_source_branch():
-                    logger.error("Failed to create source branch")
-                    return False
+            # RTSP 소스의 동적 패드 연결
+            rtspsrc.connect("pad-added", self._on_pad_added, depay)
 
             # 항상 두 브랜치 모두 생성 (런타임 중 모드 전환 지원)
             # Valve로 활성화/비활성화 제어
@@ -283,144 +266,6 @@ class GstPipeline:
 
         except Exception as e:
             logger.error(f"Failed to create unified pipeline: {e}")
-            import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
-            return False
-
-    def _create_source_branch(self):
-        """
-        소스 브랜치 생성 (rtspsrc → jitterbuffer → depay → parse → tee)
-        GStreamer 버전에 따라 다른 파이프라인 구조 사용
-
-        - GStreamer 1.20+ (Windows): rtspsrc → depay → jitterbuffer → parse → tee
-        - GStreamer 1.18 (Raspberry Pi): rtspsrc → jitterbuffer → depay → parse → tee
-        """
-        try:
-            # RTSP 소스 (이미 create_pipeline에서 생성됨)
-            rtspsrc = self.pipeline.get_by_name("source")
-            if not rtspsrc:
-                raise Exception("rtspsrc not found in pipeline")
-
-            # Tee 엘리먼트 - 스트림 분기점
-            self.tee = Gst.ElementFactory.make("tee", "tee")
-            if not self.tee:
-                raise Exception("Failed to create tee element")
-
-            self.tee.set_property("allow-not-linked", True)
-            self.pipeline.add(self.tee)
-            logger.debug("Tee element created with allow-not-linked=True")
-
-            # h264parse 엘리먼트 생성
-            if self.video_codec == 'h265' or self.video_codec == 'hevc':
-                h264parse = Gst.ElementFactory.make("h265parse", "parse")
-                logger.debug("Using H.265 parse for source branch")
-            else:  # 기본값: h264
-                h264parse = Gst.ElementFactory.make("h264parse", "parse")
-                logger.debug("Using H.264 parse for source branch")
-
-            if not h264parse:
-                raise Exception(f"Failed to create parse element for codec: {self.video_codec}")
-
-            h264parse.set_property("config-interval", 1)
-            self.pipeline.add(h264parse)
-
-            # GStreamer 버전에 따라 다른 파이프라인 구조 사용
-            if is_gstreamer_1_20_or_later():
-                # GStreamer 1.20+ (Windows): rtspsrc → depay → jitterbuffer → parse → tee
-                logger.debug("[VERSION] GStreamer 1.20+ detected - using depay → jitterbuffer → parse order")
-
-                # rtph264depay 생성
-                if self.video_codec == 'h265' or self.video_codec == 'hevc':
-                    rtph264depay = Gst.ElementFactory.make("rtph265depay", "depay")
-                    logger.debug("Using H.265 depay")
-                else:
-                    rtph264depay = Gst.ElementFactory.make("rtph264depay", "depay")
-                    logger.debug("Using H.264 depay")
-
-                if not rtph264depay:
-                    raise Exception("Failed to create rtph264depay")
-
-                # wait-for-keyframe 속성 설정 (GStreamer 1.20+에서만 사용 가능)
-                rtph264depay.set_property("wait-for-keyframe", True)
-                logger.debug("[VERSION] wait-for-keyframe property set (GStreamer 1.20+)")
-                self.pipeline.add(rtph264depay)
-
-                # rtpjitterbuffer 생성
-                rtpjitterbuffer = Gst.ElementFactory.make("rtpjitterbuffer", "rtpjitterbuffer")
-                if not rtpjitterbuffer:
-                    raise Exception("Failed to create rtpjitterbuffer")
-
-                rtpjitterbuffer.set_property("latency", 100)
-                self.pipeline.add(rtpjitterbuffer)
-
-                # 연결: depay → jitterbuffer → parse → tee
-                if not rtph264depay.link(rtpjitterbuffer):
-                    raise Exception("Failed to link rtph264depay → rtpjitterbuffer")
-                logger.debug("[SOURCE DEBUG] Linked: rtph264depay → rtpjitterbuffer")
-
-                if not rtpjitterbuffer.link(h264parse):
-                    raise Exception("Failed to link rtpjitterbuffer → h264parse")
-                logger.debug("[SOURCE DEBUG] Linked: rtpjitterbuffer → h264parse")
-
-                if not h264parse.link(self.tee):
-                    raise Exception("Failed to link h264parse → tee")
-                logger.debug("[SOURCE DEBUG] Linked: h264parse → tee")
-
-                # RTSP 소스의 동적 패드 연결: rtspsrc → depay
-                rtspsrc.connect("pad-added", self._on_rtspsrc_pad_added, rtph264depay)
-                logger.debug("[SOURCE DEBUG] Connected pad-added signal: rtspsrc → rtph264depay")
-
-            else:
-                # GStreamer 1.18 (Raspberry Pi): rtspsrc → jitterbuffer → depay → parse → tee
-                logger.debug("[VERSION] GStreamer 1.18 detected - using jitterbuffer → depay → parse order")
-
-                # rtpjitterbuffer 생성 (먼저)
-                rtpjitterbuffer = Gst.ElementFactory.make("rtpjitterbuffer", "rtpjitterbuffer")
-                if not rtpjitterbuffer:
-                    raise Exception("Failed to create rtpjitterbuffer")
-
-                rtpjitterbuffer.set_property("latency", 100)
-                rtpjitterbuffer.set_property("drop-on-latency", True)
-                self.pipeline.add(rtpjitterbuffer)
-
-                # rtph264depay 생성 (나중에)
-                if self.video_codec == 'h265' or self.video_codec == 'hevc':
-                    rtph264depay = Gst.ElementFactory.make("rtph265depay", "depay")
-                    logger.debug("Using H.265 depay")
-                else:
-                    rtph264depay = Gst.ElementFactory.make("rtph264depay", "depay")
-                    logger.debug("Using H.264 depay")
-
-                if not rtph264depay:
-                    raise Exception("Failed to create rtph264depay")
-
-                # wait-for-keyframe 속성은 GStreamer 1.20+에서만 사용 가능
-                # GStreamer 1.18에서는 이 속성이 없으므로 스킵
-                logger.debug("[VERSION] wait-for-keyframe property not available in GStreamer < 1.20")
-                self.pipeline.add(rtph264depay)
-
-                # 연결: jitterbuffer → depay → parse → tee
-                if not rtpjitterbuffer.link(rtph264depay):
-                    raise Exception("Failed to link rtpjitterbuffer → rtph264depay")
-                logger.debug("[SOURCE DEBUG] Linked: rtpjitterbuffer → rtph264depay")
-
-                if not rtph264depay.link(h264parse):
-                    raise Exception("Failed to link rtph264depay → h264parse")
-                logger.debug("[SOURCE DEBUG] Linked: rtph264depay → h264parse")
-
-                if not h264parse.link(self.tee):
-                    raise Exception("Failed to link h264parse → tee")
-                logger.debug("[SOURCE DEBUG] Linked: h264parse → tee")
-
-                # RTSP 소스의 동적 패드 연결: rtspsrc → jitterbuffer
-                rtspsrc.connect("pad-added", self._on_rtspsrc_pad_added, rtpjitterbuffer)
-                logger.debug("[SOURCE DEBUG] Connected pad-added signal: rtspsrc → rtpjitterbuffer")
-
-            logger.info("[SOURCE DEBUG] Source branch created successfully")
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to create source branch: {e}")
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
             return False
@@ -496,8 +341,7 @@ class GstPipeline:
             transform_config = camera_config.get("video_transform", {}) if camera_config else {}
 
             if transform_config.get("enabled", False):
-                # ⭐ IMPORTANT: JSON에서 대소문자 혼용 가능하므로 lower()로 정규화
-                flip_mode = transform_config.get("flip", "none").lower()  # 소문자로 변환
+                flip_mode = transform_config.get("flip", "none")
                 rotation = transform_config.get("rotation", 0)
 
                 method = self._get_videoflip_method(flip_mode, rotation)
@@ -637,58 +481,13 @@ class GstPipeline:
                 raise Exception("Failed to link stream_queue → streaming_valve")
             logger.debug("[STREAMING DEBUG] Linked: stream_queue → streaming_valve")
 
-            # v4l2 디코더의 경우 colorimetry 협상 문제 해결을 위한 capssetter 추가
-            # GStreamer 1.18에서 v4l2h264dec는 h264parse가 제공하는 colorimetry 값을 거부할 수 있음
-            # 해결: capssetter로 v4l2h264dec가 지원하는 colorimetry(bt709)로 강제 설정
-            if decoder_name.startswith('v4l2') and not is_gstreamer_1_20_or_later():
-                capssetter = Gst.ElementFactory.make("capssetter", "capssetter")
-                if capssetter:
-                    # v4l2h264dec가 지원하는 colorimetry로 강제 설정
-                    # bt709는 v4l2h264dec가 지원하는 colorimetry 중 하나
-                    capssetter_caps = Gst.Caps.from_string("video/x-h264,stream-format=byte-stream,alignment=au,colorimetry=bt709")
-                    capssetter.set_property("caps", capssetter_caps)
-                    self.pipeline.add(capssetter)
+            if not self.streaming_valve.link(decoder):
+                raise Exception("Failed to link streaming_valve → decoder")
+            logger.debug("[STREAMING DEBUG] Linked: streaming_valve → decoder")
 
-                    if not self.streaming_valve.link(capssetter):
-                        raise Exception("Failed to link streaming_valve → capssetter")
-                    logger.debug("[V4L2] Linked: streaming_valve → capssetter")
-
-                    if not capssetter.link(decoder):
-                        raise Exception("Failed to link capssetter → decoder")
-                    logger.debug(f"[V4L2] Linked: capssetter → decoder (forced colorimetry=bt709 for v4l2)")
-                else:
-                    logger.warning("Failed to create capssetter, linking directly")
-                    if not self.streaming_valve.link(decoder):
-                        raise Exception("Failed to link streaming_valve → decoder")
-                    logger.debug("[STREAMING DEBUG] Linked: streaming_valve → decoder")
-            else:
-                # 일반 디코더는 직접 연결
-                if not self.streaming_valve.link(decoder):
-                    raise Exception("Failed to link streaming_valve → decoder")
-                logger.debug("[STREAMING DEBUG] Linked: streaming_valve → decoder")
-
-            # v4l2 디코더의 경우 caps 협상을 위한 추가 처리 (GStreamer 1.18 호환)
-            # v4l2h264dec는 DMA 버퍼를 출력하므로 명시적 caps 필터가 필요할 수 있음
-            if decoder_name.startswith('v4l2') and not is_gstreamer_1_20_or_later():
-                # v4l2 디코더 → caps 필터 → convert 순서로 연결
-                decoder_caps_filter = Gst.ElementFactory.make("capsfilter", "decoder_caps_filter")
-                # 더 구체적인 caps 설정: I420 또는 NV12 형식 명시
-                decoder_caps = Gst.Caps.from_string("video/x-raw,format=(string){I420,NV12,NV21}")
-                decoder_caps_filter.set_property("caps", decoder_caps)
-                self.pipeline.add(decoder_caps_filter)
-
-                if not decoder.link(decoder_caps_filter):
-                    raise Exception("Failed to link decoder → decoder_caps_filter")
-                logger.debug(f"[V4L2] Linked: decoder → decoder_caps_filter (caps: {decoder_caps.to_string()})")
-
-                if not decoder_caps_filter.link(convert):
-                    raise Exception("Failed to link decoder_caps_filter → convert")
-                logger.debug("[STREAMING DEBUG] Linked: decoder_caps_filter → convert")
-            else:
-                # 일반 디코더는 직접 연결
-                if not decoder.link(convert):
-                    raise Exception("Failed to link decoder → convert")
-                logger.debug("[STREAMING DEBUG] Linked: decoder → convert")
+            if not decoder.link(convert):
+                raise Exception("Failed to link decoder → convert")
+            logger.debug("[STREAMING DEBUG] Linked: decoder → convert")
 
             # 연결 순서: convert → [videoflip] → [textoverlay] → scale
             current_element = convert
@@ -726,17 +525,7 @@ class GstPipeline:
 
             # 동적패드 : Tee에서 스트리밍 큐로 연결
             # - Tee는 동적으로 출력 개수가 결정됨 (1개, 2개, 3개...)
-
-            # GStreamer 버전 호환성 관련
-            # - 윈도우 PC: GStreamer 1.26.7 (최신 버전), 라즈베리파이: GStreamer 1.18.4 (구 버전)
-            # tee_pad = self.tee.request_pad_simple("src_%u")
-            if is_gstreamer_1_20_or_later():
-                tee_pad = self.tee.request_pad_simple("src_%u")
-            else:
-                # GStreamer 1.18 호환 (라즈베리파이)
-                pad_template = self.tee.get_pad_template("src_%u")
-                tee_pad = self.tee.request_pad(pad_template, None, None)
-
+            tee_pad = self.tee.request_pad_simple("src_%u")
             queue_pad = stream_queue.get_static_pad("sink")
             link_result = tee_pad.link(queue_pad)
 
@@ -802,11 +591,6 @@ class GstPipeline:
             self.splitmuxsink.set_property("max-size-time", self.file_duration_ns)
             logger.debug(f"[RECORDING DEBUG] splitmuxsink max-size-time: {self.file_duration_ns / Gst.SECOND}s")
 
-            # 시간 기반 분할이 실패할 경우를 대비
-            max_file_size = 100 * 1024 * 1024  # 100MB
-            self.splitmuxsink.set_property("max-size-bytes", max_file_size)
-            logger.debug(f"[RECORDING DEBUG] splitmuxsink max-size-bytes: {max_file_size} bytes")            
-
             # muxer 설정 (파일 포맷에 따라)
             if self.file_format == 'mp4':
                 muxer_factory = "mp4mux"
@@ -822,14 +606,8 @@ class GstPipeline:
 
             # muxer 속성 설정 (mp4의 경우 fragment 설정)
             if self.file_format == 'mp4':
-                # mp4mux 속성 설정: GstStructure 객체로 생성
-                # fragment-duration: 밀리초 단위, streamable: true로 설정하여 스트리밍 가능한 MP4 생성
-                muxer_props = Gst.Structure.new_from_string("properties,fragment-duration=1000,streamable=true")
-                if muxer_props:
-                    self.splitmuxsink.set_property("muxer-properties", muxer_props)
-                    logger.debug("[RECORDING DEBUG] MP4 muxer properties set: fragment-duration=1000ms, streamable=true")
-                else:
-                    logger.warning("[RECORDING DEBUG] Failed to create muxer-properties structure, using defaults")
+                # mp4mux 속성 설정을 위한 문자열
+                self.splitmuxsink.set_property("muxer-properties", "fragment-duration=1000,streamable=true")
 
             # splitmuxsink 설정
             self.splitmuxsink.set_property("async-handling", True)  # 비동기 처리
@@ -864,18 +642,7 @@ class GstPipeline:
 
             # 동적패드 : Tee에서 녹화 큐로 연결
             # - Tee는 동적으로 출력 개수가 결정됨 (1개, 2개, 3개...)
-            
-            # GStreamer 버전 호환성 관련
-            # - 윈도우 PC: GStreamer 1.26.7 (최신 버전), 라즈베리파이: GStreamer 1.18.4 (구 버전)
-            # tee_pad = self.tee.request_pad_simple("src_%u")
-            if is_gstreamer_1_20_or_later():
-                tee_pad = self.tee.request_pad_simple("src_%u")
-            else:
-                # GStreamer 1.18 호환 (라즈베리파이)
-                pad_template = self.tee.get_pad_template("src_%u")
-                tee_pad = self.tee.request_pad(pad_template, None, None)
-
-
+            tee_pad = self.tee.request_pad_simple("src_%u")
             queue_pad = record_queue.get_static_pad("sink")
             link_result = tee_pad.link(queue_pad)
 
@@ -892,14 +659,7 @@ class GstPipeline:
             raise  # 상위로 예외 전파
 
     def _on_pad_added(self, src, pad, depay):
-        """
-        RTSP 소스의 동적 패드 연결 (GStreamer 1.20+ 기존 방식)
-
-        Args:
-            src: rtspsrc 엘리먼트
-            pad: 동적 패드
-            depay: depay 엘리먼트
-        """
+        """RTSP 소스의 동적 패드 연결"""
         pad_caps = pad.get_current_caps()
         if not pad_caps:
             return
@@ -912,31 +672,6 @@ class GstPipeline:
             if not sink_pad.is_linked():
                 pad.link(sink_pad)
                 logger.debug(f"Linked RTP pad: {name}")
-
-    def _on_rtspsrc_pad_added(self, src, pad, target_element):
-        """
-        RTSP 소스의 동적 패드 연결 (GStreamer 1.18 새로운 방식)
-
-        Args:
-            src: rtspsrc 엘리먼트
-            pad: 동적 패드
-            target_element: 연결할 대상 엘리먼트 (jitterbuffer)
-        """
-        pad_caps = pad.get_current_caps()
-        if not pad_caps:
-            return
-
-        structure = pad_caps.get_structure(0)
-        name = structure.get_name()
-
-        if name.startswith("application/x-rtp"):
-            sink_pad = target_element.get_static_pad("sink")
-            if not sink_pad.is_linked():
-                ret = pad.link(sink_pad)
-                if ret == Gst.PadLinkReturn.OK:
-                    logger.debug(f"Linked RTP pad: {name} → {target_element.get_name()}")
-                else:
-                    logger.error(f"Failed to link RTP pad: {name} → {target_element.get_name()} (result: {ret})")
 
     def _on_sync_message(self, bus, message):
         """동기 메시지 처리 (윈도우 핸들 설정)"""
@@ -1048,7 +783,25 @@ class GstPipeline:
         # 1. 스레드 join 문제 해결 (우선순위: 높음)
         # 문제: GLib 스레드에서 자기 자신을 join 불가 해결책: 에러 핸들러에서 비동기로 정지 처리
         # GLib 스레드에서 직접 stop() 호출하지 않고, 별도 스레드로 비동기 처리
-        threading.Thread(target=self._async_stop_and_reconnect, daemon=True).start()    
+        threading.Thread(target=self._async_stop_and_reconnect, daemon=True).start()
+
+    def _async_stop_and_reconnect(self):
+        """비동기로 파이프라인 정지 및 재연결"""
+        # 녹화 중이었는지 확인 (stop() 호출 전에 저장)
+        was_recording = self._is_recording
+
+        logger.debug(f"[RECONNECT] Async stop initiated - was_recording: {was_recording}")
+
+        # 파이프라인 정지
+        self.stop()
+
+        # 녹화 중이었으면 자동 재개 플래그 설정
+        if was_recording:
+            self._recording_should_auto_resume = True
+            logger.info("[RECONNECT] Will auto-resume recording after reconnection")
+
+        # 재연결 스케줄링
+        self._schedule_reconnect()
 
     def _handle_storage_error(self, err):
         """저장소 에러 처리 - Recording Branch만 중지"""
@@ -1115,84 +868,6 @@ class GstPipeline:
             logger.debug(f"[UNKNOWN] Non-critical error from {src_name}, ignoring")
 
 
-    def _async_stop_and_reconnect(self):
-        """비동기로 파이프라인 정지 및 재연결"""
-        # 녹화 중이었는지 확인 (stop() 호출 전에 저장)
-        was_recording = self._is_recording
-
-        logger.debug(f"[RECONNECT] Async stop initiated - was_recording: {was_recording}")
-
-        # 파이프라인 정지
-        self.stop()
-
-        # 녹화 중이었으면 자동 재개 플래그 설정
-        if was_recording:
-            self._recording_should_auto_resume = True
-            logger.info("[RECONNECT] Will auto-resume recording after reconnection")
-
-        # 재연결 스케줄링
-        self._schedule_reconnect()
-
-    def _schedule_reconnect(self):
-        """재연결 스케줄링 (지수 백오프, 중복 방지)"""
-        # 이미 재연결 타이머가 실행 중이면 무시
-        if self.reconnect_timer and self.reconnect_timer.is_alive():
-            logger.debug("Reconnect already scheduled, skipping duplicate")
-            return
-
-        # 최대 재시도 횟수 초과 시 중단
-        if self.retry_count >= self.max_retries:
-            logger.error(f"Max retries ({self.max_retries}) reached")
-            return
-
-        # 지수 백오프
-        delay = min(5 * (2 ** self.retry_count), 60)
-        self.retry_count += 1
-
-        logger.info(f"Reconnecting in {delay}s (attempt {self.retry_count}/{self.max_retries})")
-
-        # 타이머 시작
-        self.reconnect_timer = threading.Timer(delay, self._reconnect)
-        self.reconnect_timer.daemon = True
-        self.reconnect_timer.start()
-
-    def _reconnect(self):
-        """재연결 수행 (중복 실행 방지)"""
-        # 이미 연결된 상태면 무시
-        if self._is_playing:
-            logger.debug(f"Pipeline already running for {self.camera_name}, skipping reconnect")
-            self.retry_count = 0  # retry count 초기화
-            return
-
-        logger.info("Attempting to reconnect...")
-
-        success = self.start()
-
-        if success:
-            logger.success("Reconnected successfully")
-            self.retry_count = 0
-
-            # 녹화 자동 재개 확인
-            if self._recording_should_auto_resume:
-                logger.info("[RECONNECT] Attempting to auto-resume recording...")
-
-                # 짧은 대기 (파이프라인 안정화)
-                time.sleep(1.0)
-
-                # 녹화 시작 시도 
-                if self.start_recording():
-                    logger.success("[RECONNECT] Recording auto-resumed successfully!")
-                    self._recording_should_auto_resume = False
-                else:
-                    logger.warning("[RECONNECT] Failed to auto-resume recording, will retry via timer")
-                    # 실패 시 녹화 재시도 타이머 시작
-                    self._schedule_recording_retry()
-        else:
-            logger.error("Reconnect failed")
-            # 재연결 타이머 재스케줄링
-            self._schedule_reconnect()
-
-    
 
     def _schedule_recording_retry(self):
         """녹화 재시도 타이머 시작"""
@@ -1212,7 +887,28 @@ class GstPipeline:
         self._recording_retry_timer.daemon = True
         self._recording_retry_timer.start()
 
-        logger.info(f"[RECORDING RETRY] Scheduled (interval: {self._recording_retry_interval}s, max attempts: {self._max_recording_retry})")    
+        logger.info(f"[RECORDING RETRY] Scheduled (interval: {self._recording_retry_interval}s, max attempts: {self._max_recording_retry})")
+
+    def _schedule_reconnect(self):
+        """재연결 스케줄링 (지수 백오프, 중복 방지)"""
+        # 이미 재연결 타이머가 실행 중이면 무시
+        if self.reconnect_timer and self.reconnect_timer.is_alive():
+            logger.debug("Reconnect already scheduled, skipping duplicate")
+            return
+
+        if self.retry_count >= self.max_retries:
+            logger.error(f"Max retries ({self.max_retries}) reached")
+            return
+
+        # 지수 백오프
+        delay = min(5 * (2 ** self.retry_count), 60)
+        self.retry_count += 1
+
+        logger.info(f"Reconnecting in {delay}s (attempt {self.retry_count}/{self.max_retries})")
+
+        self.reconnect_timer = threading.Timer(delay, self._reconnect)
+        self.reconnect_timer.daemon = True
+        self.reconnect_timer.start()
 
     def _retry_recording(self):
         """녹화 재시도 실행"""
@@ -1262,7 +958,42 @@ class GstPipeline:
         if self._recording_retry_timer and self._recording_retry_timer.is_alive():
             self._recording_retry_timer.cancel()
             self._recording_retry_timer = None
-            logger.info("[RECORDING RETRY] Retry cancelled")    
+            logger.info("[RECORDING RETRY] Retry cancelled")
+
+    def _reconnect(self):
+        """재연결 수행 (중복 실행 방지)"""
+        # 이미 연결된 상태면 무시
+        if self._is_playing:
+            logger.debug(f"Pipeline already running for {self.camera_name}, skipping reconnect")
+            self.retry_count = 0  # retry count 초기화
+            return
+
+        logger.info("Attempting to reconnect...")
+
+        success = self.start()
+
+        if success:
+            logger.success("Reconnected successfully")
+            self.retry_count = 0
+
+            # 녹화 자동 재개 확인
+            if self._recording_should_auto_resume:
+                logger.info("[RECONNECT] Attempting to auto-resume recording...")
+
+                # 짧은 대기 (파이프라인 안정화)
+                time.sleep(1.0)
+
+                # 녹화 시작 시도 (skip_splitmux_restart=True: 파이프라인이 새로 생성되었으므로 splitmuxsink 재시작 불필요)
+                if self.start_recording(skip_splitmux_restart=True):
+                    logger.success("[RECONNECT] Recording auto-resumed successfully!")
+                    self._recording_should_auto_resume = False
+                else:
+                    logger.warning("[RECONNECT] Failed to auto-resume recording, will retry via timer")
+                    # 실패 시 녹화 재시도 타이머 시작
+                    self._schedule_recording_retry()
+        else:
+            logger.error("Reconnect failed")
+            self._schedule_reconnect()
 
 
 
@@ -1420,9 +1151,13 @@ class GstPipeline:
         except Exception as e:
             logger.error(f"Error during pipeline stop: {e}")
 
-    def start_recording(self) -> bool:
+    def start_recording(self, skip_splitmux_restart: bool = False) -> bool:
         """
         녹화 시작
+
+        Args:
+            skip_splitmux_restart: True면 splitmuxsink 재시작 건너뛰기 (네트워크 재연결 후 호출 시)
+                                  False면 splitmuxsink 재시작 (USB 저장소 복구 시)
         """
         # 파이프라인 실행 여부 확인
         if not self._is_playing:
@@ -1472,7 +1207,7 @@ class GstPipeline:
 
             # 7. splitmuxsink 상태 확인 및 재시작 (EOS 상태에서 복구)
             # 단, 전체 파이프라인이 새로 생성된 경우(재연결 후)는 건너뛰기
-            if self.splitmuxsink:
+            if self.splitmuxsink and not skip_splitmux_restart:
                 current_state = self.splitmuxsink.get_state(0)[1]
                 logger.debug(f"[RECORDING DEBUG] splitmuxsink current state: {current_state.value_nick}")
 
@@ -1486,6 +1221,8 @@ class GstPipeline:
 
                 self.splitmuxsink.set_state(Gst.State.PLAYING)
                 logger.debug("[RECORDING DEBUG] splitmuxsink restarted (READY -> PLAYING)")
+            elif skip_splitmux_restart:
+                logger.info("[RECORDING DEBUG] Skipping splitmuxsink restart (fresh pipeline after reconnection)")
 
             # 8. 짧은 대기 후 Valve 열기 (splitmuxsink 초기화 완료 대기)
             time.sleep(0.2)

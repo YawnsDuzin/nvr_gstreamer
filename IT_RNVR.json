@@ -6,11 +6,11 @@
   "ui": {
     "theme": "dark",
     "show_status_bar": true,
-    "fullscreen_on_start": false,
+    "fullscreen_on_start": true,
     "fullscreen_auto_hide_enabled": true,
     "fullscreen_auto_hide_delay_seconds": 10,
     "window_state": {
-      "x": 1920,
+      "x": 0,
       "y": 0,
       "width": 1920,
       "height": 1080
@@ -37,9 +37,9 @@
     "osd_ypad": 15,
     "use_hardware_acceleration": true,
     "decoder_preference": [
-      "v4l2h264dec",
+      "avdec_h264",
       "omxh264dec",
-      "avdec_h264"
+      "v4l2h264dec"
     ],
     "buffer_size": 10485760,
     "latency_ms": 100,
@@ -65,8 +65,8 @@
       "ptz_port": "80",
       "ptz_channel": "1",
       "video_transform": {
-        "enabled": false,
-        "flip": "none",
+        "enabled": true,
+        "flip": "Vertical",
         "rotation": 0
       }
     }
@@ -86,7 +86,7 @@
     }
   ],
   "recording": {
-    "file_format": "mkv",
+    "file_format": "mp4",
     "rotation_minutes": 2,
     "codec": "h264",
     "fragment_duration_ms": 1000
@@ -98,11 +98,11 @@
     "destination_path": "E:/"
   },
   "storage": {
-    "recording_path": "E:/_recordings",
+    "recording_path": "/media/itlog/NVR_MAIN/Recordings",
     "auto_cleanup_enabled": true,
     "cleanup_interval_hours": 1,
     "cleanup_on_startup": true,
-    "min_free_space_gb": 10.0,
+    "min_free_space_gb": 1.0,
     "min_free_space_percent": 5,
     "cleanup_threshold_percent": 90,
     "retention_days": 30,
@@ -144,7 +144,7 @@
   },
   "logging": {
     "enabled": true,
-    "log_path": "./_logs",
+    "log_path": "/media/itlog/NVR_MAIN/logs",
     "console": {
       "enabled": true,
       "level": "DEBUG",
@@ -176,11 +176,11 @@
     }
   },
   "performance": {
-    "alert_enabled": false,
+    "alert_enabled": true,
     "alert_warning_check_interval_seconds": 30,
     "alert_critical_check_interval_seconds": 15,
     "max_cpu_percent": 80,
-    "max_memory_mb": 2048,
-    "max_temp": 75
+    "max_memory_mb": 6144,
+    "max_temp": 71
   }
 }

@@ -21,6 +21,7 @@ from ui.settings.cameras_settings_tab import CamerasSettingsTab
 from ui.settings.hotkey_settings_tab import HotKeySettingsTab
 from ui.settings.ptz_key_settings_tab import PTZKeySettingsTab
 from ui.settings.logging_settings_tab import LoggingSettingsTab
+from ui.settings.performance_settings_tab import PerformanceSettingsTab
 
 
 class SettingsDialog(ThemedDialog):
@@ -49,6 +50,7 @@ class SettingsDialog(ThemedDialog):
         self.recording_tab = None
         self.backup_tab = None
         self.storage_tab = None
+        self.performance_tab = None
         self.hotkey_tab = None
         self.ptz_key_tab = None
         self.logging_tab = None
@@ -87,6 +89,9 @@ class SettingsDialog(ThemedDialog):
 
         self.backup_tab = BackupSettingsTab(self.config_manager)
         self.tab_widget.addTab(self.backup_tab, "Backup")
+
+        self.performance_tab = PerformanceSettingsTab(self.config_manager)
+        self.tab_widget.addTab(self.performance_tab, "Performance")
 
         self.hotkey_tab = HotKeySettingsTab(self.config_manager)
         self.tab_widget.addTab(self.hotkey_tab, "Hot Keys")
@@ -127,6 +132,8 @@ class SettingsDialog(ThemedDialog):
                 self.backup_tab.load_settings()
             if self.storage_tab:
                 self.storage_tab.load_settings()
+            if self.performance_tab:
+                self.performance_tab.load_settings()
             if self.hotkey_tab:
                 self.hotkey_tab.load_settings()
             if self.ptz_key_tab:
@@ -160,6 +167,8 @@ class SettingsDialog(ThemedDialog):
             tabs.append(("Backup", self.backup_tab))
         if self.storage_tab:
             tabs.append(("Storage", self.storage_tab))
+        if self.performance_tab:
+            tabs.append(("Performance", self.performance_tab))
         if self.hotkey_tab:
             tabs.append(("Hot Keys", self.hotkey_tab))
         if self.ptz_key_tab:
@@ -203,6 +212,8 @@ class SettingsDialog(ThemedDialog):
                 success &= self.backup_tab.save_settings()
             if self.storage_tab:
                 success &= self.storage_tab.save_settings()
+            if self.performance_tab:
+                success &= self.performance_tab.save_settings()
             if self.hotkey_tab:
                 success &= self.hotkey_tab.save_settings()
             if self.ptz_key_tab:
@@ -245,6 +256,8 @@ class SettingsDialog(ThemedDialog):
             has_changes |= self.backup_tab.has_changes()
         if self.storage_tab:
             has_changes |= self.storage_tab.has_changes()
+        if self.performance_tab:
+            has_changes |= self.performance_tab.has_changes()
         if self.hotkey_tab:
             has_changes |= self.hotkey_tab.has_changes()
         if self.ptz_key_tab:

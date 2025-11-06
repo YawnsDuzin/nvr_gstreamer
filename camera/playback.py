@@ -483,9 +483,15 @@ class PlaybackManager:
 
         logger.info(f"Playback manager initialized: {recordings_dir}")
 
-    def scan_recordings(self) -> List[RecordingFile]:
+    def scan_recordings(self, camera_id: str = None, start_date: datetime = None, end_date: datetime = None, skip_duration: bool = False) -> List[RecordingFile]:
         """
-        녹화 파일 스캔
+        녹화 파일 스캔 (필터 적용)
+
+        Args:
+            camera_id: 카메라 ID 필터 (None이면 전체)
+            start_date: 시작 날짜 필터 (None이면 제한 없음)
+            end_date: 종료 날짜 필터 (None이면 제한 없음)
+            skip_duration: duration 조회 생략 여부 (True면 duration=0)
 
         Returns:
             녹화 파일 목록
@@ -499,16 +505,35 @@ class PlaybackManager:
         # 지원되는 파일 형식
         supported_formats = ['.mp4', '.mkv', '.avi']
 
-        # 모든 카메라 디렉토리 스캔
-        for camera_dir in self.recordings_dir.iterdir():
-            if not camera_dir.is_dir():
-                continue
+        # 카메라 디렉토리 필터링
+        camera_dirs = []
+        if camera_id and camera_id != "전체":
+            # 특정 카메라만 스캔
+            target_dir = self.recordings_dir / camera_id
+            if target_dir.exists() and target_dir.is_dir():
+                camera_dirs = [target_dir]
+        else:
+            # 전체 카메라 스캔
+            camera_dirs = [d for d in self.recordings_dir.iterdir() if d.is_dir()]
 
-            camera_id = camera_dir.name
+        # 날짜 범위를 문자열로 변환 (YYYYMMDD 형식)
+        start_date_str = start_date.strftime("%Y%m%d") if start_date else None
+        end_date_str = end_date.strftime("%Y%m%d") if end_date else None
+
+        # 카메라 디렉토리 스캔
+        for camera_dir in camera_dirs:
+            cam_id = camera_dir.name
 
             # 날짜 디렉토리 스캔
             for date_dir in camera_dir.iterdir():
                 if not date_dir.is_dir():
+                    continue
+
+                # 날짜 필터 적용 (디렉토리명 기준)
+                date_dir_name = date_dir.name
+                if start_date_str and date_dir_name < start_date_str:
+                    continue
+                if end_date_str and date_dir_name > end_date_str:
                     continue
 
                 # 녹화 파일 스캔
@@ -533,14 +558,17 @@ class PlaybackManager:
                         else:
                             timestamp = datetime.fromtimestamp(file_stat.st_mtime)
 
-                        # 재생 시간 가져오기 (임시로 0)
-                        duration = self._get_file_duration(str(file_path))
+                        # 재생 시간 가져오기 (skip_duration=True면 생략)
+                        if skip_duration:
+                            duration = 0
+                        else:
+                            duration = self._get_file_duration(str(file_path))
 
                         # RecordingFile 객체 생성
                         recording = RecordingFile(
                             file_path=str(file_path),
-                            camera_id=camera_id,
-                            camera_name=f"Camera {camera_id}",
+                            camera_id=cam_id,
+                            camera_name=f"Camera {cam_id}",
                             timestamp=timestamp,
                             duration=duration,
                             file_size=file_stat.st_size

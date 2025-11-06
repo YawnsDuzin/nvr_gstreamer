@@ -250,13 +250,3 @@ def get_platform_info() -> dict:
             pass
 
     return info
-
-
-def get_gstreamer_version():
-    """GStreamer 버전 반환"""
-    return Gst.version()
-
-def is_gstreamer_1_20_or_later():
-    """GStreamer 1.20 이상인지 확인"""
-    version = Gst.version()
-    return version[0] > 1 or (version[0] == 1 and version[1] >= 20)

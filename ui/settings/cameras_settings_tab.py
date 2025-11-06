@@ -339,7 +339,8 @@ class CamerasSettingsTab(BaseSettingsTab):
         self.transform_enabled_cb.setChecked(transform.get("enabled", False))
 
         # Map flip string to combo index
-        flip_value = transform.get("flip", "none")
+        # ⭐ IMPORTANT: JSON에서 대소문자 혼용 가능하므로 lower()로 정규화
+        flip_value = transform.get("flip", "none").lower()  # 소문자로 변환
         flip_map = {"none": 0, "horizontal": 1, "vertical": 2, "both": 3}
         flip_index = flip_map.get(flip_value, 0)
         self.flip_combo.setCurrentIndex(flip_index)
