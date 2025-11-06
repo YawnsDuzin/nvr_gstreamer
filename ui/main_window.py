@@ -71,11 +71,15 @@ class MainWindow(QMainWindow):
         self.ptz_speed = 5  # 기본 PTZ 속도 (1-9)
         self.ptz_keys = {}  # PTZ 키 설정
 
+        # 메뉴 키 설정
+        self.menu_keys = {}  # 메뉴 단축키 설정
+
         self._setup_ui()
         self._setup_menus()
         self._setup_status_bar()
         self._load_dock_state()  # Dock 상태를 먼저 로드
         self._load_ptz_keys()  # PTZ 키 설정 로드
+        self._load_menu_keys()  # 메뉴 키 설정 로드
         self._setup_connections()  # 그 다음 시그널 연결
         self._setup_cleanup_timer()  # 자동 정리 타이머 설정
         self._setup_fullscreen_auto_hide()  # 전체화면 자동 UI 숨김 설정
@@ -828,6 +832,15 @@ class MainWindow(QMainWindow):
         self.ptz_keys = self.config_manager.config.get("ptz_keys", {})
         logger.info(f"PTZ keys loaded: {len(self.ptz_keys)} keys")
 
+    def _load_menu_keys(self):
+        """메뉴 키 설정 로드"""
+        self.menu_keys = self.config_manager.config.get("menu_keys", {})
+        logger.info(f"Menu keys loaded: {len(self.menu_keys)} keys")
+
+        # 디버그용 로그
+        if "program_exit" in self.menu_keys:
+            logger.debug(f"Program exit key: {self.menu_keys['program_exit']}")
+
     def _on_camera_selected(self, camera_id: str):
         """Handle camera selection from list"""
         logger.debug(f"Camera selected: {camera_id}")
@@ -1292,12 +1305,24 @@ class MainWindow(QMainWindow):
         logger.info(f"UI state saved to JSON - Window: {geometry.x()},{geometry.y()} {geometry.width()}x{geometry.height()}, Docks: Camera={self.camera_dock.isVisible()}, Recording={self.recording_dock.isVisible()}, Playback={self.playback_dock.isVisible()}")
 
     def keyPressEvent(self, event):
-        """키보드 누름 이벤트 처리 (PTZ 제어)"""
+        """키보드 누름 이벤트 처리 (메뉴 키 및 PTZ 제어)"""
         # 자동 반복 이벤트는 무시
         if event.isAutoRepeat():
             event.accept()
             return
 
+        # 먼저 menu_keys 확인 (F1-F12, Esc 등 특수 키)
+        key_str = self._get_key_string(event)
+
+        # menu_keys 처리
+        for action, config_key in self.menu_keys.items():
+            if config_key.upper() == key_str.upper():
+                logger.debug(f"Menu key detected: {action} = {config_key}")
+                if self._execute_menu_action(action):
+                    event.accept()
+                    return
+
+        # 일반 문자 키 처리 (PTZ 키)
         key = event.text().upper()
 
         # PTZ 키 액션 찾기
@@ -1403,6 +1428,111 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"PTZ: Stop", 1000)
 
         logger.debug(f"PTZ action executed: {action} (pressed={pressed}, speed={self.ptz_speed})")
+
+    def _get_key_string(self, event):
+        """
+        키 이벤트를 문자열로 변환
+        F1-F12, Esc 등 특수 키를 처리
+        """
+        key = event.key()
+
+        # F1-F12 키 처리
+        if Qt.Key_F1 <= key <= Qt.Key_F12:
+            return f"F{key - Qt.Key_F1 + 1}"
+
+        # 특수 키 매핑
+        special_keys = {
+            Qt.Key_Escape: "Esc",
+            Qt.Key_Return: "Enter",
+            Qt.Key_Enter: "Enter",
+            Qt.Key_Tab: "Tab",
+            Qt.Key_Backspace: "Backspace",
+            Qt.Key_Delete: "Delete",
+            Qt.Key_Home: "Home",
+            Qt.Key_End: "End",
+            Qt.Key_PageUp: "PageUp",
+            Qt.Key_PageDown: "PageDown",
+            Qt.Key_Up: "Up",
+            Qt.Key_Down: "Down",
+            Qt.Key_Left: "Left",
+            Qt.Key_Right: "Right",
+            Qt.Key_Space: "Space"
+        }
+
+        if key in special_keys:
+            return special_keys[key]
+
+        # 일반 문자 키
+        return event.text()
+
+    def _execute_menu_action(self, action: str) -> bool:
+        """
+        메뉴 액션 실행
+
+        Args:
+            action: 실행할 액션 이름
+
+        Returns:
+            bool: 액션이 처리되었으면 True
+        """
+        logger.info(f"Executing menu action: {action}")
+
+        # program_exit 처리
+        if action == "program_exit":
+            logger.info("Program exit requested via hotkey")
+            self.close()
+            return True
+
+        # camera_connect 처리
+        elif action == "camera_connect":
+            if self.camera_list.current_camera_id:
+                self.camera_list._connect_camera()
+            return True
+
+        # camera_stop 처리
+        elif action == "camera_stop":
+            if self.camera_list.current_camera_id:
+                self.camera_list._disconnect_camera()
+            return True
+
+        # camera_connect_all 처리
+        elif action == "camera_connect_all":
+            self.camera_list._connect_all()
+            return True
+
+        # camera_stop_all 처리
+        elif action == "camera_stop_all":
+            self.camera_list._disconnect_all()
+            return True
+
+        # record_start 처리
+        elif action == "record_start":
+            self.recording_control._start_recording()
+            return True
+
+        # record_stop 처리
+        elif action == "record_stop":
+            self.recording_control._stop_recording()
+            return True
+
+        # screen_hide 처리
+        elif action == "screen_hide":
+            # 전체화면 모드에서 나가기
+            if self.isFullScreen():
+                self.grid_view.exit_fullscreen()
+            return True
+
+        # menu_open 처리 (F11 - 전체화면 토글)
+        elif action == "menu_open":
+            self.toggle_fullscreen()
+            return True
+
+        # TODO: 다른 액션들 구현
+        # prev_group, next_group, prev_config, next_config
+        # screen_rotate, screen_flip
+
+        logger.warning(f"Menu action not implemented: {action}")
+        return False
 
     def closeEvent(self, event: QCloseEvent):
         """Handle application close event"""
