@@ -1138,9 +1138,7 @@ class MainWindow(QMainWindow):
     def _toggle_playback_dock(self, checked: bool):
         """Toggle playback dock visibility"""
         self.playback_dock.setVisible(checked)
-        if checked:
-            # 재생 독이 열릴 때 녹화 파일 스캔
-            self.playback_widget.scan_recordings()
+        # 재생 독이 열릴 때 자동 스캔 제거 (사용자가 수동으로 새로고침)
 
     def _on_camera_dock_visibility_changed(self, visible: bool):
         """Camera dock visibility 변경 시 메뉴 액션 동기화"""
@@ -1182,8 +1180,8 @@ class MainWindow(QMainWindow):
         # 모든 카메라 연결 해제 (재생 모드에서는 리소스 절약)
         self.camera_list._disconnect_all()
 
-        # 녹화 파일 스캔
-        self.playback_widget.scan_recordings()
+        # 녹화 파일 자동 스캔 제거 (사용자가 수동으로 새로고침)
+        # self.playback_widget.scan_recordings()
 
         # 상태바 업데이트
         self.status_bar.showMessage("재생 모드", 3000)

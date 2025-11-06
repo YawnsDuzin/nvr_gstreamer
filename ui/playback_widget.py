@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
     QComboBox, QDateEdit, QMessageBox, QStyle,
     QSizePolicy, QHeaderView, QTableWidget, QTableWidgetItem, QCheckBox, QWidget
 )
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QDateTime, QDate
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QDateTime, QDate, QThread
 from PyQt5.QtGui import QIcon
 from typing import Optional, List
 from datetime import datetime
@@ -18,6 +18,155 @@ from pathlib import Path
 
 from ui.theme import ThemedWidget
 from camera.playback import PlaybackManager, PlaybackState, RecordingFile
+from core.config import ConfigManager
+
+
+class RecordingScanThread(QThread):
+    """녹화 파일 스캔 스레드"""
+    scan_completed = pyqtSignal(list)  # List[RecordingFile]
+    scan_progress = pyqtSignal(str, int, int)  # 메시지, 현재, 전체
+
+    def __init__(self, recordings_dir: str, camera_id: str = None,
+                 start_date: datetime = None, end_date: datetime = None):
+        super().__init__()
+        self.recordings_dir = recordings_dir
+        self.camera_id = camera_id
+        self.start_date = start_date
+        self.end_date = end_date
+
+    def run(self):
+        """스캔 실행 (스레드 내부에서 독립적으로 스캔)"""
+        try:
+            import gi
+            gi.require_version('Gst', '1.0')
+            from gi.repository import Gst
+
+            recordings_dir = Path(self.recordings_dir)
+            recording_files = []
+
+            if not recordings_dir.exists():
+                logger.warning(f"Recordings directory not found: {recordings_dir}")
+                self.scan_completed.emit([])
+                return
+
+            # 지원되는 파일 형식
+            supported_formats = ['.mp4', '.mkv', '.avi']
+
+            # 카메라 디렉토리 필터링
+            camera_dirs = []
+            if self.camera_id and self.camera_id != "전체":
+                target_dir = recordings_dir / self.camera_id
+                if target_dir.exists() and target_dir.is_dir():
+                    camera_dirs = [target_dir]
+            else:
+                camera_dirs = [d for d in recordings_dir.iterdir() if d.is_dir()]
+
+            # 날짜 범위를 문자열로 변환 (YYYYMMDD 형식)
+            start_date_str = self.start_date.strftime("%Y%m%d") if self.start_date else None
+            end_date_str = self.end_date.strftime("%Y%m%d") if self.end_date else None
+
+            # 카메라 디렉토리 스캔
+            for camera_dir in camera_dirs:
+                cam_id = camera_dir.name
+
+                # 날짜 디렉토리 스캔
+                for date_dir in camera_dir.iterdir():
+                    if not date_dir.is_dir():
+                        continue
+
+                    # 날짜 필터 적용 (디렉토리명 기준)
+                    date_dir_name = date_dir.name
+                    if start_date_str and date_dir_name < start_date_str:
+                        continue
+                    if end_date_str and date_dir_name > end_date_str:
+                        continue
+
+                    # 녹화 파일 스캔
+                    for file_path in date_dir.iterdir():
+                        if file_path.suffix.lower() not in supported_formats:
+                            continue
+
+                        try:
+                            # 파일 정보 추출
+                            file_stat = file_path.stat()
+
+                            # 파일명에서 타임스탬프 추출
+                            file_name = file_path.stem
+                            parts = file_name.split('_')
+                            if len(parts) >= 3:
+                                date_str = parts[-2]
+                                time_str = parts[-1]
+                                timestamp = datetime.strptime(
+                                    f"{date_str}_{time_str}",
+                                    "%Y%m%d_%H%M%S"
+                                )
+                            else:
+                                timestamp = datetime.fromtimestamp(file_stat.st_mtime)
+
+                            # Duration 조회 건너뛰기 (성능 개선)
+                            # 라즈베리파이에서 duration 조회가 너무 느리고 멈추는 경우가 있어서 비활성화
+                            # duration = self._get_file_duration(str(file_path), Gst)
+                            duration = 0  # duration은 나중에 재생 시점에 가져오도록 함
+
+                            # RecordingFile 객체 생성
+                            recording = RecordingFile(
+                                file_path=str(file_path),
+                                camera_id=cam_id,
+                                camera_name=f"Camera {cam_id}",
+                                timestamp=timestamp,
+                                duration=duration,
+                                file_size=file_stat.st_size
+                            )
+
+                            recording_files.append(recording)
+
+                        except Exception as e:
+                            logger.error(f"Error processing file {file_path}: {e}")
+
+            # 시간순 정렬 (최신 먼저)
+            recording_files.sort(key=lambda x: x.timestamp, reverse=True)
+
+            logger.info(f"Scan thread completed: {len(recording_files)} files")
+            self.scan_completed.emit(recording_files)
+
+        except Exception as e:
+            logger.error(f"Scan thread error: {e}")
+            import traceback
+            traceback.print_exc()
+            self.scan_completed.emit([])
+
+    def _get_file_duration(self, file_path: str, Gst) -> float:
+        """파일 재생 시간 가져오기"""
+        try:
+            # 임시 파이프라인으로 duration 가져오기
+            pipeline_str = f"filesrc location=\"{file_path}\" ! decodebin ! fakesink"
+            pipeline = Gst.parse_launch(pipeline_str)
+
+            # 타임아웃 설정 (2초)
+            pipeline.set_state(Gst.State.PAUSED)
+            ret = pipeline.get_state(2 * Gst.SECOND)  # 2초 타임아웃
+
+            if ret[0] == Gst.StateChangeReturn.SUCCESS:
+                success, duration = pipeline.query_duration(Gst.Format.TIME)
+                pipeline.set_state(Gst.State.NULL)
+
+                if success:
+                    return duration / Gst.SECOND
+            else:
+                # 타임아웃 발생 시
+                logger.debug(f"Timeout getting duration for {file_path}")
+                pipeline.set_state(Gst.State.NULL)
+
+        except Exception as e:
+            logger.debug(f"Could not get duration for {file_path}: {e}")
+            # 파이프라인이 생성된 경우 확실히 정리
+            if 'pipeline' in locals():
+                try:
+                    pipeline.set_state(Gst.State.NULL)
+                except:
+                    pass
+
+        return 0
 
 
 class PlaybackControlWidget(ThemedWidget):
@@ -175,7 +324,6 @@ class RecordingListWidget(ThemedWidget):
 
     # 시그널
     file_selected = pyqtSignal(str)  # 파일 경로
-    file_deleted = pyqtSignal(list)  # 파일 경로 리스트
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -196,7 +344,8 @@ class RecordingListWidget(ThemedWidget):
         filter_layout.addWidget(camera_label)
         self.camera_combo = QComboBox()
         self.camera_combo.addItem("전체")
-        self.camera_combo.currentTextChanged.connect(self._apply_filter)
+        # 카메라 선택 변경 시 자동 새로고침 제거 (사용자가 수동으로 새로고침)
+        # self.camera_combo.currentTextChanged.connect(self.refresh_list)
         self.camera_combo.setMinimumWidth(100)
         filter_layout.addWidget(self.camera_combo)
 
@@ -210,7 +359,8 @@ class RecordingListWidget(ThemedWidget):
         self.start_date.setCalendarPopup(True)
         self.start_date.setDate(QDate.currentDate().addDays(-7))
         self.start_date.setDisplayFormat("yyyy-MM-dd")
-        self.start_date.dateChanged.connect(self._apply_filter)
+        # 시작 날짜 변경 시 자동 새로고침 제거 (사용자가 수동으로 새로고침)
+        # self.start_date.dateChanged.connect(self.refresh_list)
         self.start_date.setMinimumWidth(120)
         filter_layout.addWidget(self.start_date)
 
@@ -224,7 +374,8 @@ class RecordingListWidget(ThemedWidget):
         self.end_date.setCalendarPopup(True)
         self.end_date.setDate(QDate.currentDate())
         self.end_date.setDisplayFormat("yyyy-MM-dd")
-        self.end_date.dateChanged.connect(self._apply_filter)
+        # 종료 날짜 변경 시 자동 새로고침 제거 (사용자가 수동으로 새로고침)
+        # self.end_date.dateChanged.connect(self.refresh_list)
         self.end_date.setMinimumWidth(120)
         filter_layout.addWidget(self.end_date)
 
@@ -253,6 +404,11 @@ class RecordingListWidget(ThemedWidget):
         self.refresh_button = QPushButton("새로고침")
         self.refresh_button.clicked.connect(self.refresh_list)
         filter_layout.addWidget(self.refresh_button)
+
+        # 스캔 상태 레이블
+        self.scan_status_label = QLabel("")
+        self.scan_status_label.setStyleSheet("color: #4CAF50; font-weight: bold;")
+        filter_layout.addWidget(self.scan_status_label)
 
         filter_group.setLayout(filter_layout)
         layout.addWidget(filter_group)
@@ -309,52 +465,39 @@ class RecordingListWidget(ThemedWidget):
 
         layout.addLayout(button_layout)
 
-    def update_file_list(self, files: List[RecordingFile]):
-        """파일 목록 업데이트"""
-        self.recording_files = files
-        self._update_camera_filter()
-        self._apply_filter()
+    def update_camera_list(self, camera_ids: List[str]):
+        """카메라 목록 업데이트 (중복 제거 및 정렬)"""
+        current_selection = self.camera_combo.currentText()
 
-    def _update_camera_filter(self):
-        """카메라 필터 업데이트"""
-        # 현재 선택 저장
-        current = self.camera_combo.currentText()
-
-        # 카메라 목록 업데이트
+        # 카메라 콤보박스 업데이트 (시그널 임시 차단)
+        self.camera_combo.blockSignals(True)
         self.camera_combo.clear()
         self.camera_combo.addItem("전체")
 
-        camera_ids = set(f.camera_id for f in self.recording_files)
-        for camera_id in sorted(camera_ids):
-            self.camera_combo.addItem(camera_id)
+        # 중복 제거하고 정렬
+        unique_cameras = sorted(set(camera_ids))
+        for cam_id in unique_cameras:
+            self.camera_combo.addItem(cam_id)
 
         # 이전 선택 복원
-        index = self.camera_combo.findText(current)
+        index = self.camera_combo.findText(current_selection)
         if index >= 0:
             self.camera_combo.setCurrentIndex(index)
+        else:
+            self.camera_combo.setCurrentIndex(0)  # "전체"
 
-    def _apply_filter(self):
-        """필터 적용"""
-        # 필터 조건
-        camera_filter = self.camera_combo.currentText()
-        start = self.start_date.date().toPyDate()
-        end = self.end_date.date().toPyDate()
+        self.camera_combo.blockSignals(False)
+        logger.debug(f"Camera list updated: {len(unique_cameras)} cameras")
+
+    def update_file_list(self, files: List[RecordingFile]):
+        """파일 목록 업데이트 (스캔 결과를 바로 테이블에 표시)"""
+        self.recording_files = files
 
         # 테이블 초기화
         self.file_table.setRowCount(0)
 
-        # 필터링 및 표시
-        for file in self.recording_files:
-            # 카메라 필터
-            if camera_filter != "전체" and file.camera_id != camera_filter:
-                continue
-
-            # 날짜 필터
-            file_date = file.timestamp.date()
-            if file_date < start or file_date > end:
-                continue
-
-            # 테이블에 추가
+        # 파일 목록을 테이블에 추가 (필터링은 이미 scan_recordings에서 완료)
+        for file in files:
             row = self.file_table.rowCount()
             self.file_table.insertRow(row)
 
@@ -374,6 +517,8 @@ class RecordingListWidget(ThemedWidget):
 
             # 파일 경로를 행에 저장 (카메라 ID 컬럼에 저장)
             self.file_table.item(row, 1).setData(Qt.UserRole, file.file_path)
+
+        logger.debug(f"File list updated: {len(files)} files displayed")
 
     def _on_item_double_clicked(self, item: QTableWidgetItem):
         """아이템 더블클릭"""
@@ -426,15 +571,16 @@ class RecordingListWidget(ThemedWidget):
 
     def _delete_selected(self):
         """선택된 파일들 삭제"""
+        from ui.delete_dialog import DeleteDialog
+
         # 체크된 파일 경로 수집
         selected_files = []
         for row in range(self.file_table.rowCount()):
             checkbox = self.file_table.cellWidget(row, 0)
             if checkbox and checkbox.isChecked():
                 file_path = self.file_table.item(row, 1).data(Qt.UserRole)
-                file_name = self.file_table.item(row, 2).text()
                 if file_path:
-                    selected_files.append((file_path, file_name))
+                    selected_files.append(file_path)
 
         if not selected_files:
             QMessageBox.information(
@@ -444,25 +590,12 @@ class RecordingListWidget(ThemedWidget):
             )
             return
 
-        # 확인 다이얼로그
-        reply = QMessageBox.question(
-            self,
-            "파일 삭제",
-            f"{len(selected_files)}개 파일을 삭제하시겠습니까?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
+        # 삭제 다이얼로그 열기
+        dialog = DeleteDialog(selected_files, self)
+        dialog.delete_completed.connect(lambda: self.refresh_list())  # 삭제 완료 시 목록 새로고침
+        dialog.exec_()
 
-        if reply == QMessageBox.Yes:
-            # 파일 경로 리스트 생성
-            file_paths = [file_path for file_path, file_name in selected_files]
-
-            # 삭제 로그 출력
-            for file_path, file_name in selected_files:
-                logger.info(f"Deleting file: {file_name}")
-
-            # 파일 경로 배열을 한번에 emit
-            self.file_deleted.emit(file_paths)
+        logger.info(f"Delete dialog closed: {len(selected_files)} files selected")
 
 
     def refresh_list(self):
@@ -483,11 +616,13 @@ class PlaybackWidget(ThemedWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.playback_manager = PlaybackManager()
+        self.config_manager = ConfigManager.get_instance()  # ConfigManager 인스턴스
+        self.scan_thread = None  # 스캔 스레드
         self.init_ui()
         self.setup_connections()
 
-        # 초기 스캔
-        QTimer.singleShot(100, self.scan_recordings)
+        # 초기 카메라 목록 로드 (설정에서 가져오기)
+        QTimer.singleShot(100, self._load_camera_list_from_config)
 
     def init_ui(self):
         """UI 초기화"""
@@ -515,7 +650,6 @@ class PlaybackWidget(ThemedWidget):
         """시그널 연결"""
         # 파일 목록 위젯
         self.file_list.file_selected.connect(self.play_file)
-        self.file_list.file_deleted.connect(self.delete_file)
 
         # 재생 컨트롤 위젯
         self.playback_control.play_clicked.connect(self.on_play_clicked)
@@ -527,10 +661,101 @@ class PlaybackWidget(ThemedWidget):
         # 재생 관리자 콜백
         self.playback_manager.on_file_list_updated = self.file_list.update_file_list
 
+    def _load_camera_list_from_config(self):
+        """설정에서 카메라 목록 로드 (파일 스캔 없이)"""
+        # ConfigManager에서 카메라 목록 가져오기
+        cameras = self.config_manager.config.get("cameras", [])
+        camera_ids = [camera.get("camera_id", "") for camera in cameras if camera.get("camera_id")]
+
+        # 카메라 목록 업데이트
+        self.file_list.update_camera_list(camera_ids)
+
+        logger.info(f"Camera list loaded from config: {len(camera_ids)} cameras")
+
+        # # 필터 적용하여 파일 스캔 (비동기)
+        # self.scan_recordings()
+
+    def _initial_scan(self):
+        """초기 스캔 (카메라 목록 초기화) - 구버전 호환용"""
+        # 전체 파일 스캔 (필터 없음) - 동기 방식 (카메라 목록 구성용)
+        self.playback_manager.scan_recordings(camera_id=None, start_date=None, end_date=None)
+
+        # 카메라 목록 업데이트
+        files = self.playback_manager.recording_files
+        camera_ids = [f.camera_id for f in files]
+        self.file_list.update_camera_list(camera_ids)
+
+        logger.info(f"Initial scan completed: {len(files)} files, {len(set(camera_ids))} cameras")
+
+        # 필터 적용하여 재스캔 (비동기)
+        self.scan_recordings()
+
     def scan_recordings(self):
-        """녹화 파일 스캔"""
-        logger.info("Scanning recordings...")
-        self.playback_manager.scan_recordings()
+        """녹화 파일 스캔 (필터 적용) - 비동기"""
+        # 이미 스캔 중이면 종료 시도
+        if self.scan_thread and self.scan_thread.isRunning():
+            logger.warning("Scan already in progress, trying to stop it")
+            self.scan_thread.terminate()
+            if not self.scan_thread.wait(1000):  # 1초 대기
+                logger.error("Failed to stop previous scan thread")
+                return
+
+        # UI에서 필터 조건 가져오기
+        camera_id = self.file_list.camera_combo.currentText()
+        start_date = self.file_list.start_date.date().toPyDate()
+        end_date = self.file_list.end_date.date().toPyDate()
+
+        # datetime 객체로 변환
+        from datetime import datetime, time
+        start_datetime = datetime.combine(start_date, time.min)  # 00:00:00
+        end_datetime = datetime.combine(end_date, time.max)      # 23:59:59
+
+        logger.info(f"Scanning recordings: camera={camera_id}, date={start_date}~{end_date}")
+
+        # 스캔 상태 표시
+        self.file_list.scan_status_label.setText("스캔 중...")
+        self.file_list.refresh_button.setEnabled(False)
+
+        # 스캔 스레드 생성 및 시작
+        self.scan_thread = RecordingScanThread(
+            str(self.playback_manager.recordings_dir),
+            camera_id=camera_id if camera_id != "전체" else None,
+            start_date=start_datetime,
+            end_date=end_datetime
+        )
+        self.scan_thread.scan_completed.connect(self._on_scan_completed)
+        self.scan_thread.finished.connect(self._on_scan_finished)
+        self.scan_thread.start()
+
+    def _on_scan_completed(self, files: List[RecordingFile]):
+        """스캔 완료"""
+        try:
+            # UI 업데이트
+            self.file_list.update_file_list(files)
+            logger.info(f"Scan completed: {len(files)} files")
+        except Exception as e:
+            logger.error(f"Error updating file list: {e}")
+        finally:
+            # 스캔 상태 초기화 (완료 시에도 호출)
+            self._reset_scan_status()
+
+    def _on_scan_finished(self):
+        """스캔 스레드 종료"""
+        # 상태 레이블 초기화
+        self._reset_scan_status()
+
+    def _reset_scan_status(self):
+        """스캔 상태 초기화"""
+        try:
+            self.file_list.scan_status_label.setText("")
+            self.file_list.refresh_button.setEnabled(True)
+        except Exception as e:
+            logger.error(f"Error resetting scan status: {e}")
+
+        # 스레드 정리
+        if self.scan_thread:
+            self.scan_thread.deleteLater()
+            self.scan_thread = None
 
     def play_file(self, file_path: str):
         """파일 재생"""
@@ -590,39 +815,6 @@ class PlaybackWidget(ThemedWidget):
         """재생 속도 설정"""
         self.playback_manager.set_playback_rate(speed)
 
-    def delete_file(self, file_paths: list):
-        """파일 삭제 (배치 처리)"""
-        if not file_paths:
-            return
-
-        # 여러 파일 삭제
-        success_count = 0
-        fail_count = 0
-        failed_files = []
-
-        for file_path in file_paths:
-            if self.playback_manager.delete_recording(file_path):
-                success_count += 1
-            else:
-                fail_count += 1
-                failed_files.append(file_path)
-
-        # 결과 메시지
-        if fail_count == 0:
-            QMessageBox.information(
-                self,
-                "삭제 완료",
-                f"{success_count}개 파일이 삭제되었습니다."
-            )
-        else:
-            QMessageBox.warning(
-                self,
-                "삭제 완료 (일부 실패)",
-                f"성공: {success_count}개\n실패: {fail_count}개\n\n실패한 파일:\n" + "\n".join(failed_files[:5])
-            )
-
-        # 목록 새로고침
-        self.scan_recordings()
 
     def on_state_changed(self, state: PlaybackState):
         """재생 상태 변경"""
