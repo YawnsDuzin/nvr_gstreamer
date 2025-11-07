@@ -823,17 +823,27 @@ class GstPipeline:
             # muxer 속성 설정 (mp4의 경우 fragment 설정)
             if self.file_format == 'mp4':
                 # mp4mux 속성 설정: GstStructure 객체로 생성
-                # fragment-duration: 밀리초 단위, streamable: true로 설정하여 스트리밍 가능한 MP4 생성
-                muxer_props = Gst.Structure.new_from_string("properties,fragment-duration=1000,streamable=true")
+                # fragment-duration: 밀리초 단위
+                # streamable: false로 변경하여 완전한 moov atom 생성 보장 (파일 무결성 향상)
+                # faststart: true로 설정하여 moov atom을 파일 앞쪽에 배치 (재생 성능 향상)
+                muxer_props = Gst.Structure.new_from_string("properties,fragment-duration=1000,streamable=false,faststart=true")
                 if muxer_props:
                     self.splitmuxsink.set_property("muxer-properties", muxer_props)
-                    logger.debug("[RECORDING DEBUG] MP4 muxer properties set: fragment-duration=1000ms, streamable=true")
+                    logger.debug("[RECORDING DEBUG] MP4 muxer properties set: fragment-duration=1000ms, streamable=false, faststart=true")
                 else:
                     logger.warning("[RECORDING DEBUG] Failed to create muxer-properties structure, using defaults")
 
             # splitmuxsink 설정
             self.splitmuxsink.set_property("async-handling", True)  # 비동기 처리
             self.splitmuxsink.set_property("send-keyframe-requests", True)  # 키프레임 요청
+
+            # async-finalize 속성 추가 (GStreamer 1.16+)
+            # 파일 finalize를 비동기로 처리하여 파이프라인 중단 없이 파일 완료
+            try:
+                self.splitmuxsink.set_property("async-finalize", True)
+                logger.debug("[RECORDING DEBUG] async-finalize enabled for smooth file finalization")
+            except:
+                logger.debug("[RECORDING DEBUG] async-finalize not supported in this GStreamer version")
 
             # format-location 시그널 연결 - 파일명 동적 생성
             self._recording_fragment_id = 0
@@ -1523,33 +1533,35 @@ class GstPipeline:
         try:
             logger.info(f"Stopping recording for {self.camera_name}...")
 
-            # Valve 닫기 (녹화 중지)
+            # 1. splitmuxsink 파일 finalize 처리
+            if self.splitmuxsink and not storage_error:
+                try:
+                    # 방법: split-after 신호와 valve 조합 사용
+                    # split-after는 다음 키프레임 후 파일을 분할하고 중지
+
+                    # 현재 시간을 기준으로 split-after 설정 (0 = 즉시)
+                    self.splitmuxsink.emit("split-after")
+                    logger.debug("[RECORDING DEBUG] Emitted split-after signal to finalize current file")
+
+                    # 파일 finalization을 위한 짧은 대기
+                    time.sleep(0.3)
+
+                except Exception as e:
+                    logger.warning(f"[RECORDING DEBUG] Failed with split-after, trying split-now: {e}")
+                    # split-after 실패 시 split-now 시도
+                    try:
+                        self.splitmuxsink.emit("split-now")
+                        logger.debug("[RECORDING DEBUG] Emitted split-now signal as fallback")
+                        time.sleep(0.5)
+                    except Exception as e2:
+                        logger.warning(f"[RECORDING DEBUG] Both split signals failed: {e2}")
+            elif storage_error:
+                logger.debug("[RECORDING DEBUG] Skipping finalization due to storage error")
+
+            # 2. Valve 닫기 (녹화 데이터 흐름 차단)
             if self.recording_valve:
                 self.recording_valve.set_property("drop", True)
                 logger.debug("[RECORDING DEBUG] Recording valve closed")
-
-            # splitmuxsink에 EOS 이벤트 전송 (현재 파일을 깔끔하게 종료)
-            # 단, 저장소 에러인 경우 split-now 신호를 보내지 않음 (seek 에러 방지)
-            if self.splitmuxsink and not storage_error:
-                # splitmuxsink의 split-now 신호를 발생시켜 현재 파일을 마무리하고 새 파일 시작
-                try:
-                    self.splitmuxsink.emit("split-now")
-                    logger.debug("[RECORDING DEBUG] Emitted split-now signal to splitmuxsink")
-                except:
-                    # split-now가 실패하면 sink pad에 EOS 전송
-                    pad = self.splitmuxsink.get_static_pad("video")
-                    if not pad:
-                        # video pad가 없으면 sink pad 시도
-                        pad = self.splitmuxsink.get_static_pad("sink")
-
-                    if pad:
-                        pad.send_event(Gst.Event.new_eos())
-                        logger.debug("[RECORDING DEBUG] Sent EOS event to splitmuxsink pad")
-            elif storage_error:
-                logger.debug("[RECORDING DEBUG] Skipping split-now due to storage error")
-
-            # 짧은 대기 시간 (EOS 처리 및 파일 완료 대기)
-            time.sleep(0.5)  # 0.2초에서 0.5초로 증가
 
             # 녹화 상태 업데이트
             self._is_recording = False

@@ -6,6 +6,57 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Python-based Network Video Recorder (NVR) system using GStreamer for video processing and PyQt5 for GUI. Features real-time RTSP streaming, continuous recording with automatic file rotation, and playback functionality. Optimized for embedded devices (Raspberry Pi) through unified pipeline architecture that reduces CPU usage by ~50%.
 
+## Quick Start
+
+### Initial Setup Check
+```bash
+# 1. Verify configuration
+python _tests/test_config_loading.py
+
+# 2. Test single camera (headless mode for Windows development)
+python _tests/run_single_camera.py --headless --debug
+
+# 3. Run main application
+python main.py --debug
+```
+
+### Common Development Tasks
+```bash
+# Test recording functionality
+python _tests/test_recording_stop.py
+
+# Monitor memory usage
+python _tests/memory_monitor.py
+
+# Test pipeline mode switching
+python _tests/test_valve_mode_switch.py
+
+# Verify configuration persistence
+python _tests/test_config_preservation.py
+```
+
+## Active Development
+
+### Current Focus (2025-11)
+- **Recording File Finalization Issue**
+  - Problem: 수동 녹화 종료 시 생성된 파일이 재생되지 않음
+  - Cause: MP4 moov atom이 제대로 기록되지 않음
+  - Solution in progress: splitmuxsink 상태 변경 방식으로 파일 강제 finalize
+  - Related files: `_doc/manual_recording_stop_playback_issue.md`, `_doc/recording_stop_affecting_streaming_fix.md`
+
+- **Playback Widget Performance**
+  - Problem: "스캔 중..." 상태에서 멈춤 현상
+  - Solution: 파일 스캔 로직 최적화 및 비동기 처리 개선
+  - Related files: `_doc/playback_scan_stuck_issue_fix.md`
+
+### Recent Fixes (2025-11)
+- **Raspberry Pi X Window Fix** (2025-11-05): Window handle validation to prevent BadWindow errors
+- **Video Transform Case Fix** (2025-11-05): Case-insensitive handling for flip settings
+- **Performance Settings Tab** (2025-11-05): System monitoring configuration UI
+- **Async Delete Dialog** (2025-11-05): Multi-threaded file deletion with progress
+- **Configuration Path Migration** (2025-11-04): Recording path moved to storage section
+- **Backup Functionality** (2025-11-03): File backup with MD5 verification
+
 ## Commands
 
 ### Environment Setup
@@ -71,17 +122,18 @@ python _tests/test_main_with_mock.py
 ### Testing
 ```bash
 # Configuration tests
-python _tests/test_config_loading.py
-python _tests/test_config_preservation.py
-python _tests/test_simple_config.py
+python _tests/test_config_loading.py         # Verify configuration loading
+python _tests/test_config_preservation.py    # Test config save/load cycle
+python _tests/test_simple_config.py          # Simple config validation
 
-# Pipeline tests
-python _tests/test_valve_mode_switch.py
+# Pipeline and recording tests
+python _tests/test_valve_mode_switch.py      # Test streaming/recording mode switching
+python _tests/test_recording_stop.py         # Test recording stop without affecting streaming
 
-# Memory monitoring
-python _tests/memory_monitor.py
+# Performance and memory tests
+python _tests/memory_monitor.py              # Monitor for memory leaks
 
-# Direct camera connection test
+# Direct camera connection test (replace rtsp://... with actual URL)
 python -c "from camera.streaming import CameraStream; from core.models import Camera; cam = Camera(camera_id='cam_01', name='Test', rtsp_url='rtsp://...'); cs = CameraStream(cam); cs.connect(); input('Press Enter...')"
 ```
 
@@ -109,10 +161,9 @@ Instead of separate pipelines for streaming and recording (which duplicates deco
      - PTZ camera support (ptz_type, ptz_port, ptz_channel fields)
    - `enums.py`: System-wide enums (CameraStatus, RecordingStatus, PipelineMode)
    - `exceptions.py`: Custom exception classes
-   - `config.py`: **Singleton pattern** JSON configuration handler
+   - `config.py`: JSON configuration handler with **Singleton pattern** (see Configuration System section)
    - `storage.py`: Storage management with automatic cleanup and backup functionality
    - `system_monitor.py`: Resource monitoring and system health checks
-   - ConfigManager uses singleton pattern - single instance shared across entire application
 
 2. **Camera Management** (`camera/`) - Consolidated (2025-10-28)
    - `gst_pipeline.py`: Unified streaming+recording pipeline with valve control
@@ -147,6 +198,8 @@ Instead of separate pipelines for streaming and recording (which duplicates deco
    - **Theme System** (`ui/theme/`): Centralized theme management
    - **Note**: Uses PyQt5 (NOT PyQt6 despite requirements.txt)
 
+**Important**: README.md shows outdated project structure. This structure above is current.
+
 ### Pipeline Modes
 Three operating modes controlled via `PipelineMode` enum:
 - `STREAMING_ONLY`: Only display video
@@ -156,7 +209,7 @@ Three operating modes controlled via `PipelineMode` enum:
 Mode switching happens at runtime using valve elements without service interruption.
 
 ### Design Patterns
-- **Singleton Pattern**: ConfigManager ensures single instance across entire application
+- **Singleton Pattern**: ConfigManager (see Configuration System section for usage)
 - **Service Pattern**: StorageService for business logic separation
 - **Domain Model Pattern**: Core models for Camera, Recording, StreamStatus entities
 - **State Pattern**: RecordingStatus, PlaybackState, PipelineMode enums for state tracking
@@ -280,9 +333,31 @@ Detailed technical documentation is available in `_doc/`:
 - `20251029_startup_flow.md`: Application startup sequence and initialization
 - `settings_dialog_implementation_plan.md`: Settings dialog architecture
 
-## Troubleshooting
+## Known Issues & Solutions
 
-### Common Issues and Solutions
+### Active Issues (Under Investigation)
+
+#### Manual Recording Stop File Playback Issue
+```python
+# Problem: 수동 녹화 종료 시 생성된 파일이 재생되지 않음
+# Cause: MP4 moov atom이 제대로 finalize되지 않음
+# Current approach: splitmuxsink 상태 변경 방식으로 파일 강제 finalize
+# Related docs: _doc/manual_recording_stop_playback_issue.md
+
+# Temporary workaround:
+# - Use automatic file rotation (splitmuxsink max-size-time)
+# - Wait for automatic split before stopping recording
+```
+
+#### Recording Stop Affects Streaming
+```python
+# Problem: 녹화 중지 시 스트리밍도 함께 중지되는 현상
+# Cause: EOS 이벤트가 upstream으로 전파
+# Solution applied: splitmuxsink READY state 변경 방식
+# Related docs: _doc/recording_stop_affecting_streaming_fix.md
+```
+
+### Resolved Issues
 
 #### Video Not Displaying
 ```python
@@ -291,7 +366,7 @@ Detailed technical documentation is available in `_doc/`:
 # Verify 500ms delay is present for handle assignment
 ```
 
-#### Raspberry Pi X Window Error
+#### Raspberry Pi X Window Error (Fixed: 2025-11-05)
 ```python
 # Problem: "BadWindow (invalid Window parameter)" error on Raspberry Pi
 # Solution: Window handle validation added in gst_pipeline.py
@@ -299,11 +374,10 @@ Detailed technical documentation is available in `_doc/`:
 # Recording continues to function properly
 ```
 
-#### Video Transform Not Working
+#### Video Transform Not Working (Fixed: 2025-11-05)
 ```python
 # Problem: Video flip/rotation settings not applied
-# Solution: Check case sensitivity in JSON configuration
-# Code expects lowercase: "vertical", "horizontal", "both"
+# Solution: Case sensitivity issue resolved
 # Fixed with .lower() normalization in cameras_settings_tab.py and gst_pipeline.py
 ```
 
@@ -327,26 +401,24 @@ Detailed technical documentation is available in `_doc/`:
 ```
 
 #### Backup Issues
-```python
-# Problem: Backup path not accessible or insufficient space
-# Solution: Check backup section in IT_RNVR.json
-# Verify destination path exists and has write permissions
-# Ensure sufficient disk space (110% of source files size)
-
-# Example IT_RNVR.json backup section:
+```json
+// Problem: Backup path not accessible or insufficient space
+// Solution: Check backup section in IT_RNVR.json
 {
   "backup": {
-    "destination_path": "E:/backup",
-    "verification": true,  // MD5 hash verification
-    "delete_after_backup": false  // Delete source after successful backup
+    "destination_path": "E:/backup",     // Verify path exists
+    "verification": true,                // MD5 hash verification
+    "delete_after_backup": false        // Delete source after successful backup
   }
 }
 ```
 
+### Performance Issues
+
 #### High CPU Usage
 ```bash
 # Problem: Using separate pipelines for streaming and recording
-# Solution: Ensure gst_pipeline.py (UnifiedPipeline) is used
+# Solution: Ensure unified pipeline (gst_pipeline.py) is used
 # Check valve states with get_status() method
 # Configure performance monitoring thresholds in settings
 ```
@@ -404,57 +476,11 @@ def _on_bus_message(self, bus, message):
 - Real-time log viewer dialog
 - Theme system with centralized management
 
-### Known Issues
+### Known Limitations
 - PyQt5/PyQt6 dependency mismatch in requirements.txt (code uses PyQt5)
 - GStreamer required on Windows (use mock_gi for testing without it)
 - Credentials stored in cleartext in IT_RNVR.json
-
-### Recent Updates (2025-10~11)
-- **Raspberry Pi X Window Fix** (2025-11-05)
-  - Added window handle validation to prevent BadWindow errors
-  - Video output disabled if handle is invalid (headless mode)
-  - Recording continues to function properly
-- **Video Transform Case Fix** (2025-11-05)
-  - Fixed case sensitivity issue with flip settings
-  - Added .lower() normalization for JSON values
-- **Performance Settings Tab** (2025-11-05)
-  - Added performance monitoring configuration UI
-  - CPU, memory, temperature threshold settings
-  - Alert interval configuration
-- **Async Delete Dialog** (2025-11-05)
-  - Implemented multi-threaded file deletion with progress
-  - Real-time log display and error handling
-- **PTZ Controller** (2025-11-05)
-  - HIK camera PTZ control via HTTP/XML
-  - Basic and Digest authentication support
-  - Zoom and directional movement commands
-- **Logging Settings Tab** (2025-11-05)
-  - Comprehensive logging configuration UI
-  - Console, file, error, JSON log settings
-  - Log rotation and retention configuration
-- **Configuration path migration** (2025-11-04)
-  - Recording path moved from `recording.base_path` to `storage.recording_path`
-  - Updated 8 files to use new configuration path
-  - Settings UI reorganized: recording path control moved to Storage tab
-- **Backup functionality added** (2025-11-03)
-  - Recording file backup dialog with progress tracking
-  - MD5 hash verification for backup integrity
-  - Optional source file deletion after successful backup
-- **PTZ camera support added** (2025-11-03)
-  - PTZ camera type configuration (HIK, ONVIF)
-  - PTZ port and channel settings in camera configuration
-- **Network reconnection improvements** (2025-10-30)
-  - Recording file split on network reconnection
-  - New recording file created when connection restored
-- **Auto-recording UI sync fixed** (2025-10-29)
-  - Recording now always starts via explicit `start_recording()` call
-  - Unified flow: manual and auto-recording use identical code path
-- **Project structure refactored** (2025-10-28)
-  - Folder count reduced from 15 to 8 (47% reduction)
-  - Consolidated camera-related modules in `camera/` folder
-- **Recording system changed to splitmuxsink** (2025-10-28)
-  - Automatic file splitting based on time duration
-  - format-location signal handler for dynamic file naming
+- Manual recording stop may produce unplayable files (see Active Issues)
 
 ### Platform Support
 - **Primary**: Raspberry Pi (3, 4, Zero 2W)

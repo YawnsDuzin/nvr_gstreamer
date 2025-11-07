@@ -10,10 +10,10 @@
     "fullscreen_auto_hide_enabled": true,
     "fullscreen_auto_hide_delay_seconds": 10,
     "window_state": {
-      "x": 0,
-      "y": 0,
-      "width": 1920,
-      "height": 1080
+      "x": 177,
+      "y": 62,
+      "width": 1558,
+      "height": 961
     },
     "dock_state": {
       "camera_visible": true,
@@ -94,8 +94,8 @@
   "backup": {
     "Des_path": "E:/sfsfsdf",
     "delete_after_backup": true,
-    "verification": false,
-    "destination_path": "E:/"
+    "verification": true,
+    "destination_path": "/media/itlog/NVR_MAIN/Backups"
   },
   "storage": {
     "recording_path": "/media/itlog/NVR_MAIN/Recordings",

@@ -5,10 +5,10 @@ Enhanced Grid View Widget
 
 from PyQt5.QtWidgets import (
     QWidget, QGridLayout, QVBoxLayout, QHBoxLayout,
-    QLabel, QPushButton, QMenu, QAction
+    QLabel, QPushButton, QMenu, QAction, QSizePolicy
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QRect
-from PyQt5.QtGui import QPainter, QColor, QFont, QCursor
+from PyQt5.QtGui import QPainter, QColor, QFont, QCursor, QFontMetrics
 import datetime
 
 # Fix import
@@ -158,12 +158,30 @@ class GridViewWidget(QWidget):
         layout_label.setStyleSheet("font-weight: bold;")
         layout.addWidget(layout_label)
 
-        # Layout buttons
+        # Layout buttons with dynamic sizing
         self.layout_buttons = {}
         for layout_name, layout_size in [("1x1", (1, 1)), ("2x2", (2, 2)),
                                           ("3x3", (3, 3)), ("4x4", (4, 4))]:
             btn = QPushButton(layout_name)
-            btn.setFixedSize(50, 28)
+
+            # 텍스트에 맞춰 버튼 크기를 동적으로 설정
+            font = btn.font()
+            font.setPointSize(11)  # 폰트 크기를 11로 증가
+            btn.setFont(font)
+
+            # QFontMetrics를 사용해 텍스트 너비 계산
+            fm = QFontMetrics(font)
+            text_width = fm.horizontalAdvance(layout_name) if hasattr(fm, 'horizontalAdvance') else fm.width(layout_name)
+            padding = 24  # 텍스트 양쪽 여백도 약간 증가
+
+            # 버튼 크기 설정 - 텍스트 너비 + 여백
+            btn.setMinimumWidth(text_width + padding)
+            btn.setMaximumWidth(text_width + padding + 15)  # 약간의 추가 여유
+            btn.setFixedHeight(32)  # 높이도 약간 증가
+
+            # Size policy 설정으로 유연한 크기 조절
+            btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+
             btn.setCheckable(True)
             btn.clicked.connect(lambda checked, size=layout_size: self.set_layout(*size))
             layout.addWidget(btn)
@@ -171,8 +189,20 @@ class GridViewWidget(QWidget):
 
         layout.addSpacing(20)
 
-        # Fullscreen button
+        # Fullscreen button with dynamic sizing
         fullscreen_btn = QPushButton("Fullscreen")
+
+        # 폰트 설정
+        font = fullscreen_btn.font()
+        font.setPointSize(11)  # 폰트 크기를 11로 증가
+        fullscreen_btn.setFont(font)
+
+        # 텍스트 너비 계산
+        fm = QFontMetrics(font)
+        text_width = fm.horizontalAdvance("Fullscreen") if hasattr(fm, 'horizontalAdvance') else fm.width("Fullscreen")
+        fullscreen_btn.setMinimumWidth(text_width + 24)  # 여백도 증가
+        fullscreen_btn.setFixedHeight(32)  # 높이도 32로 증가
+
         fullscreen_btn.clicked.connect(self.toggle_fullscreen)
         layout.addWidget(fullscreen_btn)
 

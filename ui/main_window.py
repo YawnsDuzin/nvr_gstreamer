@@ -210,13 +210,6 @@ class MainWindow(QMainWindow):
         # File menu
         file_menu = menubar.addMenu("File")
 
-        add_camera_action = QAction("Add Camera", self)
-        add_camera_action.setShortcut(QKeySequence("Ctrl+N"))
-        add_camera_action.triggered.connect(self._add_camera)
-        file_menu.addAction(add_camera_action)
-
-        file_menu.addSeparator()
-
         exit_action = QAction("Exit", self)
         exit_action.setShortcut(QKeySequence("Ctrl+Q"))
         exit_action.triggered.connect(self.close)
