@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import (
     QAction, QMessageBox, QGroupBox
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer
-from PyQt5.QtGui import QIcon, QColor, QFont
+from PyQt5.QtGui import QColor
 from loguru import logger
 
 # Fix imports
@@ -105,10 +105,6 @@ class CameraListWidget(ThemedWidget):
         status_group.setLayout(status_layout)
         layout.addWidget(status_group)
 
-        # Toolbar buttons
-        toolbar = self._create_toolbar()
-        layout.addWidget(toolbar)
-
         # Status bar
         self.status_label = QLabel("0 cameras configured")
         # Use theme from main window - no hardcoded style
@@ -118,67 +114,15 @@ class CameraListWidget(ThemedWidget):
         self.setLayout(layout)
         self.setMinimumWidth(350)
 
-    def _create_toolbar(self):
-        """Create toolbar with camera actions"""
-        toolbar_group = QGroupBox("Camera Controls")
-        layout = QVBoxLayout()
-
-        # Management buttons row
-        management_layout = QHBoxLayout()
-        management_layout.setSpacing(5)
-
-        # Add button
-        add_btn = QPushButton("➕ Add")
-        add_btn.setToolTip("Add Camera")
-        add_btn.clicked.connect(self._add_camera)
-        management_layout.addWidget(add_btn)
-
-        # Edit button
-        edit_btn = QPushButton("✏️ Edit")
-        edit_btn.setToolTip("Edit Camera")
-        edit_btn.clicked.connect(self._edit_camera)
-        management_layout.addWidget(edit_btn)
-
-        # Remove button
-        remove_btn = QPushButton("🗑️ Remove")
-        remove_btn.setToolTip("Remove Camera")
-        remove_btn.clicked.connect(self._remove_camera)
-        management_layout.addWidget(remove_btn)
-
-        layout.addLayout(management_layout)
-
-        # Connection buttons row
-        connection_layout = QHBoxLayout()
-        connection_layout.setSpacing(5)
-
-        # Connect all button
-        connect_all_btn = QPushButton("🔗 Connect All")
-        connect_all_btn.clicked.connect(self._connect_all)
-        connection_layout.addWidget(connect_all_btn)
-
-        # Disconnect all button
-        disconnect_all_btn = QPushButton("⛓️ Disconnect All")
-        disconnect_all_btn.clicked.connect(self._disconnect_all)
-        connection_layout.addWidget(disconnect_all_btn)
-
-        layout.addLayout(connection_layout)
-
-        toolbar_group.setLayout(layout)
-        return toolbar_group
-
     def _setup_context_menu(self):
         """Setup context menu for camera items"""
         self.context_menu = QMenu(self)
         # Use theme from main window - no hardcoded style
 
-        # Connect/Disconnect
-        self.connect_action = QAction("Connect", self)
-        self.connect_action.triggered.connect(self._connect_camera)
-        self.context_menu.addAction(self.connect_action)
-
-        self.disconnect_action = QAction("Disconnect", self)
-        self.disconnect_action.triggered.connect(self._disconnect_camera)
-        self.context_menu.addAction(self.disconnect_action)
+        # Connect/Disconnect (Dynamic single action)
+        self.connection_action = QAction("Connect", self)
+        self.connection_action.triggered.connect(self._toggle_connection)
+        self.context_menu.addAction(self.connection_action)
 
         self.context_menu.addSeparator()
 
@@ -186,18 +130,6 @@ class CameraListWidget(ThemedWidget):
         edit_action = QAction("Edit", self)
         edit_action.triggered.connect(self._edit_camera)
         self.context_menu.addAction(edit_action)
-
-        # Enable/Disable
-        self.enable_action = QAction("Enable", self)
-        self.enable_action.triggered.connect(self._toggle_camera)
-        self.context_menu.addAction(self.enable_action)
-
-        self.context_menu.addSeparator()
-
-        # Remove
-        remove_action = QAction("Remove", self)
-        remove_action.triggered.connect(self._remove_camera)
-        self.context_menu.addAction(remove_action)
 
     def _setup_timer(self):
         """Setup status update timer"""
@@ -276,17 +208,15 @@ class CameraListWidget(ThemedWidget):
 
         # Update menu actions based on camera state
         camera_item = item
-        if camera_item.camera_config.enabled:
-            self.enable_action.setText("Disable")
-        else:
-            self.enable_action.setText("Enable")
 
+        # Update Connect/Disconnect text and enable state
         if camera_item.camera_stream and camera_item.camera_stream.is_connected():
-            self.connect_action.setEnabled(False)
-            self.disconnect_action.setEnabled(True)
+            self.connection_action.setText("Disconnect")
+            self.connection_action.setEnabled(True)
         else:
-            self.connect_action.setEnabled(True)
-            self.disconnect_action.setEnabled(False)
+            self.connection_action.setText("Connect")
+            # Only enable Connect if camera is enabled
+            self.connection_action.setEnabled(camera_item.camera_config.enabled)
 
         # Show menu
         self.context_menu.exec_(self.list_widget.mapToGlobal(pos))
@@ -428,6 +358,20 @@ class CameraListWidget(ThemedWidget):
         camera_item.update_display()
         self.camera_updated.emit(camera_item.camera_config)
         self._update_status()
+
+    def _toggle_connection(self):
+        """Toggle connection state of selected camera"""
+        current_item = self.list_widget.currentItem()
+        if not current_item:
+            return
+
+        camera_item = current_item
+        if camera_item.camera_stream and camera_item.camera_stream.is_connected():
+            # Currently connected, so disconnect
+            self._disconnect_camera()
+        else:
+            # Currently disconnected, so connect
+            self._connect_camera()
 
     def _connect_camera(self):
         """Connect selected camera"""

@@ -8,12 +8,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from PyQt5.QtWidgets import (
-    QVBoxLayout, QHBoxLayout, QGroupBox,
-    QPushButton, QLabel,
+    QVBoxLayout, QGroupBox,
+    QLabel, QMenu, QAction,
     QListWidget, QListWidgetItem, QMessageBox
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer
-from PyQt5.QtGui import QColor, QFont
+from PyQt5.QtGui import QColor
 from loguru import logger
 
 from ui.theme import ThemedWidget
@@ -84,6 +84,7 @@ class RecordingControlWidget(ThemedWidget):
         self.main_window = None  # MainWindow 참조 (나중에 설정됨)
 
         self._setup_ui()
+        self._setup_context_menu()
         self._setup_timer()
 
     def _setup_ui(self):
@@ -94,10 +95,6 @@ class RecordingControlWidget(ThemedWidget):
 
         # Use theme from main window - no hardcoded style
 
-        # 전체 컨트롤 그룹
-        control_group = QGroupBox("Recording Controls")
-        control_layout = QVBoxLayout()        
-
         # 카메라별 상태 그룹
         status_group = QGroupBox("Camera Recording Status")
         status_layout = QVBoxLayout()
@@ -106,39 +103,12 @@ class RecordingControlWidget(ThemedWidget):
         self.camera_list = QListWidget()
         # Use theme from main window - no hardcoded style
         self.camera_list.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self.camera_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.camera_list.customContextMenuRequested.connect(self._show_context_menu)
         status_layout.addWidget(self.camera_list)
-
-        # 개별 컨트롤 버튼
-        individual_layout = QHBoxLayout()
-
-        self.start_btn = QPushButton("▶ Start")
-        self.start_btn.clicked.connect(self._start_recording)
-        individual_layout.addWidget(self.start_btn)
-
-        self.stop_btn = QPushButton("■ Stop")
-        self.stop_btn.clicked.connect(self._stop_recording)
-        individual_layout.addWidget(self.stop_btn)
-
-        status_layout.addLayout(individual_layout)
 
         status_group.setLayout(status_layout)
         layout.addWidget(status_group)
-
-        # 전체 녹화 버튼들
-        button_layout = QHBoxLayout()
-
-        self.start_all_btn = QPushButton("▶ Start All")
-        self.start_all_btn.clicked.connect(self._start_all_recording)
-        button_layout.addWidget(self.start_all_btn)
-
-        self.stop_all_btn = QPushButton("■ Stop All")
-        self.stop_all_btn.clicked.connect(self._stop_all_recording)
-        button_layout.addWidget(self.stop_all_btn)
-
-        control_layout.addLayout(button_layout)
-
-        control_group.setLayout(control_layout)
-        layout.addWidget(control_group)
 
         # 녹화 설정 정보 표시
         settings_info_group = QGroupBox("Recording Settings")
@@ -174,6 +144,64 @@ class RecordingControlWidget(ThemedWidget):
         layout.addWidget(self.disk_label)
 
         self.setLayout(layout)
+
+    def _setup_context_menu(self):
+        """Setup context menu for recording items"""
+        self.context_menu = QMenu(self)
+
+        # Start/Stop Recording (Dynamic single action)
+        self.recording_action = QAction("Start Recording", self)
+        self.recording_action.triggered.connect(self._toggle_recording)
+        self.context_menu.addAction(self.recording_action)
+
+    def _show_context_menu(self, pos):
+        """Show context menu"""
+        item = self.camera_list.itemAt(pos)
+        if not item:
+            return
+
+        # Update menu actions based on recording state
+        camera_item = item
+        camera_id = camera_item.camera_id
+
+        # Update Start/Stop text based on recording state
+        if self.is_recording(camera_id):
+            self.recording_action.setText("Stop Recording")
+            self.recording_action.setEnabled(True)
+        else:
+            self.recording_action.setText("Start Recording")
+            # Only enable Start if camera is streaming
+            self.recording_action.setEnabled(self.is_streaming(camera_id))
+
+        # Show menu
+        self.context_menu.exec_(self.camera_list.mapToGlobal(pos))
+
+    def _toggle_recording(self):
+        """Toggle recording state of selected camera"""
+        current_item = self.camera_list.currentItem()
+        if not current_item:
+            return
+
+        camera_item = current_item
+        camera_id = camera_item.camera_id
+
+        if self.is_recording(camera_id):
+            # Currently recording, so stop
+            self.stop_recording(camera_id)
+        else:
+            # Currently not recording, so start
+            # Check if streaming first
+            if not self.is_streaming(camera_id):
+                camera_name = self.cameras.get(camera_id, ["Unknown"])[0]
+                QMessageBox.warning(
+                    self,
+                    "Cannot Start Recording",
+                    f"Camera '{camera_name}' is not streaming.\n\n"
+                    "Recording requires an active streaming pipeline.\n"
+                    "Please start streaming first."
+                )
+                return
+            self.start_recording(camera_id)
 
     def _setup_timer(self):
         """업데이트 타이머 설정 (디스크 사용량만)"""
