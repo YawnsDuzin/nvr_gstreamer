@@ -151,12 +151,15 @@ class GridViewWidget(QWidget):
         controls.setStyleSheet("border-bottom: 1px solid #3c3c3c;")  # Keep only border
 
         layout = QHBoxLayout()
-        layout.setContentsMargins(10, 5, 10, 5)
+        layout.setContentsMargins(10, 2, 10, 2)  # 상하 여백 축소
+        layout.setAlignment(Qt.AlignVCenter)  # 세로 중앙 정렬
 
         # Layout selector label
         layout_label = QLabel("Layout:")
-        layout_label.setStyleSheet("font-weight: bold;")
-        layout.addWidget(layout_label)
+        font = layout_label.font()
+        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        layout_label.setFont(font)
+        layout.addWidget(layout_label, 0, Qt.AlignVCenter)
 
         # Layout buttons with dynamic sizing
         self.layout_buttons = {}
@@ -177,14 +180,14 @@ class GridViewWidget(QWidget):
             # 버튼 크기 설정 - 텍스트 너비 + 여백
             btn.setMinimumWidth(text_width + padding)
             btn.setMaximumWidth(text_width + padding + 15)  # 약간의 추가 여유
-            btn.setFixedHeight(32)  # 높이도 약간 증가
+            btn.setFixedHeight(22)  # 높이 축소
 
             # Size policy 설정으로 유연한 크기 조절
             btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
 
             btn.setCheckable(True)
             btn.clicked.connect(lambda checked, size=layout_size: self.set_layout(*size))
-            layout.addWidget(btn)
+            layout.addWidget(btn, 0, Qt.AlignVCenter)
             self.layout_buttons[layout_size] = btn
 
         layout.addSpacing(20)
@@ -201,17 +204,20 @@ class GridViewWidget(QWidget):
         fm = QFontMetrics(font)
         text_width = fm.horizontalAdvance("Fullscreen") if hasattr(fm, 'horizontalAdvance') else fm.width("Fullscreen")
         fullscreen_btn.setMinimumWidth(text_width + 24)  # 여백도 증가
-        fullscreen_btn.setFixedHeight(32)  # 높이도 32로 증가
+        fullscreen_btn.setFixedHeight(22)  # 높이 축소
 
         fullscreen_btn.clicked.connect(self.toggle_fullscreen)
-        layout.addWidget(fullscreen_btn)
+        layout.addWidget(fullscreen_btn, 0, Qt.AlignVCenter)
 
         layout.addStretch()
 
         # Info label
         self.info_label = QLabel("Status: Ready")
+        font = self.info_label.font()
+        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        self.info_label.setFont(font)
         # Use theme from main window - no hardcoded color
-        layout.addWidget(self.info_label)
+        layout.addWidget(self.info_label, 0, Qt.AlignVCenter)
 
         controls.setLayout(layout)
 

@@ -97,10 +97,16 @@ class RecordingControlWidget(ThemedWidget):
 
         # 카메라별 상태 그룹
         status_group = QGroupBox("Camera Recording Status")
+        font = status_group.font()
+        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        status_group.setFont(font)
         status_layout = QVBoxLayout()
 
         # 카메라 리스트
         self.camera_list = QListWidget()
+        font = self.camera_list.font()
+        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        self.camera_list.setFont(font)
         # Use theme from main window - no hardcoded style
         self.camera_list.itemDoubleClicked.connect(self._on_item_double_clicked)
         self.camera_list.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -112,6 +118,9 @@ class RecordingControlWidget(ThemedWidget):
 
         # 녹화 설정 정보 표시
         settings_info_group = QGroupBox("Recording Settings")
+        font = settings_info_group.font()
+        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        settings_info_group.setFont(font)
         settings_info_layout = QVBoxLayout()
 
         # 설정 값들 가져오기
@@ -124,6 +133,9 @@ class RecordingControlWidget(ThemedWidget):
         # 경로를 10자리까지만 표시하고 ... 추가
         display_path = recording_path[:10] + '...' if len(recording_path) > 10 else recording_path
         self.path_label = QLabel(f"Storage Path: {display_path}")
+        font = self.path_label.font()
+        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        self.path_label.setFont(font)
         # 전체 경로를 툴팁으로 표시
         self.path_label.setToolTip(recording_path)
         settings_info_layout.addWidget(self.path_label)
@@ -131,11 +143,17 @@ class RecordingControlWidget(ThemedWidget):
         # 파일 포맷
         file_format = recording_config.get('file_format', 'mp4')
         self.format_label = QLabel(f"File Format: {file_format}")
+        font = self.format_label.font()
+        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        self.format_label.setFont(font)
         settings_info_layout.addWidget(self.format_label)
 
         # 파일 분할 주기
         rotation_minutes = recording_config.get('rotation_minutes', 10)
         self.rotation_label = QLabel(f"File Rotation: {rotation_minutes} minutes")
+        font = self.rotation_label.font()
+        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        self.rotation_label.setFont(font)
         settings_info_layout.addWidget(self.rotation_label)
 
         settings_info_group.setLayout(settings_info_layout)
@@ -143,6 +161,9 @@ class RecordingControlWidget(ThemedWidget):
 
         # 디스크 사용량 표시
         self.disk_label = QLabel("Disk Usage: Calculating...")
+        font = self.disk_label.font()
+        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        self.disk_label.setFont(font)
         # Use theme from main window - no hardcoded style
         self.disk_label.setStyleSheet("padding: 5px;")  # Keep padding only
         layout.addWidget(self.disk_label)

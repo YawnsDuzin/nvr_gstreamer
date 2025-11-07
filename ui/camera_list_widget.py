@@ -87,14 +87,21 @@ class CameraListWidget(ThemedWidget):
     def _setup_ui(self):
         """Setup UI components"""
         layout = QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(10)
 
         # Camera Streaming Status GroupBox
         status_group = QGroupBox("Camera Streaming Status")
+        font = status_group.font()
+        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        status_group.setFont(font)
         status_layout = QVBoxLayout()
 
         # Camera list
         self.list_widget = QListWidget()
+        font = self.list_widget.font()
+        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        self.list_widget.setFont(font)
         # Use theme from main window - no hardcoded style
         self.list_widget.itemClicked.connect(self._on_item_clicked)
         self.list_widget.itemDoubleClicked.connect(self._on_item_double_clicked)
@@ -107,6 +114,9 @@ class CameraListWidget(ThemedWidget):
 
         # Status bar
         self.status_label = QLabel("0 cameras configured")
+        font = self.status_label.font()
+        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        self.status_label.setFont(font)
         # Use theme from main window - no hardcoded style
         self.status_label.setStyleSheet("padding: 5px;")  # Keep padding only
         layout.addWidget(self.status_label)

@@ -132,8 +132,10 @@ class PTZController:
 
         # HTTP PUT 요청 전송 (Basic/Digest 인증 모두 지원)
         try:
-            logger.debug(f"Sending PTZ command: {command} to {url}, auth=({self.username}, {'***' if self.password else None})")
-            logger.debug(f"XML Data: {xml_data}")
+            # ZOOM 명령은 로그 간소화
+            if command.upper() not in ["ZOOMIN", "ZOOMOUT", "ZOOMSTOP"]:
+                logger.debug(f"Sending PTZ command: {command} to {url}")
+                logger.debug(f"XML Data: {xml_data}")
 
             # Basic과 Digest 인증을 모두 지원하는 핸들러 생성
             password_mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
@@ -149,8 +151,10 @@ class PTZController:
 
             with opener.open(request, timeout=self.timeout) as response:
                 result = response.read().decode('utf-8')
-                logger.debug(f"PTZ command sent successfully: {command}, Response code: {response.getcode()}")
-                logger.debug(f"Response: {result}")
+                # ZOOM 명령은 로그 간소화
+                if command.upper() not in ["ZOOMIN", "ZOOMOUT", "ZOOMSTOP"]:
+                    logger.debug(f"PTZ command sent successfully: {command}, Response code: {response.getcode()}")
+                    logger.debug(f"Response: {result}")
                 return True
 
         except urllib.error.HTTPError as e:
