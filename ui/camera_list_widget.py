@@ -112,7 +112,6 @@ class CameraListWidget(ThemedWidget):
         layout.addWidget(self.status_label)
 
         self.setLayout(layout)
-        self.setMinimumWidth(350)
 
     def _setup_context_menu(self):
         """Setup context menu for camera items"""

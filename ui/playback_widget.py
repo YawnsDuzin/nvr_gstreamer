@@ -189,20 +189,26 @@ class PlaybackControlWidget(ThemedWidget):
     def init_ui(self):
         """UI 초기화"""
         layout = QVBoxLayout(self)
-        layout.setSpacing(10)
+        layout.setSpacing(0)
+        layout.setContentsMargins(0, 0, 0, 0)
 
-        # 비디오 디스플레이 영역 (placeholder)
+        # 비디오 디스플레이 영역 (placeholder) - 남는 공간 모두 차지
         self.video_widget = QWidget()
-        self.video_widget.setMinimumHeight(300)
         self.video_widget.setObjectName("videoWidget")  # Set object name for styling
+        self.video_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         # Background color will be set by main window theme
-        layout.addWidget(self.video_widget)
+        layout.addWidget(self.video_widget, stretch=1)  # stretch=1 로 남는 공간 모두 차지
+
+        # 컨트롤 영역을 별도 위젯으로 묶기
+        control_widget = QWidget()
+        control_main_layout = QVBoxLayout(control_widget)
+        control_main_layout.setSpacing(5)
+        control_main_layout.setContentsMargins(5, 5, 5, 5)
 
         # 시크바
         seek_layout = QHBoxLayout()
 
         self.position_label = QLabel("00:00")
-        self.position_label.setMinimumWidth(50)
         seek_layout.addWidget(self.position_label)
 
         self.seek_slider = QSlider(Qt.Horizontal)
@@ -212,10 +218,9 @@ class PlaybackControlWidget(ThemedWidget):
         seek_layout.addWidget(self.seek_slider)
 
         self.duration_label = QLabel("00:00")
-        self.duration_label.setMinimumWidth(50)
         seek_layout.addWidget(self.duration_label)
 
-        layout.addLayout(seek_layout)
+        control_main_layout.addLayout(seek_layout)
 
         # 컨트롤 버튼
         control_layout = QHBoxLayout()
@@ -247,7 +252,10 @@ class PlaybackControlWidget(ThemedWidget):
 
         control_layout.addStretch()
 
-        layout.addLayout(control_layout)
+        control_main_layout.addLayout(control_layout)
+
+        # 컨트롤 위젯을 메인 레이아웃에 추가 (stretch=0 으로 고정 높이)
+        layout.addWidget(control_widget, stretch=0)
 
         # 슬라이더 업데이트 플래그
         self._slider_pressed = False
@@ -346,7 +354,6 @@ class RecordingListWidget(ThemedWidget):
         self.camera_combo.addItem("전체")
         # 카메라 선택 변경 시 자동 새로고침 제거 (사용자가 수동으로 새로고침)
         # self.camera_combo.currentTextChanged.connect(self.refresh_list)
-        self.camera_combo.setMinimumWidth(100)
         filter_layout.addWidget(self.camera_combo)
 
         filter_layout.addSpacing(20)
@@ -361,7 +368,6 @@ class RecordingListWidget(ThemedWidget):
         self.start_date.setDisplayFormat("yyyy-MM-dd")
         # 시작 날짜 변경 시 자동 새로고침 제거 (사용자가 수동으로 새로고침)
         # self.start_date.dateChanged.connect(self.refresh_list)
-        self.start_date.setMinimumWidth(120)
         filter_layout.addWidget(self.start_date)
 
         filter_layout.addSpacing(20)
@@ -376,7 +382,6 @@ class RecordingListWidget(ThemedWidget):
         self.end_date.setDisplayFormat("yyyy-MM-dd")
         # 종료 날짜 변경 시 자동 새로고침 제거 (사용자가 수동으로 새로고침)
         # self.end_date.dateChanged.connect(self.refresh_list)
-        self.end_date.setMinimumWidth(120)
         filter_layout.addWidget(self.end_date)
 
         filter_layout.addStretch()
@@ -389,13 +394,11 @@ class RecordingListWidget(ThemedWidget):
         self.flip_combo = QComboBox()
         self.flip_combo.addItems(["None", "Horizontal", "Vertical", "Both"])
         self.flip_combo.setToolTip("좌우/상하 반전")
-        self.flip_combo.setMinimumWidth(100)
         filter_layout.addWidget(self.flip_combo)
 
         self.rotation_combo = QComboBox()
         self.rotation_combo.addItems(["0°", "90°", "180°", "270°"])
         self.rotation_combo.setToolTip("회전")
-        self.rotation_combo.setMinimumWidth(80)
         filter_layout.addWidget(self.rotation_combo)
 
         filter_layout.addStretch()

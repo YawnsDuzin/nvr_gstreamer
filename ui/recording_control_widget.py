@@ -121,7 +121,11 @@ class RecordingControlWidget(ThemedWidget):
 
         # 저장 경로 (storage.recording_path 사용)
         recording_path = storage_config.get('recording_path', './recordings')
-        self.path_label = QLabel(f"Storage Path: {recording_path}")
+        # 경로를 10자리까지만 표시하고 ... 추가
+        display_path = recording_path[:10] + '...' if len(recording_path) > 10 else recording_path
+        self.path_label = QLabel(f"Storage Path: {display_path}")
+        # 전체 경로를 툴팁으로 표시
+        self.path_label.setToolTip(recording_path)
         settings_info_layout.addWidget(self.path_label)
 
         # 파일 포맷
@@ -417,7 +421,11 @@ class RecordingControlWidget(ThemedWidget):
 
         # 저장 경로 업데이트 (storage.recording_path 사용)
         recording_path = storage_config.get('recording_path', './recordings')
-        self.path_label.setText(f"Storage Path: {recording_path}")
+        # 경로를 10자리까지만 표시하고 ... 추가
+        display_path = recording_path[:10] + '...' if len(recording_path) > 10 else recording_path
+        self.path_label.setText(f"Storage Path: {display_path}")
+        # 전체 경로를 툴팁으로 표시
+        self.path_label.setToolTip(recording_path)
 
         # 파일 포맷 업데이트
         file_format = recording_config.get('file_format', 'mp4')

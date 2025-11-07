@@ -158,6 +158,9 @@ class MainWindow(QMainWindow):
         self.playback_dock.setWidget(self.playback_widget)
         self.addDockWidget(Qt.BottomDockWidgetArea, self.playback_dock)
 
+        # Set initial playback dock height to 30% of window height
+        self._update_playback_dock_size()
+
         # Main area - Grid view
         self.grid_view = GridViewWidget()
         splitter.addWidget(self.grid_view)
@@ -833,6 +836,29 @@ class MainWindow(QMainWindow):
         # 디버그용 로그
         if "program_exit" in self.menu_keys:
             logger.debug(f"Program exit key: {self.menu_keys['program_exit']}")
+
+    def _update_playback_dock_size(self):
+        """Update playback dock height to 30% of window height"""
+        if not self.playback_dock:
+            return
+
+        # Only resize if dock is in bottom area and not floating
+        if self.dockWidgetArea(self.playback_dock) == Qt.BottomDockWidgetArea and not self.playback_dock.isFloating():
+            window_height = self.height()
+            # Calculate 30% of window height
+            target_height = int(window_height * 0.3)
+
+            # Use resizeDocks to set the height
+            self.resizeDocks([self.playback_dock], [target_height], Qt.Vertical)
+            logger.debug(f"Playback dock height set to {target_height}px (30% of {window_height}px)")
+
+    def resizeEvent(self, event):
+        """Handle window resize event to update playback dock size"""
+        super().resizeEvent(event)
+
+        # Update playback dock size when window is resized
+        if hasattr(self, 'playback_dock'):
+            self._update_playback_dock_size()
 
     def _on_camera_selected(self, camera_id: str):
         """Handle camera selection from list"""

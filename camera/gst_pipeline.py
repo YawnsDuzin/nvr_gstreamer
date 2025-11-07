@@ -986,6 +986,7 @@ class GstPipeline:
             # - 저장소 분리
             elif error_type == ErrorType.STORAGE_DISCONNECTED:
                 self._handle_storage_error(err)
+                # logger.info("ErrorType.STORAGE_DISCONNECTED")
             # - 디스크 Full
             elif error_type == ErrorType.DISK_FULL:
                 self._handle_disk_full_error(err)
@@ -1028,13 +1029,30 @@ class GstPipeline:
             if error_code in [1, 7, 9, 10]:
                 return ErrorType.RTSP_NETWORK
 
-        # 저장소 분리
-        if (src_name in ["splitmuxsink", "sink"] and
-            error_code == 10 and
-            "could not write" in error_str and
-            ("permission denied" in debug_str or
-             "file descriptor" in debug_str)):
-            return ErrorType.STORAGE_DISCONNECTED
+        # 저장소 분리 (FileSink 관련 에러)
+        # sink_* 형태의 이름을 가진 FileSink 요소에서 발생하는 에러
+        if src_name.startswith("sink") or "splitmuxsink" in src_name:
+            # 1. Could not write 오류 (저장소 쓰기 실패)
+            if (error_code == 10 and
+                "could not write" in error_str and
+                ("permission denied" in debug_str or
+                 "file descriptor" in debug_str)):
+                return ErrorType.STORAGE_DISCONNECTED
+
+            # 2. No file name specified 오류 (파일 경로 접근 불가)
+            # gstfilesink.c의 gst_file_sink_open_file 에서 발생
+            # 저장소가 마운트 해제되면 location 속성이 유효하지 않게 됨
+            if (error_code == 3 and
+                "no file name specified" in error_str and
+                "gst_file_sink_open_file" in debug_str):
+                return ErrorType.STORAGE_DISCONNECTED
+
+            # 3. State change failed 오류 (FileSink 시작 실패)
+            # 위 에러에 연쇄적으로 발생하는 오류
+            if (error_code == 4 and
+                "state change failed" in error_str and
+                ("failed to start" in debug_str or "gstbasesink.c" in debug_str)):
+                return ErrorType.STORAGE_DISCONNECTED
 
         # 디스크 Full
         if ("space" in error_str or
@@ -1625,48 +1643,98 @@ class GstPipeline:
         녹화 시작 전 저장 경로 검증
 
         검증 항목:
-        1. 상위 디렉토리 존재 여부
-        2. 디렉토리 접근 권한
-        3. 디스크 공간 확인
-        4. 파일 생성 가능 여부 (테스트 파일 생성)
+        1. USB 마운트 상태 확인
+        2. 상위 디렉토리 존재 여부
+        3. 디렉토리 접근 권한
+        4. 디스크 공간 확인
+        5. 파일 생성 가능 여부 (테스트 파일 생성)
 
         Returns:
             bool: 경로가 유효하면 True, 아니면 False
         """
         try:
-            # 1. 상위 디렉토리 존재 여부 확인
+            # 1. USB 마운트 상태 확인
+            # /media/itlog/NVR_MAIN 같은 경로에서 마운트 포인트 확인
+            recording_path_str = str(self.recording_dir)
+
+            # 마운트 포인트 경로 추출 (예: /media/itlog/NVR_MAIN)
+            # recording_dir이 /media/itlog/NVR_MAIN/Recordings/cam_01 형태일 때
+            # 상위 경로들을 확인하여 마운트 포인트 찾기
+            if recording_path_str.startswith('/media/'):
+                # /media/USER/DEVICE 형태의 마운트 포인트 추출
+                path_parts = Path(recording_path_str).parts
+                if len(path_parts) >= 4:  # ['/', 'media', 'user', 'device', ...]
+                    mount_point = Path(*path_parts[:4])  # /media/user/device
+
+                    # 마운트 포인트가 존재하는지 확인
+                    if not mount_point.exists():
+                        logger.error(f"[STORAGE] USB mount point does not exist: {mount_point}")
+                        logger.error(f"[STORAGE] USB device may be disconnected or not mounted")
+                        return False
+
+                    # 마운트 포인트가 실제로 마운트되어 있는지 확인
+                    if not os.path.ismount(str(mount_point)):
+                        logger.error(f"[STORAGE] Path is not a mount point: {mount_point}")
+                        logger.error(f"[STORAGE] USB device is not mounted")
+                        return False
+
+                    logger.debug(f"[STORAGE] USB mount point verified: {mount_point}")
+
+            # 2. 상위 디렉토리 존재 여부 확인
             if not self.recording_dir.exists():
                 logger.warning(f"[STORAGE] Recording directory does not exist: {self.recording_dir}")
                 # 생성 시도
                 try:
                     self.recording_dir.mkdir(parents=True, exist_ok=True)
                     logger.info(f"[STORAGE] Created recording directory: {self.recording_dir}")
+                except PermissionError as e:
+                    logger.error(f"[STORAGE] Permission denied creating directory: {e}")
+                    logger.error(f"[STORAGE] USB device may be read-only or disconnected")
+                    return False
+                except FileNotFoundError as e:
+                    logger.error(f"[STORAGE] Parent directory not found: {e}")
+                    logger.error(f"[STORAGE] USB device may be disconnected")
+                    return False
+                except OSError as e:
+                    logger.error(f"[STORAGE] I/O error creating directory: {e}")
+                    logger.error(f"[STORAGE] USB device may have I/O errors or be disconnected")
+                    return False
                 except Exception as e:
                     logger.error(f"[STORAGE] Failed to create directory: {e}")
                     return False
 
-            # 2. 디렉토리 접근 권한 확인 (읽기, 쓰기, 실행)
+            # 3. 디렉토리 접근 권한 확인 (읽기, 쓰기, 실행)
             if not os.access(str(self.recording_dir), os.R_OK | os.W_OK | os.X_OK):
                 logger.error(f"[STORAGE] No read/write permission for: {self.recording_dir}")
+                logger.error(f"[STORAGE] USB device may be read-only or disconnected")
                 return False
 
-            # 3. 디스크 공간 확인 (최소 1GB 필요)
-            import shutil
-            stat = shutil.disk_usage(str(self.recording_dir))
-            free_gb = stat.free / (1024**3)
+            # 4. 디스크 공간 확인 (최소 1GB 필요)
+            try:
+                import shutil
+                stat = shutil.disk_usage(str(self.recording_dir))
+                free_gb = stat.free / (1024**3)
 
-            if free_gb < 1.0:
-                logger.error(f"[STORAGE] Insufficient disk space: {free_gb:.2f}GB (minimum 1GB required)")
+                if free_gb < 1.0:
+                    logger.error(f"[STORAGE] Insufficient disk space: {free_gb:.2f}GB (minimum 1GB required)")
+                    return False
+
+                logger.debug(f"[STORAGE] Disk space available: {free_gb:.2f}GB")
+            except OSError as e:
+                logger.error(f"[STORAGE] Failed to check disk space: {e}")
+                logger.error(f"[STORAGE] USB device may be disconnected")
                 return False
 
-            logger.debug(f"[STORAGE] Disk space available: {free_gb:.2f}GB")
-
-            # 4. 파일 생성 테스트 (임시 파일 생성 후 삭제)
+            # 5. 파일 생성 테스트 (임시 파일 생성 후 삭제)
             test_file = self.recording_dir / f".test_{self.camera_id}.tmp"
             try:
                 test_file.touch()
                 test_file.unlink()
                 logger.debug(f"[STORAGE] Write test successful: {self.recording_dir}")
+            except OSError as e:
+                logger.error(f"[STORAGE] Failed to write test file (I/O error): {e}")
+                logger.error(f"[STORAGE] USB device may be disconnected or have I/O errors")
+                return False
             except Exception as e:
                 logger.error(f"[STORAGE] Failed to write test file: {e}")
                 return False
@@ -1676,8 +1744,7 @@ class GstPipeline:
 
         except Exception as e:
             logger.error(f"[STORAGE] Path validation failed: {e}")
-            import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
+            logger.error(f"[STORAGE] This may indicate USB disconnection or system error")
             return False
 
     def _get_camera_config(self) -> Optional[Dict]:

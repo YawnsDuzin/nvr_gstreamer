@@ -10,10 +10,10 @@
     "fullscreen_auto_hide_enabled": true,
     "fullscreen_auto_hide_delay_seconds": 10,
     "window_state": {
-      "x": 177,
-      "y": 62,
-      "width": 1558,
-      "height": 961
+      "x": 760,
+      "y": 59,
+      "width": 1155,
+      "height": 768
     },
     "dock_state": {
       "camera_visible": true,
@@ -86,7 +86,7 @@
     }
   ],
   "recording": {
-    "file_format": "mp4",
+    "file_format": "mkv",
     "rotation_minutes": 2,
     "codec": "h264",
     "fragment_duration_ms": 1000
@@ -176,7 +176,7 @@
     }
   },
   "performance": {
-    "alert_enabled": true,
+    "alert_enabled": false,
     "alert_warning_check_interval_seconds": 30,
     "alert_critical_check_interval_seconds": 15,
     "max_cpu_percent": 80,

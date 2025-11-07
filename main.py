@@ -86,7 +86,8 @@ def setup_logging(debug: bool = False, config_file: str = None):
             level=file_level,
             rotation=rotation,
             retention=retention,
-            compression=compression
+            compression=compression,
+            catch=True  # Catch exceptions during logging (e.g., I/O errors when storage disconnected)
         )
 
     # Error log (separate file for errors)
@@ -102,7 +103,8 @@ def setup_logging(debug: bool = False, config_file: str = None):
             format=file_format,
             level=error_level,
             rotation=error_rotation,
-            retention=error_retention
+            retention=error_retention,
+            catch=True  # Catch exceptions during logging (e.g., I/O errors when storage disconnected)
         )
 
     # JSON log (structured logging)
@@ -117,7 +119,8 @@ def setup_logging(debug: bool = False, config_file: str = None):
             level="DEBUG",
             serialize=serialize,
             rotation="1 day",
-            retention="7 days"
+            retention="7 days",
+            catch=True  # Catch exceptions during logging (e.g., I/O errors when storage disconnected)
         )
 
     logger.info("Logging initialized from configuration")
