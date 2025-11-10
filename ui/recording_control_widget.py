@@ -459,19 +459,48 @@ class RecordingControlWidget(ThemedWidget):
     def _update_disk_usage(self):
         """디스크 사용량 업데이트 (타이머에서 호출)"""
         from pathlib import Path
-        # 설정에서 녹화 디렉토리 가져오기
-        config_manager = ConfigManager.get_instance()
-        storage_config = config_manager.config.get('storage', {})
-        recordings_path = storage_config.get('recording_path', './recordings')
-        recordings_dir = Path(recordings_path)
+        import os
 
-        if recordings_dir.exists():
-            total_size = sum(f.stat().st_size for f in recordings_dir.rglob("*.*") if f.is_file())
-            file_count = len(list(recordings_dir.rglob("*.*")))
-            disk_text = f"Disk Usage: {total_size / (1024*1024):.1f} MB ({file_count} files)"
-        else:
-            disk_text = "Disk Usage: 0 MB (0 files)"
-        self.disk_label.setText(disk_text)
+        try:
+            # 설정에서 녹화 디렉토리 가져오기
+            config_manager = ConfigManager.get_instance()
+            storage_config = config_manager.config.get('storage', {})
+            recordings_path = storage_config.get('recording_path', './recordings')
+            recordings_dir = Path(recordings_path)
+
+            # USB 마운트 포인트 확인
+            if recordings_path.startswith('/media/'):
+                # USB 마운트 포인트 추출 (예: /media/itlog/NVR_MAIN)
+                path_parts = recordings_path.split('/')
+                if len(path_parts) >= 4:
+                    mount_point = '/' + '/'.join(path_parts[1:4])
+                    if not os.path.exists(mount_point):
+                        self.disk_label.setText("⚠ Storage: USB Disconnected")
+                        return
+
+            if recordings_dir.exists():
+                # 권한 확인을 위해 먼저 접근 테스트
+                if not os.access(recordings_path, os.R_OK):
+                    self.disk_label.setText("⚠ Storage: Permission Denied")
+                    return
+
+                total_size = sum(f.stat().st_size for f in recordings_dir.rglob("*.*") if f.is_file())
+                file_count = len(list(recordings_dir.rglob("*.*")))
+                disk_text = f"Disk Usage: {total_size / (1024*1024):.1f} MB ({file_count} files)"
+            else:
+                disk_text = "⚠ Storage: Directory Not Found"
+
+            self.disk_label.setText(disk_text)
+
+        except PermissionError as e:
+            logger.warning(f"[STORAGE] Permission denied while checking disk usage: {e}")
+            self.disk_label.setText("⚠ Storage: Permission Denied")
+        except OSError as e:
+            logger.warning(f"[STORAGE] OS error while checking disk usage: {e}")
+            self.disk_label.setText("⚠ Storage: Not Available")
+        except Exception as e:
+            logger.error(f"[STORAGE] Unexpected error while checking disk usage: {e}")
+            self.disk_label.setText("⚠ Storage: Error")
 
     def update_recording_status(self, camera_id: str, is_recording: bool):
         """

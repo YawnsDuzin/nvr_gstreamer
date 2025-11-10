@@ -133,6 +133,37 @@ class GstPipeline:
             self._connection_state_callbacks.append(callback)
             logger.debug(f"Connection callback registered for {self.camera_id}")
 
+    def unregister_recording_callback(self, callback):
+        """
+        녹화 상태 변경 콜백 해제
+
+        Args:
+            callback: 해제할 콜백 함수
+        """
+        if callback in self._recording_state_callbacks:
+            self._recording_state_callbacks.remove(callback)
+            logger.debug(f"Recording callback unregistered for {self.camera_id}")
+
+    def unregister_connection_callback(self, callback):
+        """
+        연결 상태 변경 콜백 해제
+
+        Args:
+            callback: 해제할 콜백 함수
+        """
+        if callback in self._connection_state_callbacks:
+            self._connection_state_callbacks.remove(callback)
+            logger.debug(f"Connection callback unregistered for {self.camera_id}")
+
+    def cleanup_callbacks(self):
+        """
+        모든 콜백 정리 (파이프라인 종료 시 호출)
+        메모리 누수 방지 및 중복 콜백 실행 방지를 위해 사용
+        """
+        self._recording_state_callbacks.clear()
+        self._connection_state_callbacks.clear()
+        logger.debug(f"All callbacks cleared for {self.camera_id}")
+
     def _notify_connection_state_change(self, is_connected: bool):
         """
         연결 상태 변경 시 모든 등록된 콜백 호출
@@ -1008,6 +1039,21 @@ class GstPipeline:
             if message.src == self.pipeline:
                 old_state, new_state, pending_state = message.parse_state_changed()
                 logger.debug(f"Pipeline state: {old_state.value_nick} -> {new_state.value_nick}")
+        elif t == Gst.MessageType.BUFFERING:
+            # 네트워크 버퍼링 메시지 처리 - 불필요한 재연결 방지
+            percent = message.parse_buffering()
+            src_name = message.src.get_name() if message.src else "unknown"
+
+            if percent < 100:
+                logger.info(f"[BUFFERING] {src_name}: {percent}% - Network slow, buffering...")
+                # 버퍼링 중이므로 재연결하지 않음
+                # 필요 시 파이프라인 일시 정지 고려 가능
+                # self.pipeline.set_state(Gst.State.PAUSED)
+            else:
+                logger.info(f"[BUFFERING] {src_name}: Complete (100%)")
+                # 버퍼링 완료 - 재생 재개
+                # self.pipeline.set_state(Gst.State.PLAYING)
+
         elif t == Gst.MessageType.WARNING:
             warn, debug = message.parse_warning()
             src_name = message.src.get_name() if message.src else "unknown"
@@ -1016,47 +1062,120 @@ class GstPipeline:
                 logger.warning(f"[RECORDING DEBUG] Recording branch warning: {warn}")
 
     def _classify_error(self, src_name, err, debug, error_code):
-        """에러 타입 분류"""
+        """
+        에러 타입 분류 - GStreamer 에러 도메인 우선, 메시지 문자열은 fallback
+
+        분류 우선순위:
+        1. GStreamer error domain (Gst.ResourceError, Gst.StreamError 등)
+        2. 소스 엘리먼트 이름 (source, sink, splitmuxsink 등)
+        3. 에러 메시지 문자열 (최후 fallback)
+        """
         error_str = str(err).lower()
         debug_str = str(debug).lower() if debug else ""
 
-        # RTSP 네트워크 에러 (확장)
+        # 1. GStreamer 에러 도메인 우선 확인
+        try:
+            domain = err.domain
+
+            # ResourceError: 리소스 접근 관련 에러 (네트워크, 파일, 디스크 등)
+            if domain == Gst.ResourceError.quark():
+                # 리소스를 찾을 수 없음 (RTSP 연결 실패, 파일 없음)
+                if error_code == Gst.ResourceError.NOT_FOUND:
+                    if src_name == "source":
+                        return ErrorType.RTSP_NETWORK
+                    else:
+                        return ErrorType.STORAGE_DISCONNECTED
+
+                # 쓰기 실패 (파일 쓰기, 네트워크 쓰기)
+                elif error_code == Gst.ResourceError.OPEN_WRITE:
+                    if src_name == "source":
+                        return ErrorType.RTSP_NETWORK
+                    else:
+                        return ErrorType.STORAGE_DISCONNECTED
+
+                # 읽기 실패
+                elif error_code == Gst.ResourceError.READ:
+                    if src_name == "source":
+                        return ErrorType.RTSP_NETWORK
+                    else:
+                        return ErrorType.STORAGE_DISCONNECTED
+
+                # 디스크 용량 부족
+                elif error_code == Gst.ResourceError.NO_SPACE_LEFT:
+                    return ErrorType.DISK_FULL
+
+                # 파일/리소스 열기 실패
+                elif error_code == Gst.ResourceError.OPEN_READ:
+                    if src_name == "source":
+                        return ErrorType.RTSP_NETWORK
+
+                # 기타 리소스 에러
+                elif src_name == "source":
+                    return ErrorType.RTSP_NETWORK
+                elif (src_name.startswith("sink") or
+                      "splitmuxsink" in src_name or
+                      "mux" in src_name or          # mp4mux, matroskamux 등
+                      "filesink" in src_name):       # 내부 filesink
+                    return ErrorType.STORAGE_DISCONNECTED
+
+            # StreamError: 스트림 처리 관련 에러 (디코딩, 형식 등)
+            elif domain == Gst.StreamError.quark():
+                if src_name == "source":
+                    # RTSP 스트림 에러는 네트워크 문제일 가능성 높음
+                    return ErrorType.RTSP_NETWORK
+                elif "dec" in src_name:
+                    return ErrorType.DECODER
+
+            # CoreError: GStreamer 코어 에러 (상태 변경 실패 등)
+            elif domain == Gst.CoreError.quark():
+                if error_code == Gst.CoreError.STATE_CHANGE:
+                    if (src_name.startswith("sink") or
+                        "splitmuxsink" in src_name or
+                        "mux" in src_name or          # mp4mux, matroskamux 등
+                        "filesink" in src_name):       # 내부 filesink
+                        return ErrorType.STORAGE_DISCONNECTED
+
+        except Exception as domain_err:
+            # 도메인 확인 실패 시 fallback으로 계속
+            logger.debug(f"Error domain check failed: {domain_err}")
+
+        # 2. 소스 엘리먼트 이름 기반 분류 (기존 로직 유지)
         if src_name == "source":
-            # error_code 9: Could not read
-            # error_code 10: Could not write (파이프라인 정지 중)
-            # error_code 7: Could not open (재연결 타임아웃)
-            # error_code 1: Internal data stream error
+            # RTSP 소스 에러 코드
+            # 1: Internal data stream error
+            # 7: Could not open (재연결 타임아웃)
+            # 9: Could not read
+            # 10: Could not write
             if error_code in [1, 7, 9, 10]:
                 return ErrorType.RTSP_NETWORK
 
-        # 저장소 분리 (FileSink 관련 에러)
-        # sink_* 형태의 이름을 가진 FileSink 요소에서 발생하는 에러
-        if src_name.startswith("sink") or "splitmuxsink" in src_name:
-            # 1. Could not write 오류 (저장소 쓰기 실패)
+        # 저장소 관련 sink/muxer 에러
+        if (src_name.startswith("sink") or
+            "splitmuxsink" in src_name or
+            "mux" in src_name or          # mp4mux, matroskamux 등
+            "filesink" in src_name):       # 내부 filesink
+            # Could not write (저장소 쓰기 실패)
             if (error_code == 10 and
                 "could not write" in error_str and
                 ("permission denied" in debug_str or
                  "file descriptor" in debug_str)):
                 return ErrorType.STORAGE_DISCONNECTED
 
-            # 2. No file name specified 오류 (파일 경로 접근 불가)
-            # gstfilesink.c의 gst_file_sink_open_file 에서 발생
-            # 저장소가 마운트 해제되면 location 속성이 유효하지 않게 됨
+            # No file name specified (파일 경로 접근 불가)
             if (error_code == 3 and
                 "no file name specified" in error_str and
                 "gst_file_sink_open_file" in debug_str):
                 return ErrorType.STORAGE_DISCONNECTED
 
-            # 3. State change failed 오류 (FileSink 시작 실패)
-            # 위 에러에 연쇄적으로 발생하는 오류
+            # State change failed (Sink 시작 실패)
             if (error_code == 4 and
                 "state change failed" in error_str and
                 ("failed to start" in debug_str or "gstbasesink.c" in debug_str)):
                 return ErrorType.STORAGE_DISCONNECTED
 
-        # 디스크 Full
-        if ("space" in error_str or
-            "no space" in error_str):
+        # 3. 에러 메시지 문자열 기반 분류 (최후 fallback)
+        # 디스크 용량 부족
+        if ("space" in error_str or "no space" in error_str):
             return ErrorType.DISK_FULL
 
         # 디코더 에러
@@ -1102,6 +1221,47 @@ class GstPipeline:
         """디스크 Full 처리 - 자동 정리"""
         logger.critical(f"[DISK] Disk full: {err}")
         self._handle_disk_full()
+
+    def _handle_disk_full(self):
+        """디스크 용량 부족 처리 - 자동 정리 및 재시도"""
+        logger.critical("[DISK] Disk full detected, attempting auto cleanup")
+
+        # 1. 녹화 중지
+        if self._is_recording:
+            logger.info("[DISK] Stopping recording due to disk full")
+            self.stop_recording()
+
+        # 2. StorageService를 통한 자동 정리
+        try:
+            from core.storage import StorageService
+            storage_service = StorageService()
+
+            # 오래된 파일 삭제 (7일 이상)
+            deleted_count = storage_service.auto_cleanup(
+                max_age_days=7,
+                min_free_space_gb=2.0
+            )
+
+            logger.info(f"[DISK] Cleaned up {deleted_count} old files")
+
+            # 3. 공간 확보 확인
+            time.sleep(1.0)
+            free_gb = storage_service.get_free_space_gb(str(self.recording_dir))
+
+            if free_gb >= 2.0:
+                logger.success(f"[DISK] Space freed: {free_gb:.2f}GB")
+                # 녹화 자동 재개
+                self._recording_should_auto_resume = True
+                self._schedule_recording_retry()
+            else:
+                logger.error(f"[DISK] Still not enough space after cleanup: {free_gb:.2f}GB")
+                # UI 알림
+                self._notify_recording_state_change(False)
+
+        except Exception as e:
+            logger.error(f"[DISK] Cleanup failed: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
 
     def _handle_decoder_error(self, err):
         """디코더 에러 처리 - 버퍼 플러시"""
@@ -1170,7 +1330,15 @@ class GstPipeline:
 
         # 최대 재시도 횟수 초과 시 중단
         if self.retry_count >= self.max_retries:
-            logger.error(f"Max retries ({self.max_retries}) reached")
+            logger.error(f"[RECONNECT] Max retries ({self.max_retries}) reached for {self.camera_id}")
+
+            # 사용자 알림: 연결 실패 상태 전달
+            self._notify_connection_state_change(False)
+
+            # UI에 ERROR 상태 표시를 위한 추가 알림
+            # (상위 CameraStream 클래스에서 처리)
+            logger.critical(f"[RECONNECT] Failed to reconnect to {self.camera_name} after {self.max_retries} attempts")
+
             return
 
         # 지수 백오프
@@ -1428,6 +1596,13 @@ class GstPipeline:
             # 녹화 재시도 타이머 취소
             self._cancel_recording_retry()
 
+            # 재연결 타이머 취소
+            if self.reconnect_timer:
+                if self.reconnect_timer.is_alive():
+                    self.reconnect_timer.cancel()
+                    logger.debug(f"Reconnect timer cancelled for {self.camera_name}")
+                self.reconnect_timer = None
+
             # 녹화 중이면 먼저 정지
             if self._is_recording:
                 self.stop_recording()
@@ -1576,6 +1751,11 @@ class GstPipeline:
             elif storage_error:
                 logger.debug("[RECORDING DEBUG] Skipping finalization due to storage error")
 
+                # storage_error인 경우 현재 파일 경로 기록 (USB 재연결 시 정리용)
+                if self.current_recording_file:
+                    self._last_corrupted_file = self.current_recording_file
+                    logger.warning(f"[STORAGE] File may be corrupted: {self._last_corrupted_file}")
+
             # 2. Valve 닫기 (녹화 데이터 흐름 차단)
             if self.recording_valve:
                 self.recording_valve.set_property("drop", True)
@@ -1619,24 +1799,52 @@ class GstPipeline:
         Returns:
             str: 생성할 파일 경로 (형식: {camera_id}_{timestamp}.{format})
         """
-        if not self._is_recording:
-            # 녹화 중이 아니면 기본 경로 반환
+        try:
+            if not self._is_recording:
+                # 녹화 중이 아니면 기본 경로 반환
+                date_dir = self.recording_dir / datetime.now().strftime("%Y%m%d")
+                date_dir.mkdir(exist_ok=True)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                return str(date_dir / f"{self.camera_id}_temp_{timestamp}.{self.file_format}")
+
+            # 매 fragment마다 새로운 timestamp로 파일 생성
+            # 형식: cam_01_20251028_143000.mp4 (기존 형식과 동일)
             date_dir = self.recording_dir / datetime.now().strftime("%Y%m%d")
             date_dir.mkdir(exist_ok=True)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            return str(date_dir / f"{self.camera_id}_temp_{timestamp}.{self.file_format}")
+            file_path = str(date_dir / f"{self.camera_id}_{timestamp}.{self.file_format}")
 
-        # 매 fragment마다 새로운 timestamp로 파일 생성
-        # 형식: cam_01_20251028_143000.mp4 (기존 형식과 동일)
-        date_dir = self.recording_dir / datetime.now().strftime("%Y%m%d")
-        date_dir.mkdir(exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        file_path = str(date_dir / f"{self.camera_id}_{timestamp}.{self.file_format}")
+            logger.info(f"[RECORDING DEBUG] Creating recording file: {file_path} (fragment #{fragment_id})")
+            self._recording_fragment_id = fragment_id
 
-        logger.info(f"[RECORDING DEBUG] Creating recording file: {file_path} (fragment #{fragment_id})")
-        self._recording_fragment_id = fragment_id
+            return file_path
 
-        return file_path
+        except (OSError, PermissionError, FileNotFoundError) as e:
+            logger.error(f"[STORAGE] USB disconnected during file rotation: {e}")
+
+            # GLib 메인 루프에서 에러 핸들러 호출
+            # 직접 _handle_storage_error()를 호출하면 안 됨 (GStreamer 콜백 스레드에서 호출되므로)
+            from gi.repository import GLib
+            GLib.idle_add(self._handle_storage_error_from_callback, str(e))
+
+            # 임시 경로 반환 (크래시 방지)
+            # splitmuxsink는 이 경로로 파일을 열려고 시도하고 실패하겠지만,
+            # 최소한 예외로 인한 크래시는 방지됨
+            return "/tmp/fallback_recording.mp4"
+
+    def _handle_storage_error_from_callback(self, err_msg):
+        """
+        콜백에서 호출되는 storage 에러 핸들러
+        GLib.idle_add를 통해 메인 루프에서 안전하게 호출됨
+
+        Args:
+            err_msg: 에러 메시지 문자열
+
+        Returns:
+            bool: False (GLib.idle_add는 False 반환 시 1회만 실행)
+        """
+        self._handle_storage_error(Exception(err_msg))
+        return False  # 1회만 실행
 
     def _validate_recording_path(self) -> bool:
         """
@@ -1676,6 +1884,17 @@ class GstPipeline:
                     if not os.path.ismount(str(mount_point)):
                         logger.error(f"[STORAGE] Path is not a mount point: {mount_point}")
                         logger.error(f"[STORAGE] USB device is not mounted")
+                        return False
+
+                    # 마운트 포인트 접근 권한 확인 (USB 재연결 시 권한 문제 방지)
+                    try:
+                        if not os.access(str(mount_point), os.R_OK | os.X_OK):
+                            logger.error(f"[STORAGE] No read permission for mount point: {mount_point}")
+                            logger.error(f"[STORAGE] USB may have permission issues after reconnection")
+                            return False
+                    except PermissionError as e:
+                        logger.error(f"[STORAGE] Permission denied accessing mount point: {e}")
+                        logger.error(f"[STORAGE] USB may have permission issues after reconnection")
                         return False
 
                     logger.debug(f"[STORAGE] USB mount point verified: {mount_point}")
