@@ -83,6 +83,12 @@ class RecordingControlWidget(ThemedWidget):
         self.cameras = {}  # camera_id -> (name, rtsp_url)
         self.main_window = None  # MainWindow 참조 (나중에 설정됨)
 
+        # 스토리지 에러 콜백 저장소
+        self._storage_error_callbacks = {}  # camera_id -> callback function
+
+        # 이전 스토리지 상태 추적 (중복 알림 방지)
+        self._last_storage_available = True
+
         self._setup_ui()
         self._setup_context_menu()
         self._setup_timer()
@@ -460,6 +466,10 @@ class RecordingControlWidget(ThemedWidget):
         """디스크 사용량 업데이트 (타이머에서 호출)"""
         from pathlib import Path
         import os
+        import shutil
+
+        storage_available = True  # 현재 스토리지 사용 가능 여부
+        error_msg = None
 
         try:
             # 설정에서 녹화 디렉토리 가져오기
@@ -476,31 +486,139 @@ class RecordingControlWidget(ThemedWidget):
                     mount_point = '/' + '/'.join(path_parts[1:4])
                     if not os.path.exists(mount_point):
                         self.disk_label.setText("⚠ Storage: USB Disconnected")
+                        storage_available = False
+                        error_msg = "USB mount point not found"
+                        # 상태 변화 시에만 알림
+                        if self._last_storage_available:
+                            self._notify_storage_error(error_msg)
+                        self._last_storage_available = False
+                        return
+
+                    # 마운트 상태 확인
+                    if not os.path.ismount(mount_point):
+                        self.disk_label.setText("⚠ Storage: Not Mounted")
+                        storage_available = False
+                        error_msg = "USB not mounted"
+                        if self._last_storage_available:
+                            self._notify_storage_error(error_msg)
+                        self._last_storage_available = False
                         return
 
             if recordings_dir.exists():
                 # 권한 확인을 위해 먼저 접근 테스트
-                if not os.access(recordings_path, os.R_OK):
+                if not os.access(recordings_path, os.R_OK | os.W_OK | os.X_OK):
                     self.disk_label.setText("⚠ Storage: Permission Denied")
+                    storage_available = False
+                    error_msg = "No RWX permission"
+                    if self._last_storage_available:
+                        self._notify_storage_error(error_msg)
+                    self._last_storage_available = False
                     return
 
                 total_size = sum(f.stat().st_size for f in recordings_dir.rglob("*.*") if f.is_file())
                 file_count = len(list(recordings_dir.rglob("*.*")))
                 disk_text = f"Disk Usage: {total_size / (1024*1024):.1f} MB ({file_count} files)"
+
+                # 디스크 공간 확인 (최소 1GB)
+                stat = shutil.disk_usage(recordings_path)
+                free_gb = stat.free / (1024**3)
+                if free_gb < 1.0:
+                    disk_text += f" | ⚠ Low Space: {free_gb:.2f} GB"
+                    storage_available = False
+                    error_msg = f"Low disk space: {free_gb:.2f} GB"
+                    if self._last_storage_available:
+                        self._notify_storage_error(error_msg)
+                    self._last_storage_available = False
+                else:
+                    disk_text += f" | Free: {free_gb:.1f} GB"
             else:
                 disk_text = "⚠ Storage: Directory Not Found"
+                storage_available = False
+                error_msg = "Recording directory not found"
+                if self._last_storage_available:
+                    self._notify_storage_error(error_msg)
+                self._last_storage_available = False
 
             self.disk_label.setText(disk_text)
+
+            # 스토리지 복구 감지
+            if storage_available and not self._last_storage_available:
+                logger.info("[STORAGE] Storage recovered!")
+            self._last_storage_available = storage_available
 
         except PermissionError as e:
             logger.warning(f"[STORAGE] Permission denied while checking disk usage: {e}")
             self.disk_label.setText("⚠ Storage: Permission Denied")
+            if self._last_storage_available:
+                self._notify_storage_error(f"Permission error: {e}")
+            self._last_storage_available = False
+
         except OSError as e:
             logger.warning(f"[STORAGE] OS error while checking disk usage: {e}")
             self.disk_label.setText("⚠ Storage: Not Available")
+            if self._last_storage_available:
+                self._notify_storage_error(f"OS error: {e}")
+            self._last_storage_available = False
+
         except Exception as e:
             logger.error(f"[STORAGE] Unexpected error while checking disk usage: {e}")
             self.disk_label.setText("⚠ Storage: Error")
+            if self._last_storage_available:
+                self._notify_storage_error(f"Unexpected error: {e}")
+            self._last_storage_available = False
+
+    def register_storage_error_callback(self, camera_id: str, callback):
+        """
+        스토리지 에러 콜백 등록
+
+        Args:
+            camera_id: 카메라 ID
+            callback: 콜백 함수 (인자 없음)
+        """
+        self._storage_error_callbacks[camera_id] = callback
+        logger.debug(f"[STORAGE] Registered storage error callback for {camera_id}")
+
+    def unregister_storage_error_callback(self, camera_id: str):
+        """
+        스토리지 에러 콜백 해제
+
+        Args:
+            camera_id: 카메라 ID
+        """
+        if camera_id in self._storage_error_callbacks:
+            del self._storage_error_callbacks[camera_id]
+            logger.debug(f"[STORAGE] Unregistered storage error callback for {camera_id}")
+
+    def _notify_storage_error(self, error_msg: str):
+        """
+        모든 녹화 중인 카메라에게 스토리지 에러 알림
+
+        Args:
+            error_msg: 에러 메시지
+        """
+        # 녹화 중인 카메라 찾기
+        recording_cameras = [
+            camera_id for camera_id, item in self.camera_items.items()
+            if item.is_recording
+        ]
+
+        if not recording_cameras:
+            logger.debug("[STORAGE] No recording cameras to notify")
+            return
+
+        logger.warning(f"[STORAGE] Notifying {len(recording_cameras)} camera(s) about storage error: {error_msg}")
+
+        # 각 카메라의 콜백 호출
+        for camera_id in recording_cameras:
+            callback = self._storage_error_callbacks.get(camera_id)
+            if callback:
+                try:
+                    logger.info(f"[STORAGE] Calling storage error callback for {camera_id}")
+                    callback()  # GstPipeline._handle_storage_error_from_ui() 호출
+                except Exception as e:
+                    logger.error(f"[STORAGE] Error calling callback for {camera_id}: {e}")
+            else:
+                logger.warning(f"[STORAGE] No callback registered for recording camera {camera_id}")
 
     def update_recording_status(self, camera_id: str, is_recording: bool):
         """

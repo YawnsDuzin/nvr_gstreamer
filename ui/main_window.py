@@ -128,12 +128,8 @@ class MainWindow(QMainWindow):
             QDockWidget.DockWidgetFloatable |
             QDockWidget.DockWidgetClosable
         )
-        self.camera_list = CameraListWidget(self.config_manager)
-        self.camera_list.main_window = self  # Set reference to main window for grid_view access
-        self.camera_dock.setWidget(self.camera_list)
-        self.addDockWidget(Qt.LeftDockWidgetArea, self.camera_dock)
-
         # Right panel - Recording control (as dock widget)
+        # ⭐ 중요: RecordingControlWidget을 먼저 생성 (CameraListWidget에서 참조)
         self.recording_dock = QDockWidget("Recording Control", self)
         self.recording_dock.setObjectName("recording_dock")  # 객체 이름 설정
         self.recording_dock.setFeatures(
@@ -145,6 +141,14 @@ class MainWindow(QMainWindow):
         self.recording_control.main_window = self  # MainWindow 참조 설정
         self.recording_dock.setWidget(self.recording_control)
         self.addDockWidget(Qt.RightDockWidgetArea, self.recording_dock)
+
+        # Left panel - Camera list (as dock widget)
+        # ⭐ RecordingControlWidget 생성 후에 생성 (스토리지 모니터링 콜백 등록용)
+        self.camera_list = CameraListWidget(self.config_manager)
+        self.camera_list.main_window = self  # Set reference to main window for grid_view access
+        self.camera_list.set_recording_control_widget(self.recording_control)  # 스토리지 모니터링 연결 (기존 카메라 콜백 등록 포함)
+        self.camera_dock.setWidget(self.camera_list)
+        self.addDockWidget(Qt.LeftDockWidgetArea, self.camera_dock)
 
         # Bottom panel - Playback widget (as dock widget)
         self.playback_dock = QDockWidget("Playback", self)

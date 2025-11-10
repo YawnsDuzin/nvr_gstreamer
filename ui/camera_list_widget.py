@@ -78,6 +78,7 @@ class CameraListWidget(ThemedWidget):
         self.camera_items = {}  # camera_id -> CameraListItem
         self.camera_streams = {}  # camera_id -> CameraStream
         self.main_window = None  # Reference to main window for grid_view access
+        self.recording_control_widget = None  # RecordingControlWidget 참조 (스토리지 모니터링용)
 
         self._setup_ui()
         self._setup_context_menu()
@@ -179,9 +180,32 @@ class CameraListWidget(ThemedWidget):
             ptz_port=camera_config.ptz_port,
             ptz_channel=camera_config.ptz_channel
         )
-        stream = CameraStream(stream_config)
+        stream = CameraStream(stream_config, recording_control_widget=self.recording_control_widget)
         self.camera_streams[camera_config.camera_id] = stream
         item.set_camera_stream(stream)
+
+    def set_recording_control_widget(self, widget):
+        """
+        RecordingControlWidget 설정 및 기존 카메라들의 콜백 등록
+
+        Args:
+            widget: RecordingControlWidget 인스턴스
+        """
+        logger.info(f"[STORAGE] Setting recording_control_widget, found {len(self.camera_streams)} camera stream(s)")
+        self.recording_control_widget = widget
+
+        # 기존 CameraStream 객체들에도 위젯 설정
+        for camera_id, stream in self.camera_streams.items():
+            stream.recording_control_widget = widget
+            logger.debug(f"[STORAGE] Set recording_control_widget for stream: {camera_id}")
+
+            # 이미 연결된 카메라들의 스토리지 콜백 등록
+            if stream.gst_pipeline:
+                callback = stream.gst_pipeline.get_storage_error_callback()
+                widget.register_storage_error_callback(camera_id, callback)
+                logger.info(f"[STORAGE] ✓ Registered storage callback for existing connected camera: {camera_id}")
+            else:
+                logger.debug(f"[STORAGE] Camera {camera_id} not yet connected, will register callback on connect")
 
     def _update_status(self):
         """Update status label and camera items"""

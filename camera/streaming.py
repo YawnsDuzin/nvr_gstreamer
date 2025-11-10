@@ -22,12 +22,13 @@ CameraConfig = Camera
 class CameraStream:
     """Handles individual camera stream"""
 
-    def __init__(self, config: Union[Camera, CameraConfig]):
+    def __init__(self, config: Union[Camera, CameraConfig], recording_control_widget=None):
         """
         Initialize camera stream
 
         Args:
             config: Camera configuration (Camera or CameraConfig for backward compatibility)
+            recording_control_widget: RecordingControlWidget 참조 (스토리지 모니터링용)
         """
         self.config = config
         self.gst_pipeline: Optional[GstPipeline] = None
@@ -40,6 +41,7 @@ class CameraStream:
             "last_error": None
         }
         self.window_handle = None  # 미리 할당될 윈도우 핸들 저장
+        self.recording_control_widget = recording_control_widget  # UI 위젯 참조
 
         # Build RTSP URL with credentials if provided
         # Use Camera model's method if available
@@ -113,6 +115,17 @@ class CameraStream:
             self._reconnect_count = 0
             self._stats["connection_time"] = time.time()
 
+            # RecordingControlWidget이 있으면 스토리지 에러 콜백 등록
+            if self.recording_control_widget:
+                callback = self.gst_pipeline.get_storage_error_callback()
+                self.recording_control_widget.register_storage_error_callback(
+                    self.config.camera_id,
+                    callback
+                )
+                logger.info(f"[STORAGE] ✓ Registered UI storage monitoring for {self.config.camera_id}")
+            else:
+                logger.warning(f"[STORAGE] ✗ recording_control_widget is None for {self.config.camera_id} - callback NOT registered")
+
             logger.success(f"Connected to camera: {self.config.name}")
             return True
 
@@ -126,6 +139,13 @@ class CameraStream:
     def disconnect(self):
         """Disconnect from camera stream"""
         logger.info(f"Disconnecting camera: {self.config.name}")
+
+        # 스토리지 에러 콜백 해제
+        if self.recording_control_widget:
+            self.recording_control_widget.unregister_storage_error_callback(
+                self.config.camera_id
+            )
+            logger.debug(f"[STORAGE] Unregistered UI storage monitoring for {self.config.camera_id}")
 
         if self.gst_pipeline:
             self.gst_pipeline.stop()

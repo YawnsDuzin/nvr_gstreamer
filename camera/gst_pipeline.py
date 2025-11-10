@@ -109,6 +109,12 @@ class GstPipeline:
         self._recording_retry_interval = 6.0  # 재시도 간격 (초)
         self._recording_should_auto_resume = False  # 자동 재개 플래그
 
+        # 프레임 모니터링 (연결 끊김 조기 감지)
+        self._last_frame_time = None  # 마지막 프레임 도착 시간
+        self._frame_monitor_timer = None  # 프레임 체크 타이머
+        self._frame_timeout_seconds = 5.0  # 프레임 타임아웃 (초)
+        self._frame_check_interval = 2.0  # 프레임 체크 간격 (초)
+
         logger.debug(f"Recording config loaded: recording_path={recording_path}, rotation={rotation_minutes}min, format={self.file_format}, codec={self.video_codec}")
 
     def register_recording_callback(self, callback):
@@ -204,6 +210,12 @@ class GstPipeline:
         try:
             logger.debug(f"Creating unified pipeline for {self.camera_name} (mode: {self.mode.value})")
 
+            # ✅ 파이프라인 재생성 시 녹화 상태 초기화 (재연결 시 상태 불일치 방지)
+            if self._is_recording:
+                logger.warning(f"[RECONNECT] Resetting stale recording state before pipeline creation")
+                self._is_recording = False
+                self.recording_start_time = None
+
             # 파이프라인 생성
             self.pipeline = Gst.Pipeline.new("unified-pipeline")
 
@@ -228,11 +240,16 @@ class GstPipeline:
             rtspsrc.set_property("tcp-timeout", tcp_timeout * 1000)
             logger.debug(f"TCP timeout set to {tcp_timeout}ms")
 
-            # connection_timeout 설정 (기본값: 10초)
-            # rtspsrc의 timeout 속성은 초 단위
-            connection_timeout = streaming_config.get("connection_timeout", 10)
-            rtspsrc.set_property("timeout", connection_timeout * 1000000)  # microseconds
-            logger.debug(f"Connection timeout set to {connection_timeout}s")
+            # RTSP Keep-Alive 설정 (연결 끊김 조기 감지)
+            # do-rtsp-keep-alive: RTSP 서버에 주기적으로 keep-alive 메시지 전송
+            rtspsrc.set_property("do-rtsp-keep-alive", True)
+
+            # timeout: keep-alive 간격 및 응답 타임아웃 (microseconds 단위)
+            # 기본값: 5초 (빠른 연결 끊김 감지를 위해)
+            # 값이 작을수록 빠르게 감지하지만, 네트워크 부하 증가
+            keepalive_timeout = streaming_config.get("keepalive_timeout", 5)
+            rtspsrc.set_property("timeout", keepalive_timeout * 1000000)  # microseconds
+            logger.debug(f"RTSP keep-alive enabled with {keepalive_timeout}s timeout")
 
             rtspsrc.set_property("retry", 5)
 
@@ -274,6 +291,15 @@ class GstPipeline:
                 # 기본 체인 연결 (소스는 나중에 pad-added 시그널로 연결)
                 depay.link(parse)
                 parse.link(self.tee)
+
+                # 프레임 모니터링을 위한 Pad Probe 추가 (parse → tee 연결 후)
+                parse_src_pad = parse.get_static_pad("src")
+                if parse_src_pad:
+                    parse_src_pad.add_probe(
+                        Gst.PadProbeType.BUFFER,
+                        self._on_frame_probe
+                    )
+                    logger.debug("[FRAME MONITOR] Pad probe added to parser output")
 
                 # RTSP 소스의 동적 패드 연결
                 rtspsrc.connect("pad-added", self._on_pad_added, depay)
@@ -397,6 +423,15 @@ class GstPipeline:
                     raise Exception("Failed to link h264parse → tee")
                 logger.debug("[SOURCE DEBUG] Linked: h264parse → tee")
 
+                # 프레임 모니터링을 위한 Pad Probe 추가
+                parse_src_pad = h264parse.get_static_pad("src")
+                if parse_src_pad:
+                    parse_src_pad.add_probe(
+                        Gst.PadProbeType.BUFFER,
+                        self._on_frame_probe
+                    )
+                    logger.debug("[FRAME MONITOR] Pad probe added to parser output")
+
                 # RTSP 소스의 동적 패드 연결: rtspsrc → depay
                 rtspsrc.connect("pad-added", self._on_rtspsrc_pad_added, rtph264depay)
                 logger.debug("[SOURCE DEBUG] Connected pad-added signal: rtspsrc → rtph264depay")
@@ -442,6 +477,15 @@ class GstPipeline:
                 if not h264parse.link(self.tee):
                     raise Exception("Failed to link h264parse → tee")
                 logger.debug("[SOURCE DEBUG] Linked: h264parse → tee")
+
+                # 프레임 모니터링을 위한 Pad Probe 추가
+                parse_src_pad = h264parse.get_static_pad("src")
+                if parse_src_pad:
+                    parse_src_pad.add_probe(
+                        Gst.PadProbeType.BUFFER,
+                        self._on_frame_probe
+                    )
+                    logger.debug("[FRAME MONITOR] Pad probe added to parser output")
 
                 # RTSP 소스의 동적 패드 연결: rtspsrc → jitterbuffer
                 rtspsrc.connect("pad-added", self._on_rtspsrc_pad_added, rtpjitterbuffer)
@@ -963,21 +1007,33 @@ class GstPipeline:
             pad: 동적 패드
             target_element: 연결할 대상 엘리먼트 (jitterbuffer)
         """
+        logger.info(f"[PAD-ADDED] pad-added signal received from {src.get_name()}, pad: {pad.get_name()}")
+
         pad_caps = pad.get_current_caps()
         if not pad_caps:
+            logger.warning(f"[PAD-ADDED] No caps available for pad {pad.get_name()}")
             return
 
         structure = pad_caps.get_structure(0)
         name = structure.get_name()
+        logger.info(f"[PAD-ADDED] Pad caps: {name}")
 
         if name.startswith("application/x-rtp"):
             sink_pad = target_element.get_static_pad("sink")
+            if not sink_pad:
+                logger.error(f"[PAD-ADDED] Target element {target_element.get_name()} has no sink pad")
+                return
+
             if not sink_pad.is_linked():
                 ret = pad.link(sink_pad)
                 if ret == Gst.PadLinkReturn.OK:
-                    logger.debug(f"Linked RTP pad: {name} → {target_element.get_name()}")
+                    logger.success(f"[PAD-ADDED] ✓ Linked RTP pad: {name} → {target_element.get_name()}")
                 else:
-                    logger.error(f"Failed to link RTP pad: {name} → {target_element.get_name()} (result: {ret})")
+                    logger.error(f"[PAD-ADDED] ✗ Failed to link RTP pad: {name} → {target_element.get_name()} (result: {ret})")
+            else:
+                logger.warning(f"[PAD-ADDED] Sink pad already linked for {target_element.get_name()}")
+        else:
+            logger.debug(f"[PAD-ADDED] Ignoring non-RTP pad: {name}")
 
     def _on_sync_message(self, bus, message):
         """동기 메시지 처리 (윈도우 핸들 설정)"""
@@ -991,6 +1047,75 @@ class GstPipeline:
                     logger.debug(f"Window handle set: {self.window_handle}")
                 except Exception as e:
                     logger.error(f"Failed to set window handle: {e}")
+
+    def _on_frame_probe(self, pad, info):
+        """
+        프레임 도착 시 호출되는 Pad Probe 콜백
+        매 프레임마다 호출되어 마지막 프레임 도착 시간을 업데이트
+        """
+        self._last_frame_time = time.time()
+        return Gst.PadProbeReturn.OK
+
+    def _check_frame_timeout(self):
+        """
+        프레임 타임아웃 체크 (주기적으로 호출)
+        마지막 프레임 도착 시간을 확인하여 연결 끊김 감지
+        """
+        try:
+            if not self._is_playing:
+                return True  # 파이프라인이 중지되면 타이머 계속 유지
+
+            if self._last_frame_time is None:
+                # 아직 프레임이 도착하지 않음 (초기 연결 중)
+                return True
+
+            elapsed = time.time() - self._last_frame_time
+            if elapsed > self._frame_timeout_seconds:
+                logger.warning(f"[FRAME MONITOR] No frames received for {elapsed:.1f}s (timeout: {self._frame_timeout_seconds}s)")
+                logger.warning(f"[FRAME MONITOR] Connection lost detected - starting reconnection")
+
+                # 연결 끊김으로 판단하고 재연결 시작
+                self._async_stop_and_reconnect()
+
+                return False  # 타이머 중지 (재연결 시 새로 시작)
+
+            return True  # 타이머 계속
+
+        except Exception as e:
+            logger.error(f"[FRAME MONITOR] Error in frame timeout check: {e}")
+            return True
+
+    def _start_frame_monitor(self):
+        """프레임 모니터링 시작"""
+        try:
+            # 마지막 프레임 시간 초기화
+            self._last_frame_time = time.time()
+
+            # 기존 타이머가 있으면 중지
+            if self._frame_monitor_timer:
+                GLib.source_remove(self._frame_monitor_timer)
+                self._frame_monitor_timer = None
+
+            # 새 타이머 시작
+            interval_ms = int(self._frame_check_interval * 1000)
+            self._frame_monitor_timer = GLib.timeout_add(interval_ms, self._check_frame_timeout)
+            logger.info(f"[FRAME MONITOR] Started - checking every {self._frame_check_interval}s, timeout: {self._frame_timeout_seconds}s")
+
+        except Exception as e:
+            logger.error(f"[FRAME MONITOR] Failed to start: {e}")
+
+    def _stop_frame_monitor(self):
+        """프레임 모니터링 중지"""
+        try:
+            if self._frame_monitor_timer:
+                GLib.source_remove(self._frame_monitor_timer)
+                self._frame_monitor_timer = None
+                logger.debug("[FRAME MONITOR] Stopped")
+
+            self._last_frame_time = None
+
+        except Exception as e:
+            logger.error(f"[FRAME MONITOR] Failed to stop: {e}")
 
     def _on_bus_message(self, bus, message):
         """버스 메시지 처리"""
@@ -1013,11 +1138,12 @@ class GstPipeline:
             # 에러 타입별 처리
             # - RTSP 네트워크 에러
             if error_type == ErrorType.RTSP_NETWORK:
-                self._handle_rtsp_error(err)
+                # self._handle_rtsp_error(err)
+                logger.info("ErrorType.RTSP_NETWORK")
             # - 저장소 분리
             elif error_type == ErrorType.STORAGE_DISCONNECTED:
                 self._handle_storage_error(err)
-                # logger.info("ErrorType.STORAGE_DISCONNECTED")
+                logger.info("ErrorType.STORAGE_DISCONNECTED")
             # - 디스크 Full
             elif error_type == ErrorType.DISK_FULL:
                 self._handle_disk_full_error(err)
@@ -1038,7 +1164,11 @@ class GstPipeline:
         elif t == Gst.MessageType.STATE_CHANGED:
             if message.src == self.pipeline:
                 old_state, new_state, pending_state = message.parse_state_changed()
-                logger.debug(f"Pipeline state: {old_state.value_nick} -> {new_state.value_nick}")
+                logger.info(f"[STATE] Pipeline state: {old_state.value_nick} → {new_state.value_nick}")
+
+                # PLAYING 상태 전환 시 추가 정보
+                if new_state == Gst.State.PLAYING:
+                    logger.success(f"[STATE] ✓ Pipeline now PLAYING - frames should start flowing")
         elif t == Gst.MessageType.BUFFERING:
             # 네트워크 버퍼링 메시지 처리 - 불필요한 재연결 방지
             percent = message.parse_buffering()
@@ -1310,6 +1440,18 @@ class GstPipeline:
 
         logger.debug(f"[RECONNECT] Async stop initiated - was_recording: {was_recording}")
 
+        # ✅ 녹화 중이었으면 명시적으로 먼저 중지 (파이프라인 정지 전)
+        if was_recording:
+            logger.info("[RECONNECT] Stopping recording before pipeline stop")
+            try:
+                # 파이프라인이 아직 살아있을 때 녹화 중지
+                self.stop_recording()
+            except Exception as e:
+                logger.warning(f"[RECONNECT] Failed to stop recording gracefully: {e}")
+                # 실패해도 상태는 초기화
+                self._is_recording = False
+                self.recording_start_time = None
+
         # 파이프라인 정지
         self.stop()
 
@@ -1341,16 +1483,58 @@ class GstPipeline:
 
             return
 
-        # 지수 백오프
+        # 지수 백오프: 5초 → 10초 → 20초 → 40초 → 60초 (최대)
         delay = min(5 * (2 ** self.retry_count), 60)
         self.retry_count += 1
 
-        logger.info(f"Reconnecting in {delay}s (attempt {self.retry_count}/{self.max_retries})")
+        logger.info(f"[RECONNECT] Reconnecting in {delay}s (attempt {self.retry_count}/{self.max_retries})")
 
         # 타이머 시작
         self.reconnect_timer = threading.Timer(delay, self._reconnect)
         self.reconnect_timer.daemon = True
         self.reconnect_timer.start()
+
+    def _test_rtsp_connection(self, timeout=3):
+        """
+        RTSP 연결 가능 여부를 빠르게 테스트
+        GStreamer의 rtspsrc를 사용하여 DESCRIBE 요청 전송
+
+        Returns:
+            bool: 연결 가능하면 True, 아니면 False
+        """
+        try:
+            logger.debug(f"[CONNECTION TEST] Testing RTSP connection to {self.rtsp_url}")
+
+            # 간단한 파이프라인으로 RTSP 연결 테스트
+            test_pipeline = Gst.parse_launch(
+                f"rtspsrc location={self.rtsp_url} protocols=tcp timeout={timeout * 1000000} ! fakesink"
+            )
+
+            if not test_pipeline:
+                logger.warning("[CONNECTION TEST] Failed to create test pipeline")
+                return False
+
+            # READY 상태로 전환 (RTSP DESCRIBE 요청 발생)
+            ret = test_pipeline.set_state(Gst.State.READY)
+
+            if ret == Gst.StateChangeReturn.FAILURE:
+                logger.warning("[CONNECTION TEST] RTSP connection test failed")
+                test_pipeline.set_state(Gst.State.NULL)
+                return False
+
+            # 짧은 대기 후 상태 확인
+            import time
+            time.sleep(0.5)
+
+            # 정리
+            test_pipeline.set_state(Gst.State.NULL)
+
+            logger.success("[CONNECTION TEST] ✓ RTSP connection test successful")
+            return True
+
+        except Exception as e:
+            logger.warning(f"[CONNECTION TEST] Exception during connection test: {e}")
+            return False
 
     def _reconnect(self):
         """재연결 수행 (중복 실행 방지)"""
@@ -1360,7 +1544,24 @@ class GstPipeline:
             self.retry_count = 0  # retry count 초기화
             return
 
-        logger.info("Attempting to reconnect...")
+        logger.info("[RECONNECT] Attempting to reconnect...")
+
+        # ✅ 연결 테스트 먼저 수행
+        if not self._test_rtsp_connection(timeout=3):
+            logger.warning("[RECONNECT] RTSP connection test failed - camera not responding")
+            logger.info("[RECONNECT] Will retry later...")
+            # 재연결 타이머 재스케줄링
+            self._schedule_reconnect()
+            return
+
+        logger.info("[RECONNECT] RTSP connection test passed - proceeding with reconnection")
+
+        # ✅ 파이프라인 재생성 (stop()에서 None으로 초기화했으므로)
+        if not self.create_pipeline():
+            logger.error("Failed to create pipeline during reconnect")
+            # 재연결 타이머 재스케줄링
+            self._schedule_reconnect()
+            return
 
         success = self.start()
 
@@ -1562,6 +1763,9 @@ class GstPipeline:
                 if show_timestamp:
                     self._start_timestamp_update()
 
+            # 프레임 모니터링 시작 (연결 끊김 조기 감지)
+            self._start_frame_monitor()
+
             logger.info(f"Pipeline started for {self.camera_name} (mode: {self.mode.value}, recording: {self._is_recording})")
 
             # 연결 상태 콜백 호출 (UI 동기화)
@@ -1593,6 +1797,9 @@ class GstPipeline:
             # 타임스탬프 업데이트 타이머 정지
             self._stop_timestamp_update()
 
+            # 프레임 모니터링 중지
+            self._stop_frame_monitor()
+
             # 녹화 재시도 타이머 취소
             self._cancel_recording_retry()
 
@@ -1615,6 +1822,17 @@ class GstPipeline:
             if self._thread and self._thread.is_alive():
                 self._thread.join(timeout=2.0)
 
+            # ✅ 파이프라인 객체 및 엘리먼트 참조 초기화 (재생성 시 충돌 방지)
+            self.pipeline = None
+            self.video_sink = None
+            self.tee = None
+            self.streaming_valve = None
+            self.recording_valve = None
+            self.splitmuxsink = None
+            self.text_overlay = None
+            self.bus = None
+            logger.debug(f"[CLEANUP] Pipeline objects cleared for {self.camera_name}")
+
             logger.info(f"Pipeline stopped for {self.camera_name}")
 
             # 연결 끊김 상태 콜백 호출 (UI 동기화) - 한 번만 호출됨
@@ -1632,10 +1850,13 @@ class GstPipeline:
             logger.error("Pipeline is not running")
             return False
 
-        # 이미 녹화 중인지 확인
+        # ✅ 이미 녹화 중인지 확인 (재연결 시 상태 불일치 방지)
         if self._is_recording:
-            logger.warning(f"Already recording: {self.camera_name}")
-            return False
+            logger.warning(f"Already recording: {self.camera_name} - forcing state reset")
+            # 상태 불일치 해결: 강제로 초기화
+            self._is_recording = False
+            self.recording_start_time = None
+            # 계속 진행하여 새로 녹화 시작
 
         try:
             # 1. 저장 경로 검증 (녹화 시작 전 필수!)
@@ -1845,6 +2066,28 @@ class GstPipeline:
         """
         self._handle_storage_error(Exception(err_msg))
         return False  # 1회만 실행
+
+    def _handle_storage_error_from_ui(self):
+        """
+        UI 위젯에서 호출되는 storage 에러 핸들러
+        RecordingControlWidget._notify_storage_error()에서 호출됨
+
+        UI 타이머 (5초 주기)가 스토리지 문제를 감지하면
+        이 메서드를 통해 녹화를 미리 중지하고 재시도 모드로 전환
+        """
+        logger.warning(f"[STORAGE] Storage error detected by UI monitoring (camera: {self.camera_id})")
+
+        # _handle_storage_error()와 동일한 로직 호출
+        self._handle_storage_error(Exception("Storage unavailable (detected by UI)"))
+
+    def get_storage_error_callback(self):
+        """
+        UI에 등록할 스토리지 에러 콜백 함수 반환
+
+        Returns:
+            callable: _handle_storage_error_from_ui 메서드
+        """
+        return self._handle_storage_error_from_ui
 
     def _validate_recording_path(self) -> bool:
         """

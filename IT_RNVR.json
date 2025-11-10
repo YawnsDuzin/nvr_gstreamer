@@ -8,12 +8,12 @@
     "show_status_bar": true,
     "fullscreen_on_start": true,
     "fullscreen_auto_hide_enabled": true,
-    "fullscreen_auto_hide_delay_seconds": 10,
+    "fullscreen_auto_hide_delay_seconds": 30,
     "window_state": {
-      "x": 760,
-      "y": 59,
-      "width": 1155,
-      "height": 768
+      "x": 204,
+      "y": 77,
+      "width": 1263,
+      "height": 825
     },
     "dock_state": {
       "camera_visible": true,
@@ -27,7 +27,7 @@
     "show_camera_name": true,
     "osd_font_size": 14,
     "osd_font_color": [
-      0,
+      255,
       255,
       255
     ],
@@ -44,10 +44,10 @@
     "buffer_size": 10485760,
     "latency_ms": 100,
     "tcp_timeout": 10000,
+    "keepalive_timeout": 5,
     "auto_reconnect": true,
     "max_reconnect_attempts": 5,
-    "reconnect_delay_seconds": 5,
-    "connection_timeout": 10
+    "reconnect_delay_seconds": 5
   },
   "cameras": [
     {
