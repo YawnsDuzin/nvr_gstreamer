@@ -413,9 +413,7 @@ class StorageSettingsTab(BaseSettingsTab):
             config["storage"]["delete_batch_size"] = self.delete_batch_size_spin.value()
             config["storage"]["delete_batch_delay_seconds"] = self.delete_batch_delay_spin.value()
 
-            self.config_manager.save_config()
-
-            logger.info("Storage settings saved successfully")
+            logger.debug("Storage settings prepared")
             return True
 
         except Exception as e:

@@ -157,9 +157,8 @@ class PerformanceSettingsTab(BaseSettingsTab):
             }
 
             config['performance'] = performance_config
-            self.config_manager.save_config()
 
-            logger.info("Performance settings saved")
+            logger.debug("Performance settings prepared")
             return True
 
         except Exception as e:

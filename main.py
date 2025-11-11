@@ -22,20 +22,20 @@ from core.config import ConfigManager
 
 # Note: QVector<int> 메타타입 경고는 PyQt5에서 자동 처리되므로 무시 가능
 
-def setup_logging(debug: bool = False, config_file: str = None):
+def setup_logging(debug: bool = False, db_path: str = None):
     """
-    Setup logging configuration from YAML file
+    Setup logging configuration from DB
 
     Args:
         debug: Enable debug logging (overrides config)
-        config_file: Path to configuration file
+        db_path: Path to database file (default: IT_RNVR.db)
     """
     # Remove default logger
     logger.remove()
 
     # Load configuration (singleton)
     try:
-        config_manager = ConfigManager.get_instance(config_file=config_file)
+        config_manager = ConfigManager.get_instance(db_path=db_path or "IT_RNVR.db")
         logging_config = config_manager.get_logging_config()
     except Exception as e:
         print(f"Warning: Failed to load logging config: {e}. Using defaults.")
@@ -148,11 +148,11 @@ def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="PyNVR - Network Video Recorder")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
-    parser.add_argument("--config", type=str, help="Path to configuration file")
+    parser.add_argument("--db", type=str, default="IT_RNVR.db", help="Path to database file (default: IT_RNVR.db)")
     args = parser.parse_args()
 
-    # Setup logging (uses config file if specified)
-    setup_logging(debug=args.debug, config_file=args.config)
+    # Setup logging (uses DB file if specified)
+    setup_logging(debug=args.debug, db_path=args.db)
     logger.info("Starting PyNVR application...")
 
     # Check dependencies

@@ -96,6 +96,9 @@ class MainWindow(QMainWindow):
         """Setup main UI with splitter layout"""
         self.setWindowTitle(f"{self.app_display_name} - Network Video Recorder (Single Camera)")
 
+        # 최소 화면 크기 설정 (800x480)
+        self.setMinimumSize(800, 480)
+
         # UI 설정에서 window_state 및 fullscreen_on_start 가져오기
         ui_config = self.config_manager.ui_config
         ws = ui_config.window_state

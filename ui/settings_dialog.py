@@ -185,7 +185,7 @@ class SettingsDialog(ThemedDialog):
 
     def _save_all_settings(self) -> bool:
         """
-        모든 설정 저장
+        모든 설정 저장 (각 탭은 config dict만 업데이트, 마지막에 한 번만 DB 저장)
 
         Returns:
             bool: 저장 성공 여부
@@ -198,7 +198,7 @@ class SettingsDialog(ThemedDialog):
                 logger.warning(f"Settings validation failed: {error_msg}")
                 return False
 
-            # 저장
+            # 각 탭의 save_settings() 호출 (config dict만 업데이트)
             success = True
             if self.basic_tab:
                 success &= self.basic_tab.save_settings()
@@ -221,13 +221,22 @@ class SettingsDialog(ThemedDialog):
             if self.logging_tab:
                 success &= self.logging_tab.save_settings()
 
-            if success:
+            if not success:
+                QMessageBox.warning(self, "Save Error", "Failed to prepare some settings")
+                logger.error("Failed to prepare some settings")
+                return False
+
+            # 모든 탭의 설정 준비 완료 후, 한 번만 DB 저장
+            logger.debug("Saving all settings to DB...")
+            db_save_success = self.config_manager.save_config(save_ui=True)
+
+            if db_save_success:
                 self.settings_changed.emit()
-                logger.info("All settings saved successfully")
+                logger.info("All settings saved successfully to DB")
                 return True
             else:
-                QMessageBox.warning(self, "Save Error", "Failed to save some settings")
-                logger.error("Failed to save some settings")
+                QMessageBox.warning(self, "Save Error", "Failed to save settings to database")
+                logger.error("Failed to save settings to database")
                 return False
 
         except Exception as e:
@@ -291,10 +300,8 @@ class SettingsDialog(ThemedDialog):
     def _on_apply(self):
         """Apply 버튼 클릭"""
         if self._save_all_settings():
-            QMessageBox.information(
-                self, "Success",
-                "Settings applied successfully"
-            )
+            QMessageBox.information(self, "Success", "Settings applied successfully")
+            logger.debug("Settings applied via Apply button")
 
     def add_tab(self, tab_widget, tab_name: str):
         """

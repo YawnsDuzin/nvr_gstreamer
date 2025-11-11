@@ -193,15 +193,9 @@ class BasicSettingsTab(BaseSettingsTab):
                 "playback_visible": self.playback_dock_cb.isChecked()
             }
 
-            # ConfigManager를 통해 저장 (save_ui=True로 UI 설정 포함)
-            success = self.config_manager.save_config(save_ui=True)
-
-            if success:
-                logger.info("Basic settings saved successfully")
-            else:
-                logger.error("Failed to save basic settings")
-
-            return success
+            # config dict 업데이트만 수행 (DB 저장은 settings_dialog에서 일괄 처리)
+            logger.debug("Basic settings prepared")
+            return True
 
         except Exception as e:
             logger.error(f"Failed to save basic settings: {e}")

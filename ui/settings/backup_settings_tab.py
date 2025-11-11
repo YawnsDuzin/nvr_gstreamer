@@ -206,10 +206,7 @@ class BackupSettingsTab(BaseSettingsTab):
             config["backup"]["verification"] = self.verification_cb.isChecked()
             config["backup"]["delete_after_backup"] = self.delete_after_cb.isChecked()
 
-            # ConfigManager를 통해 저장
-            self.config_manager.save_config()
-
-            logger.info("Backup settings saved successfully")
+            logger.debug("Backup settings prepared")
             return True
 
         except Exception as e:

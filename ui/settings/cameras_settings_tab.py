@@ -356,8 +356,13 @@ class CamerasSettingsTab(BaseSettingsTab):
 
         logger.debug(f"Camera selected: {camera.get('camera_id')}")
 
-    def _apply_camera_changes(self):
-        """현재 카메라 변경사항 적용"""
+    def _apply_camera_changes(self, show_message: bool = True):
+        """
+        현재 카메라 변경사항 적용
+
+        Args:
+            show_message: True면 완료 메시지 표시, False면 조용히 적용
+        """
         if self.current_camera_index < 0:
             return
 
@@ -405,7 +410,8 @@ class CamerasSettingsTab(BaseSettingsTab):
         # Update list item
         self.camera_list.item(self.current_camera_index).setText(camera["name"])
 
-        QMessageBox.information(self, "Success", f"Camera '{camera['name']}' updated.")
+        if show_message:
+            QMessageBox.information(self, "Success", f"Camera '{camera['name']}' updated.")
         logger.info(f"Camera updated: {camera['camera_id']}")
 
     def load_settings(self):
@@ -434,22 +440,21 @@ class CamerasSettingsTab(BaseSettingsTab):
             logger.error(f"Failed to load camera settings: {e}")
 
     def save_settings(self) -> bool:
-        """설정 저장"""
+        """설정 저장 (config dict만 업데이트, DB 저장은 settings_dialog에서 일괄 처리)"""
         try:
-            # Apply current camera changes first
+            # Apply current camera changes first (without showing message)
             if self.current_camera_index >= 0:
-                self._apply_camera_changes()
+                self._apply_camera_changes(show_message=False)
 
+            # config dict 업데이트만 수행
             config = self.config_manager.config
             config["cameras"] = self.cameras_data
 
-            self.config_manager.save_config()
-
-            logger.info(f"Camera settings saved: {len(self.cameras_data)} cameras")
+            logger.debug(f"Camera settings prepared: {len(self.cameras_data)} cameras")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to save camera settings: {e}")
+            logger.error(f"Failed to prepare camera settings: {e}")
             return False
 
     def validate_settings(self) -> tuple[bool, str]:

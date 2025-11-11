@@ -10,10 +10,10 @@
     "fullscreen_auto_hide_enabled": true,
     "fullscreen_auto_hide_delay_seconds": 30,
     "window_state": {
-      "x": 204,
-      "y": 77,
-      "width": 1263,
-      "height": 825
+      "x": 0,
+      "y": 0,
+      "width": 1920,
+      "height": 1080
     },
     "dock_state": {
       "camera_visible": true,

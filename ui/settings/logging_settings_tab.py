@@ -414,9 +414,7 @@ class LoggingSettingsTab(BaseSettingsTab):
                 "serialize": self.json_serialize_cb.isChecked()
             }
 
-            self.config_manager.save_config()
-
-            logger.info("Logging settings saved successfully")
+            logger.debug("Logging settings prepared")
             return True
 
         except Exception as e:

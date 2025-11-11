@@ -350,9 +350,7 @@ class StreamingSettingsTab(BaseSettingsTab):
             config["streaming"]["max_reconnect_attempts"] = self.max_reconnect_spin.value()
             config["streaming"]["reconnect_delay_seconds"] = self.reconnect_delay_spin.value()
 
-            self.config_manager.save_config()
-
-            logger.info("Streaming settings saved successfully")
+            logger.debug("Streaming settings prepared")
             return True
 
         except Exception as e:

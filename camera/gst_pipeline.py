@@ -2395,11 +2395,16 @@ class GstPipeline:
         actual_record_drop = self.recording_valve.get_property("drop")
         logger.info(f"[VALVE DEBUG] Valve states after mode change - Streaming: drop={actual_stream_drop}, Recording: drop={actual_record_drop}")
 
-        # 변경 사항 확인
-        if actual_stream_drop != (self.mode == PipelineMode.RECORDING_ONLY):
-            logger.warning(f"[VALVE DEBUG] Streaming valve state mismatch! Expected drop={self.mode == PipelineMode.RECORDING_ONLY}, Actual={actual_stream_drop}")
-        if actual_record_drop != (self.mode == PipelineMode.STREAMING_ONLY):
-            logger.warning(f"[VALVE DEBUG] Recording valve state mismatch! Expected drop={self.mode == PipelineMode.STREAMING_ONLY}, Actual={actual_record_drop}")
+        # 변경 사항 확인 (올바른 검증 로직)
+        # Streaming valve: RECORDING_ONLY 모드에서만 닫힘(drop=True)
+        expected_stream_drop = (self.mode == PipelineMode.RECORDING_ONLY)
+        # Recording valve: 모든 모드에서 초기에는 닫혀있음(drop=True), start_recording()으로 수동 시작 필요
+        expected_record_drop = True
+
+        if actual_stream_drop != expected_stream_drop:
+            logger.warning(f"[VALVE DEBUG] Streaming valve state mismatch! Expected drop={expected_stream_drop}, Actual={actual_stream_drop}")
+        if actual_record_drop != expected_record_drop:
+            logger.warning(f"[VALVE DEBUG] Recording valve state mismatch! Expected drop={expected_record_drop}, Actual={actual_record_drop}")
 
     def set_mode(self, mode: PipelineMode):
         """파이프라인 모드 변경 (런타임 중 변경 가능)"""

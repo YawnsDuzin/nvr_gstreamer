@@ -1,15 +1,14 @@
 """
 Configuration Manager
-Handles application configuration and camera settings
+SQLite DB 기반 설정 관리
 """
 
-import json
-import yaml
-import re
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, asdict, field
 from loguru import logger
+
+from core.db_manager import DBManager
 
 
 @dataclass
@@ -61,7 +60,7 @@ class CameraConfigData:
 
 class ConfigManager:
     """
-    Singleton class for managing application and camera configurations
+    Singleton class for managing application and camera configurations (DB-based)
 
     Usage:
         config_manager = ConfigManager.get_instance()
@@ -79,19 +78,21 @@ class ConfigManager:
             cls._instance = super(ConfigManager, cls).__new__(cls)
         return cls._instance
 
-    def __init__(self, config_file: Optional[str] = None, auto_save: bool = False):
+    def __init__(self, db_path: str = "IT_RNVR.db"):
         """
         Initialize configuration manager (only once for singleton)
 
         Args:
-            config_file: Path to configuration file (default: IT_RNVR.json)
-            auto_save: Automatically save config on changes (default: False for safety)
+            db_path: Path to database file (default: IT_RNVR.db)
         """
         # 이미 초기화되었으면 다시 초기화하지 않음
         if ConfigManager._initialized:
             return
 
-        self.config_file = Path(config_file) if config_file else Path("IT_RNVR.json")
+        self.db_path = db_path
+        self.db_manager = DBManager(db_path)
+
+        # 기존 속성 초기화 (호환성)
         self.app_config = AppConfig()
         self.ui_config = UIConfig()
         self.cameras: List[CameraConfigData] = []
@@ -99,29 +100,27 @@ class ConfigManager:
         self.logging_config: Dict[str, Any] = {}  # 로깅 설정 저장
         self.streaming_config: Dict[str, Any] = {}  # 스트리밍 설정 저장
         self.recording_config: Dict[str, Any] = {}  # 녹화 설정 저장
-        self.auto_save = auto_save  # 자동 저장 플래그
 
-        # Load configuration
+        # DB에서 설정 로드
         self.load_config()
 
         # 초기화 완료 플래그 설정
         ConfigManager._initialized = True
-        logger.info("ConfigManager singleton instance initialized")
+        logger.info(f"ConfigManager singleton instance initialized (DB: {db_path})")
 
     @classmethod
-    def get_instance(cls, config_file: Optional[str] = None, auto_save: bool = False) -> 'ConfigManager':
+    def get_instance(cls, db_path: str = "IT_RNVR.db") -> 'ConfigManager':
         """
         Get singleton instance of ConfigManager
 
         Args:
-            config_file: Path to configuration file (only used on first call)
-            auto_save: Automatically save config on changes (only used on first call)
+            db_path: Path to database file (only used on first call)
 
         Returns:
             ConfigManager singleton instance
         """
         if cls._instance is None:
-            cls._instance = ConfigManager(config_file=config_file, auto_save=auto_save)
+            cls._instance = ConfigManager(db_path=db_path)
         return cls._instance
 
     @classmethod
@@ -129,163 +128,150 @@ class ConfigManager:
         """
         Reset singleton instance (mainly for testing)
         """
+        if cls._instance and hasattr(cls._instance, 'db_manager'):
+            cls._instance.db_manager.close()
         cls._instance = None
         cls._initialized = False
         logger.debug("ConfigManager singleton instance reset")
 
     def load_config(self) -> bool:
         """
-        Load configuration from file
+        DB에서 설정 로드
 
         Returns:
             True if loaded successfully
         """
-        if not self.config_file.exists():
-            logger.warning(f"Config file not found: {self.config_file}")
-            self.create_default_config()
-            return True
-
         try:
-            with open(self.config_file, 'r', encoding='utf-8') as f:
-                if self.config_file.suffix == '.yaml' or self.config_file.suffix == '.yml':
-                    data = yaml.safe_load(f)
-                else:
-                    data = json.load(f)
+            # 전체 설정을 dict 형태로 메모리 캐시
+            self.config = {
+                "app": self.db_manager.get_app_config(),
+                "ui": self.db_manager.get_ui_config(),
+                "streaming": self.db_manager.get_streaming_config(),
+                "cameras": self.db_manager.get_cameras(),
+                "recording": self.db_manager.get_recording_config(),
+                "storage": self.db_manager.get_storage_config(),
+                "backup": self.db_manager.get_backup_config(),
+                "menu_keys": self.db_manager.get_menu_keys(),
+                "ptz_keys": self.db_manager.get_ptz_keys(),
+                "logging": self.db_manager.get_logging_config(),
+                "performance": self.db_manager.get_performance_config(),
+            }
 
-            # 전체 설정 저장
-            self.config = data
+            # 기존 코드 호환을 위해 개별 속성도 유지
+            self.app_config = AppConfig(**self.config["app"])
+            self.ui_config = UIConfig(**self.config["ui"])
+            self.cameras = [CameraConfigData(**cam) for cam in self.config["cameras"]]
+            self.logging_config = self.config["logging"]
+            self.streaming_config = self.config["streaming"]
+            self.recording_config = self.config["recording"]
 
-            # Load app config
-            if 'app' in data:
-                app_data = data['app']
-                self.app_config = AppConfig(**app_data)
-
-            # Load cameras
-            if 'cameras' in data:
-                self.cameras = []
-                logger.debug(f"Raw cameras data from config: {data['cameras']}")
-                for camera_data in data['cameras']:
-                    logger.debug(f"Processing camera data: {camera_data}")
-                    camera = CameraConfigData(**camera_data)
-                    self.cameras.append(camera)
-                    logger.debug(f"Added camera: {camera.camera_id} - enabled: {camera.enabled}")
-            else:
-                logger.warning("No 'cameras' section found in configuration!")
-
-            # Load logging configuration
-            if 'logging' in data:
-                self.logging_config = data['logging']
-                logger.debug(f"Loaded logging configuration: {self.logging_config.keys()}")
-            else:
-                logger.debug("No 'logging' section found in configuration, using defaults")
-                self.logging_config = {}
-
-            # Load UI configuration
-            if 'ui' in data:
-                ui_data = data['ui']
-                self.ui_config = UIConfig(**ui_data)
-                logger.debug(f"Loaded UI configuration: theme={self.ui_config.theme}")
-            else:
-                logger.debug("No 'ui' section found in configuration, using defaults")
-                self.ui_config = UIConfig()
-
-            # Load streaming configuration
-            if 'streaming' in data:
-                self.streaming_config = data['streaming']
-                logger.debug(f"Loaded streaming configuration: {self.streaming_config.keys()}")
-            else:
-                logger.debug("No 'streaming' section found in configuration, using defaults")
-                self.streaming_config = {}
-
-            # Load recording configuration
-            if 'recording' in data:
-                self.recording_config = data['recording']
-                logger.debug(f"Loaded recording configuration: {self.recording_config.keys()}")
-            else:
-                logger.debug("No 'recording' section found in configuration, using defaults")
-                self.recording_config = {}
-
-            logger.info(f"Configuration loaded from {self.config_file}")
-            logger.info(f"Loaded {len(self.cameras)} camera configurations")
+            logger.info("설정이 DB에서 로드되었습니다")
+            logger.info(f"로드된 카메라: {len(self.cameras)}대")
 
             # 로드된 모든 카메라 정보 출력
             for cam in self.cameras:
-                logger.info(f"Loaded camera: {cam.camera_id} - {cam.name} - enabled: {cam.enabled}")
+                logger.info(f"카메라 로드: {cam.camera_id} - {cam.name} - enabled: {cam.enabled}")
+
             return True
 
         except Exception as e:
-            logger.error(f"Failed to load configuration: {e}")
+            logger.error(f"DB 설정 로드 실패: {e}")
             return False
 
     def save_config(self, save_ui: bool = False) -> bool:
         """
-        Save configuration to file
+        설정을 DB에 저장 (모든 섹션 포함)
 
         Args:
-            save_ui: Include UI configuration (default: False to preserve YAML comments)
+            save_ui: Include UI configuration (default: False)
 
         Returns:
             True if saved successfully
         """
         try:
-            # self.config에 저장된 전체 설정을 기반으로 시작
-            # 이렇게 하면 기존의 모든 섹션이 보존됨
-            data = self.config.copy()
+            # 트랜잭션 없이 개별 저장 (각 save_* 메서드가 자체 커밋)
+            # app 저장 (self.app_config 사용)
+            logger.debug("Saving app config...")
+            self.db_manager.save_app_config(asdict(self.app_config))
 
-            # app과 cameras는 항상 최신 상태로 업데이트
-            data['app'] = asdict(self.app_config)
-            data['cameras'] = [asdict(camera) for camera in self.cameras]
+            # cameras 저장 (config dict에서 가져옴 - UI에서 업데이트된 데이터)
+            if "cameras" in self.config:
+                logger.debug("Saving cameras...")
+                self.db_manager.save_cameras(self.config["cameras"])
+            else:
+                # fallback: self.cameras 사용
+                logger.debug("Saving cameras (fallback)...")
+                self.db_manager.save_cameras([asdict(cam) for cam in self.cameras])
 
-            # UI 설정 포함 여부
+            # UI 설정 저장 여부
             if save_ui:
-                data['ui'] = asdict(self.ui_config)
+                logger.debug("Saving UI config...")
+                self.db_manager.save_ui_config(asdict(self.ui_config))
 
-            # Save to file
-            with open(self.config_file, 'w', encoding='utf-8') as f:
-                if self.config_file.suffix == '.yaml' or self.config_file.suffix == '.yml':
-                    # YAML 포맷 개선: 주석은 유지되지 않지만 가독성 향상
-                    yaml.dump(
-                        data,
-                        f,
-                        default_flow_style=False,
-                        sort_keys=False,
-                        allow_unicode=True,
-                        indent=2
-                    )
-                else:
-                    json.dump(data, f, indent=2, ensure_ascii=False)
+            # 모든 섹션 저장 (config dict에서 가져옴)
+            if "streaming" in self.config:
+                logger.debug("Saving streaming config...")
+                self.db_manager.save_streaming_config(self.config["streaming"])
 
-            logger.info(f"Configuration saved to {self.config_file}")
+            if "recording" in self.config:
+                logger.debug("Saving recording config...")
+                self.db_manager.save_recording_config(self.config["recording"])
+
+            if "storage" in self.config:
+                logger.debug("Saving storage config...")
+                self.db_manager.save_storage_config(self.config["storage"])
+
+            if "backup" in self.config:
+                logger.debug("Saving backup config...")
+                self.db_manager.save_backup_config(self.config["backup"])
+
+            if "menu_keys" in self.config:
+                logger.debug("Saving menu_keys...")
+                self.db_manager.save_menu_keys(self.config["menu_keys"])
+
+            if "ptz_keys" in self.config:
+                logger.debug("Saving ptz_keys...")
+                self.db_manager.save_ptz_keys(self.config["ptz_keys"])
+
+            if "logging" in self.config:
+                logger.debug("Saving logging config...")
+                self.db_manager.save_logging_config(self.config["logging"])
+
+            if "performance" in self.config:
+                logger.debug("Saving performance config...")
+                self.db_manager.save_performance_config(self.config["performance"])
+
+            # DB 저장 후 메모리 속성 동기화 (self.cameras, self.app_config 등을 config dict와 일치시킴)
+            if "cameras" in self.config:
+                # config["cameras"]의 데이터를 self.cameras에 역동기화
+                self.cameras = [CameraConfigData(**cam) for cam in self.config["cameras"]]
+                logger.debug(f"Synchronized self.cameras: {len(self.cameras)} cameras")
+
+            logger.info("설정이 DB에 저장되었습니다")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to save configuration: {e}")
+            logger.error(f"DB 설정 저장 실패: {e}")
             return False
 
-    def create_default_config(self):
-        """Create default configuration file (only if not exists)"""
-        # 파일이 이미 있으면 덮어쓰지 않음
-        if self.config_file.exists():
-            logger.warning(f"Config file already exists: {self.config_file}. Skipping creation.")
-            return
+    def save_ui_config(self) -> bool:
+        """
+        UI 설정만 DB에 저장
 
-        logger.info("Creating default configuration...")
+        Returns:
+            True if saved successfully
+        """
+        try:
+            self.db_manager.save_ui_config(asdict(self.ui_config))
 
-        # Default cameras for testing
-        self.cameras = [
-            CameraConfigData(
-                camera_id="cam_01",
-                name="Main Camera",
-                rtsp_url="rtsp://admin:password@192.168.0.131:554/stream",
-                enabled=True,
-                streaming_enabled_start=False,
-                recording_enabled_start=False
-            )
-        ]
+            # config dict 업데이트
+            self.config["ui"] = asdict(self.ui_config)
 
-        # Save default config
-        self.save_config()
-        logger.info(f"Default configuration created at {self.config_file}")
+            logger.debug("UI 설정이 DB에 저장되었습니다")
+            return True
+        except Exception as e:
+            logger.error(f"UI 설정 저장 실패: {e}")
+            return False
 
     def add_camera(self, camera: CameraConfigData) -> bool:
         """
@@ -427,37 +413,6 @@ class ConfigManager:
             logger.warning(f"Failed to parse layout '{layout_str}': {e}, using default 1x1")
             return (1, 1)
 
-    def save_ui_config(self) -> bool:
-        """
-        Save only UI configuration to JSON file
-        JSON 파일에서 ui 섹션만 부분 업데이트
-
-        Returns:
-            True if saved successfully
-        """
-        try:
-            if not self.config_file.exists():
-                logger.error(f"Config file not found: {self.config_file}")
-                return False
-
-            # 기존 JSON 파일 로드
-            with open(self.config_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-
-            # UI 설정만 업데이트
-            data['ui'] = asdict(self.ui_config)
-
-            # JSON 파일에 저장 (들여쓰기 2칸, 가독성 좋게)
-            with open(self.config_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-
-            logger.debug(f"UI configuration saved to {self.config_file}")
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to save UI configuration: {e}")
-            return False
-
     def update_ui_window_state(self, x: int, y: int, width: int, height: int):
         """
         Update window state in UI configuration
@@ -491,72 +446,3 @@ class ConfigManager:
             "playback_visible": playback_visible
         }
         logger.debug(f"Updated dock state: camera={camera_visible}, recording={recording_visible}, playback={playback_visible}")
-
-    def export_config(self, file_path: str) -> bool:
-        """
-        Export configuration to file
-
-        Args:
-            file_path: Export file path
-
-        Returns:
-            True if exported successfully
-        """
-        try:
-            data = {
-                'app': asdict(self.app_config),
-                'cameras': [asdict(camera) for camera in self.cameras]
-            }
-
-            path = Path(file_path)
-            with open(path, 'w') as f:
-                if path.suffix == '.yaml' or path.suffix == '.yml':
-                    yaml.dump(data, f, default_flow_style=False)
-                else:
-                    json.dump(data, f, indent=2)
-
-            logger.info(f"Configuration exported to {path}")
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to export configuration: {e}")
-            return False
-
-    def import_config(self, file_path: str) -> bool:
-        """
-        Import configuration from file
-
-        Args:
-            file_path: Import file path
-
-        Returns:
-            True if imported successfully
-        """
-        try:
-            path = Path(file_path)
-            if not path.exists():
-                logger.error(f"Import file not found: {path}")
-                return False
-
-            with open(path, 'r') as f:
-                if path.suffix == '.yaml' or path.suffix == '.yml':
-                    data = yaml.safe_load(f)
-                else:
-                    data = json.load(f)
-
-            # Validate and load data
-            if 'cameras' in data:
-                self.cameras = []
-                for camera_data in data['cameras']:
-                    camera = CameraConfigData(**camera_data)
-                    self.cameras.append(camera)
-
-            if 'app' in data:
-                self.app_config = AppConfig(**data['app'])
-
-            logger.info(f"Configuration imported from {path}")
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to import configuration: {e}")
-            return False

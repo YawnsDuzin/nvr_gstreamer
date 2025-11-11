@@ -235,9 +235,7 @@ class PTZKeySettingsTab(BaseSettingsTab):
             for key_name, key_edit in self.key_edits.items():
                 config["ptz_keys"][key_name] = key_edit.get_key()
 
-            self.config_manager.save_config()
-
-            logger.info("PTZ key settings saved successfully")
+            logger.debug("PTZ key settings prepared")
             return True
 
         except Exception as e:

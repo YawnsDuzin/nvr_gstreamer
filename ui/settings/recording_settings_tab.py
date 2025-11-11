@@ -163,10 +163,7 @@ class RecordingSettingsTab(BaseSettingsTab):
             config["recording"]["fragment_duration_ms"] = self.fragment_duration_spin.value()
             config["recording"]["rotation_minutes"] = self.rotation_minutes_spin.value()
 
-            # ConfigManager를 통해 저장
-            self.config_manager.save_config()
-
-            logger.info("Recording settings saved successfully")
+            logger.debug("Recording settings prepared")
             return True
 
         except Exception as e:
