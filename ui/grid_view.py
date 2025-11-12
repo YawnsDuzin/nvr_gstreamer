@@ -64,23 +64,23 @@ class ChannelWidget(StreamVideoWidget):
         """Custom paint event for OSD overlay"""
         super().paintEvent(event)
 
-        # if self.show_osd and self.is_connected:
-        #     painter = QPainter(self)
-        #     painter.setRenderHint(QPainter.Antialiasing)
+        if self.show_osd and self.is_connected:
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.Antialiasing)
 
-        #     # Draw timestamp
-        #     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        #     painter.setPen(QColor(255, 255, 255))
-        #     painter.setFont(QFont("Arial", 10))
+            # Draw timestamp
+            current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            painter.setPen(QColor(255, 255, 255))
+            painter.setFont(QFont("Arial", 10))
 
-        #     # Draw timestamp in bottom-right corner
-        #     text_rect = QRect(self.width() - 180, self.height() - 30, 170, 20)
-        #     painter.fillRect(text_rect, QColor(0, 0, 0, 128))
-        #     painter.drawText(text_rect, Qt.AlignCenter, current_time)
+            # Draw timestamp in bottom-right corner
+            text_rect = QRect(self.width() - 180, self.height() - 30, 170, 20)
+            painter.fillRect(text_rect, QColor(0, 0, 0, 128))
+            painter.drawText(text_rect, Qt.AlignCenter, current_time)
 
-        #     # 녹화 인디케이터 제거 - recording_status_label로 표시됨
+            # 녹화 인디케이터 제거 - recording_status_label로 표시됨
 
-        #     painter.end()
+            painter.end()
 
     def toggle_osd(self):
         """Toggle OSD display"""
@@ -487,21 +487,34 @@ class GridViewWidget(QWidget):
             channel_index = key - Qt.Key_1
             if channel_index < len(self.channels):
                 self.show_channel_fullscreen(channel_index)
+                event.accept()
+                return
 
         # ESC to exit fullscreen
         elif key == Qt.Key_Escape:
             if self.fullscreen_channel is not None:
                 self.exit_fullscreen()
+                event.accept()
+                return
 
         # F for fullscreen toggle
         elif key == Qt.Key_F:
             self.toggle_fullscreen()
+            event.accept()
+            return
 
         # S for sequence toggle
         elif key == Qt.Key_S:
             self.toggle_sequence()
+            event.accept()
+            return
 
-        super().keyPressEvent(event)
+        # 처리하지 않은 키는 무시 (eventFilter가 처리함)
+        event.ignore()
+
+    def keyReleaseEvent(self, event):
+        """키 릴리즈 이벤트를 무시 (eventFilter가 처리함)"""
+        event.ignore()
 
 
 # Alias for backward compatibility

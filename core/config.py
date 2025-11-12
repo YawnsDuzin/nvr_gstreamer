@@ -446,3 +446,16 @@ class ConfigManager:
             "playback_visible": playback_visible
         }
         logger.debug(f"Updated dock state: camera={camera_visible}, recording={recording_visible}, playback={playback_visible}")
+
+    def update_ui_layout(self, rows: int, cols: int):
+        """
+        Update grid layout in streaming configuration
+
+        Args:
+            rows: Number of rows in grid
+            cols: Number of columns in grid
+        """
+        layout_str = f"{rows}x{cols}"
+        self.streaming_config["default_layout"] = layout_str
+        self.config["streaming"]["default_layout"] = layout_str
+        logger.debug(f"Updated default layout: {layout_str}")

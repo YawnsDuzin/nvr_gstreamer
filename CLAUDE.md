@@ -50,6 +50,10 @@ python _tests/test_config_preservation.py
   - Related files: `_doc/playback_scan_stuck_issue_fix.md`
 
 ### Recent Fixes (2025-11)
+- **PTZ Zoom Key Event Fix** (2025-11-12): Fixed keyPress event not reaching MainWindow by installing eventFilter on QApplication
+  - Problem: GridView and child widgets intercepted key events before MainWindow
+  - Solution: Installed eventFilter on QApplication instance to capture all keyboard events
+  - Related files: `ui/main_window.py`, `ui/grid_view.py`, `_doc/ptz_zoom_keypress_issue_analysis_20251112.md`
 - **Raspberry Pi X Window Fix** (2025-11-05): Window handle validation to prevent BadWindow errors
 - **Video Transform Case Fix** (2025-11-05): Case-insensitive handling for flip settings
 - **Performance Settings Tab** (2025-11-05): System monitoring configuration UI
@@ -221,19 +225,21 @@ Mode switching happens at runtime using valve elements without service interrupt
 ## Important Notes
 
 ### Configuration System (Updated: 2025-11)
-**CRITICAL**: Configuration management has been updated:
-- **Format**: JSON (IT_RNVR.json) - migrated from YAML for easier partial updates
+**CRITICAL**: Configuration management migrated to SQLite database:
+- **Format**: SQLite database (IT_RNVR.db) - migrated from JSON for better data integrity
 - **Singleton Pattern**: ConfigManager uses singleton pattern - always use `ConfigManager.get_instance()`
 - **Auto-save**: UI state (window geometry, dock visibility) saved automatically on exit
-- **Configuration Sections**:
-  - `system`: System-wide settings (log level, retention)
+- **Database Tables**:
+  - `app_config`: System-wide settings (log level, retention)
   - `cameras`: Camera list with RTSP URLs, credentials, PTZ settings, video transform
-  - `recording`: Recording settings (file format, rotation minutes, codec, fragment duration)
-  - `storage`: Storage management settings (recording_path, auto cleanup, max days, min space)
-  - `ui`: UI state (window geometry, dock visibility)
-  - `backup`: Backup settings (destination path, verification, delete after backup)
-  - `performance`: System monitoring thresholds (CPU, memory, temperature)
-  - `logging`: Comprehensive logging configuration (console, file, error, JSON logs)
+  - `recording_config`: Recording settings (file format, rotation minutes, codec, fragment duration)
+  - `storage_config`: Storage management settings (recording_path, auto cleanup, max days, min space)
+  - `ui_config`: UI state (window geometry, dock visibility)
+  - `backup_config`: Backup settings (destination path, verification, delete after backup)
+  - `performance_config`: System monitoring thresholds (CPU, memory, temperature)
+  - `logging_config`: Comprehensive logging configuration (console, file, error, JSON logs)
+  - `menu_keys`: Menu keyboard shortcuts (F1-F12, special keys)
+  - `ptz_keys`: PTZ control keyboard shortcuts (zoom, pan, tilt)
 - **Recording Path Migration** (2025-11-04):
   - Recording path moved from `recording.base_path` to `storage.recording_path`
   - All code now uses `storage_config.get('recording_path')` pattern
@@ -310,6 +316,18 @@ Critical for ensuring proper video display:
 3. Platform-specific handling for Windows/Linux
 4. **Raspberry Pi X Window Fix** (2025-11-05): Validates window handle before setting to prevent BadWindow errors
 
+### Keyboard Event Handling
+**CRITICAL**: PTZ and menu keyboard shortcuts implementation:
+- **Event Filter on QApplication**: MainWindow installs eventFilter on QApplication instance to capture all keyboard events
+  - Without this, child widgets (GridView, VideoWidget) intercept events before MainWindow
+  - `app.installEventFilter(self)` in `_setup_fullscreen_ui()` method
+- **PTZ Control**:
+  - Requires camera selection first (camera list or video widget click)
+  - PTZ Controller created when camera is selected
+  - Key mappings stored in `ptz_keys` database table (V=zoom_in, B=zoom_out, etc.)
+- **Menu Keys**: F1-F12 and special keys for menu actions, stored in `menu_keys` table
+- Related files: `ui/main_window.py` (eventFilter, keyPressEvent, keyReleaseEvent)
+
 ## Development Workflow
 
 When modifying the codebase:
@@ -332,6 +350,8 @@ Detailed technical documentation is available in `_doc/`:
 - `camera_disconnect_error_analysis.md`: Network disconnection error recovery
 - `20251029_startup_flow.md`: Application startup sequence and initialization
 - `settings_dialog_implementation_plan.md`: Settings dialog architecture
+- `ptz_zoom_keypress_issue_analysis_20251112.md`: PTZ keyboard event handling fix (2025-11-12)
+- `db_migration_complete.md`: JSON to SQLite database migration documentation
 
 ## Known Issues & Solutions
 

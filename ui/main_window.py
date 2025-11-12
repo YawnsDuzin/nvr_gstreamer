@@ -184,6 +184,9 @@ class MainWindow(QMainWindow):
         self.grid_view.set_layout(rows, cols)
         logger.info(f"Set initial grid layout to {rows}x{cols} from config")
 
+        # Set initial menu check state (will be done after menus are created)
+        self.initial_layout = (rows, cols)
+
     def _apply_theme(self):
         """Apply theme based on UI configuration"""
         ui_config = self.config_manager.ui_config
@@ -228,20 +231,29 @@ class MainWindow(QMainWindow):
         # View menu
         view_menu = menubar.addMenu("View")
 
-        # Single camera - no layout submenu needed
-        # Just keep 1x1 layout option for consistency
-        single_view = QAction("Single View", self)
-        single_view.setShortcut(QKeySequence("Alt+1"))
-        single_view.setEnabled(False)  # Already in single view
-        view_menu.addAction(single_view)
-
-        view_menu.addSeparator()
-
         self.fullscreen_action = QAction("Fullscreen", self)
         self.fullscreen_action.setShortcut(QKeySequence("F11"))
         self.fullscreen_action.setCheckable(True)
         self.fullscreen_action.triggered.connect(self.toggle_fullscreen)
         view_menu.addAction(self.fullscreen_action)
+
+        # Layout submenu
+        layout_menu = view_menu.addMenu("Layout")
+
+        # Layout action group (radio button behavior)
+        from PyQt5.QtWidgets import QActionGroup
+        self.layout_group = QActionGroup(self)
+
+        # Add layout options
+        self.layout_actions = {}
+        for layout_name, layout_size in [("1x1", (1, 1)), ("2x2", (2, 2)),
+                                         ("3x3", (3, 3)), ("4x4", (4, 4))]:
+            action = QAction(layout_name, self)
+            action.setCheckable(True)
+            action.triggered.connect(lambda checked, size=layout_size: self.grid_view.set_layout(*size))
+            self.layout_group.addAction(action)
+            layout_menu.addAction(action)
+            self.layout_actions[layout_size] = action
 
         view_menu.addSeparator()
 
@@ -307,6 +319,12 @@ class MainWindow(QMainWindow):
         about_action = QAction("About", self)
         about_action.triggered.connect(self._show_about)
         help_menu.addAction(about_action)
+
+        # Set initial layout menu check state
+        if hasattr(self, 'initial_layout') and hasattr(self, 'layout_actions'):
+            for size, action in self.layout_actions.items():
+                action.setChecked(size == self.initial_layout)
+            logger.debug(f"Set initial layout menu check for {self.initial_layout}")
 
     def _setup_connections(self):
         """Setup signal connections between components"""
@@ -396,8 +414,15 @@ class MainWindow(QMainWindow):
         for widget in self.findChildren(QWidget):
             widget.setMouseTracking(True)
 
-        # 이벤트 필터 설치 (모든 이벤트 감지)
-        self.installEventFilter(self)
+        # 이벤트 필터를 QApplication에 설치 (모든 위젯의 이벤트 감지)
+        app = QApplication.instance()
+        if app:
+            app.installEventFilter(self)
+            logger.info("Event filter installed on QApplication")
+        else:
+            # fallback: MainWindow에만 설치
+            self.installEventFilter(self)
+            logger.warning("QApplication not found, installing event filter on MainWindow only")
 
         # 비활동 체크 타이머 시작
         self.ui_hide_timer = QTimer(self)
@@ -408,10 +433,24 @@ class MainWindow(QMainWindow):
         logger.info(f"Fullscreen auto-hide feature initialized (delay: {delay}s)")
 
     def eventFilter(self, obj, event):
-        """이벤트 필터: 마우스 활동 감지 (키보드는 제외)"""
-        # 전체화면 모드일 때만 동작
+        """이벤트 필터: 마우스 활동 감지 및 키보드 이벤트 가로채기"""
+        # 키보드 이벤트 처리 (모든 모드에서 동작)
+        if event.type() == QEvent.KeyPress:
+            logger.debug(f"eventFilter: KeyPress detected - calling keyPressEvent")
+            # MainWindow의 keyPressEvent 직접 호출
+            self.keyPressEvent(event)
+            if event.isAccepted():
+                return True
+        elif event.type() == QEvent.KeyRelease:
+            logger.debug(f"eventFilter: KeyRelease detected - calling keyReleaseEvent")
+            # MainWindow의 keyReleaseEvent 직접 호출
+            self.keyReleaseEvent(event)
+            if event.isAccepted():
+                return True
+
+        # 전체화면 모드일 때 마우스 활동 감지
         if self.isFullScreen():
-            # 마우스 이동 또는 클릭만 감지 (키보드 이벤트는 제외)
+            # 마우스 이동 또는 클릭만 감지
             if event.type() in [QEvent.MouseMove, QEvent.MouseButtonPress, QEvent.MouseButtonRelease]:
                 self._on_user_activity()
 
@@ -1041,9 +1080,21 @@ class MainWindow(QMainWindow):
     def _on_layout_changed(self, layout: tuple):
         """Handle layout change"""
         rows, cols = layout
-        # Single camera - always show "Single Camera"
-        self.layout_label.setText("Layout: Single Camera")
-        logger.info(f"Single camera mode - layout fixed at 1x1")
+
+        # Update status bar label
+        self.layout_label.setText(f"Layout: {rows}x{cols}")
+        logger.info(f"Layout changed to {rows}x{cols}")
+
+        # Update menu check state
+        if hasattr(self, 'layout_actions'):
+            for size, action in self.layout_actions.items():
+                action.setChecked(size == layout)
+
+        # Save layout to config
+        self.config_manager.update_ui_layout(rows, cols)
+        # streaming 설정만 저장 (UI 전체 저장 아님)
+        self.config_manager.db_manager.save_streaming_config(self.config_manager.streaming_config)
+        logger.info(f"Layout {rows}x{cols} saved to database")
 
         # 레이아웃 변경 시 윈도우 핸들 재할당 및 파이프라인 업데이트
         self._update_window_handles_after_layout_change()
@@ -1254,7 +1305,7 @@ class MainWindow(QMainWindow):
         F11 - Toggle Fullscreen<br><br>
 
         <b>View:</b><br>
-        Alt+1 - Single View<br>
+        F11 - Toggle Fullscreen<br>
         F - Toggle Fullscreen<br>
         ESC - Exit Fullscreen<br><br>
 
@@ -1348,6 +1399,7 @@ class MainWindow(QMainWindow):
 
         # 일반 문자 키 처리 (PTZ 키)
         key = event.text().upper()
+        logger.debug(f"KeyPressEvent: key='{key}', text='{event.text()}', key_code={event.key()}")
 
         # PTZ 키 액션 찾기
         ptz_action = None
@@ -1357,6 +1409,7 @@ class MainWindow(QMainWindow):
                 break
 
         if ptz_action:
+            logger.debug(f"PTZ action pressed: {ptz_action} (key='{key}')")
             self._execute_ptz_action(ptz_action, pressed=True)
             event.accept()
         else:
@@ -1392,6 +1445,8 @@ class MainWindow(QMainWindow):
             action: PTZ 액션 (zoom_in, zoom_out, up, down 등)
             pressed: True=키 누름, False=키 뗌
         """
+        logger.debug(f"_execute_ptz_action called: action={action}, pressed={pressed}")
+
         if not self.ptz_controller:
             logger.debug("PTZ Controller not available")
             return
@@ -1409,10 +1464,13 @@ class MainWindow(QMainWindow):
             return
 
         # 키를 누를 때
+        logger.debug(f"Processing PTZ pressed action: {action}")
         if action == 'zoom_in':
+            logger.debug(f"Calling zoom_in with speed: {self.ptz_speed}")
             self.ptz_controller.zoom_in(self.ptz_speed)
             self.statusBar().showMessage(f"PTZ: Zoom In (Speed: {self.ptz_speed})", 1000)
         elif action == 'zoom_out':
+            logger.debug(f"Calling zoom_out with speed: {self.ptz_speed}")
             self.ptz_controller.zoom_out(self.ptz_speed)
             self.statusBar().showMessage(f"PTZ: Zoom Out (Speed: {self.ptz_speed})", 1000)
         elif action == 'ptz_speed_up':
