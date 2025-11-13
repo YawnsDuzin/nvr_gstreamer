@@ -29,6 +29,7 @@ class LoggingSettingsTab(BaseSettingsTab):
 
     def __init__(self, config_manager: ConfigManager, parent=None):
         super().__init__(config_manager, parent)
+        self._section_name = "logging"  # 이 탭이 관리하는 섹션
         self._setup_ui()
         self.load_settings()
 
@@ -360,25 +361,26 @@ class LoggingSettingsTab(BaseSettingsTab):
                 "json_log": json_config.copy(),
             })
 
+            # 로드 완료 후 변경사항 플래그 초기화
+            self.mark_as_saved()
             logger.debug("LoggingSettingsTab settings loaded")
 
         except Exception as e:
             logger.error(f"Failed to load logging settings: {e}")
 
     def save_settings(self) -> bool:
-        """설정 저장"""
+        """설정 저장 (메모리에만)"""
         try:
-            config = self.config_manager.config
-
-            if "logging" not in config:
-                config["logging"] = {}
+            # config dict 업데이트
+            if "logging" not in self.config_manager.config:
+                self.config_manager.config["logging"] = {}
 
             # Main settings
-            config["logging"]["enabled"] = self.logging_enabled_cb.isChecked()
-            config["logging"]["log_path"] = self.log_path_edit.text().strip()
+            self.config_manager.config["logging"]["enabled"] = self.logging_enabled_cb.isChecked()
+            self.config_manager.config["logging"]["log_path"] = self.log_path_edit.text().strip()
 
             # Console settings
-            config["logging"]["console"] = {
+            self.config_manager.config["logging"]["console"] = {
                 "enabled": self.console_enabled_cb.isChecked(),
                 "level": self.console_level_combo.currentText(),
                 "colorize": self.console_colorize_cb.isChecked(),
@@ -386,7 +388,7 @@ class LoggingSettingsTab(BaseSettingsTab):
             }
 
             # File settings
-            config["logging"]["file"] = {
+            self.config_manager.config["logging"]["file"] = {
                 "enabled": self.file_enabled_cb.isChecked(),
                 "level": self.file_level_combo.currentText(),
                 "filename": self.file_filename_edit.text().strip(),
@@ -399,7 +401,7 @@ class LoggingSettingsTab(BaseSettingsTab):
             }
 
             # Error log settings
-            config["logging"]["error_log"] = {
+            self.config_manager.config["logging"]["error_log"] = {
                 "enabled": self.error_enabled_cb.isChecked(),
                 "filename": self.error_filename_edit.text().strip(),
                 "level": self.error_level_combo.currentText(),
@@ -408,18 +410,108 @@ class LoggingSettingsTab(BaseSettingsTab):
             }
 
             # JSON log settings
-            config["logging"]["json_log"] = {
+            self.config_manager.config["logging"]["json_log"] = {
                 "enabled": self.json_enabled_cb.isChecked(),
                 "filename": self.json_filename_edit.text().strip(),
                 "serialize": self.json_serialize_cb.isChecked()
             }
 
-            logger.debug("Logging settings prepared")
+            logger.debug("Logging settings saved to memory")
             return True
 
         except Exception as e:
             logger.error(f"Failed to save logging settings: {e}")
             return False
+
+    def _save_section_to_db(self) -> bool:
+        """logging 섹션을 DB에 저장"""
+        try:
+            # logging 데이터 준비
+            logging_data = {
+                "enabled": self.logging_enabled_cb.isChecked(),
+                "log_path": self.log_path_edit.text().strip(),
+                "console": {
+                    "enabled": self.console_enabled_cb.isChecked(),
+                    "level": self.console_level_combo.currentText(),
+                    "colorize": self.console_colorize_cb.isChecked(),
+                    "format": self.console_format_edit.text().strip()
+                },
+                "file": {
+                    "enabled": self.file_enabled_cb.isChecked(),
+                    "level": self.file_level_combo.currentText(),
+                    "filename": self.file_filename_edit.text().strip(),
+                    "format": self.file_format_edit.text().strip(),
+                    "rotation": self.file_rotation_edit.text().strip(),
+                    "retention": self.file_retention_edit.text().strip(),
+                    "compression": self.file_compression_edit.text().strip(),
+                    "max_size_mb": self.file_max_size_spin.value(),
+                    "rotation_count": self.file_rotation_count_spin.value()
+                },
+                "error_log": {
+                    "enabled": self.error_enabled_cb.isChecked(),
+                    "filename": self.error_filename_edit.text().strip(),
+                    "level": self.error_level_combo.currentText(),
+                    "rotation": self.error_rotation_edit.text().strip(),
+                    "retention": self.error_retention_edit.text().strip()
+                },
+                "json_log": {
+                    "enabled": self.json_enabled_cb.isChecked(),
+                    "filename": self.json_filename_edit.text().strip(),
+                    "serialize": self.json_serialize_cb.isChecked()
+                }
+            }
+
+            # DB에 저장
+            self.config_manager.db_manager.save_logging_config(logging_data)
+            logger.info("Logging settings saved to DB")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save logging settings to DB: {e}")
+            return False
+
+    def _update_original_data(self):
+        """현재 데이터를 원본으로 갱신"""
+        current_console = {
+            "enabled": self.console_enabled_cb.isChecked(),
+            "level": self.console_level_combo.currentText(),
+            "colorize": self.console_colorize_cb.isChecked(),
+            "format": self.console_format_edit.text().strip()
+        }
+
+        current_file = {
+            "enabled": self.file_enabled_cb.isChecked(),
+            "level": self.file_level_combo.currentText(),
+            "filename": self.file_filename_edit.text().strip(),
+            "format": self.file_format_edit.text().strip(),
+            "rotation": self.file_rotation_edit.text().strip(),
+            "retention": self.file_retention_edit.text().strip(),
+            "compression": self.file_compression_edit.text().strip(),
+            "max_size_mb": self.file_max_size_spin.value(),
+            "rotation_count": self.file_rotation_count_spin.value()
+        }
+
+        current_error = {
+            "enabled": self.error_enabled_cb.isChecked(),
+            "filename": self.error_filename_edit.text().strip(),
+            "level": self.error_level_combo.currentText(),
+            "rotation": self.error_rotation_edit.text().strip(),
+            "retention": self.error_retention_edit.text().strip()
+        }
+
+        current_json = {
+            "enabled": self.json_enabled_cb.isChecked(),
+            "filename": self.json_filename_edit.text().strip(),
+            "serialize": self.json_serialize_cb.isChecked()
+        }
+
+        self._store_original_data({
+            "enabled": self.logging_enabled_cb.isChecked(),
+            "log_path": self.log_path_edit.text().strip(),
+            "console": current_console,
+            "file": current_file,
+            "error_log": current_error,
+            "json_log": current_json,
+        })
 
     def validate_settings(self) -> tuple[bool, str]:
         """설정 검증"""

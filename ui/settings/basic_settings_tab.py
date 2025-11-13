@@ -22,7 +22,9 @@ class BasicSettingsTab(BaseSettingsTab):
 
     def __init__(self, config_manager: ConfigManager, parent=None):
         super().__init__(config_manager, parent)
+        self._section_name = "ui"  # 이 탭이 관리하는 섹션
         self._setup_ui()
+        self._connect_signals()
         self.load_settings()
 
     def _setup_ui(self):
@@ -113,6 +115,18 @@ class BasicSettingsTab(BaseSettingsTab):
 
         logger.debug("BasicSettingsTab UI setup complete")
 
+    def _connect_signals(self):
+        """위젯 신호 연결 - 변경 감지용"""
+        # 모든 위젯의 변경 신호를 연결
+        self.theme_combo.currentTextChanged.connect(self.mark_as_changed)
+        self.status_bar_cb.toggled.connect(self.mark_as_changed)
+        self.fullscreen_cb.toggled.connect(self.mark_as_changed)
+        self.auto_hide_enabled_cb.toggled.connect(self.mark_as_changed)
+        self.auto_hide_delay_spin.valueChanged.connect(self.mark_as_changed)
+        self.camera_dock_cb.toggled.connect(self.mark_as_changed)
+        self.recording_dock_cb.toggled.connect(self.mark_as_changed)
+        self.playback_dock_cb.toggled.connect(self.mark_as_changed)
+
     def load_settings(self):
         """설정 로드"""
         try:
@@ -171,13 +185,15 @@ class BasicSettingsTab(BaseSettingsTab):
                 "playback_visible": dock_state.get("playback_visible", True),
             })
 
+            # 로드 완료 후 변경사항 플래그 초기화
+            self.mark_as_saved()
             logger.debug("BasicSettingsTab settings loaded")
 
         except Exception as e:
             logger.error(f"Failed to load basic settings: {e}")
 
     def save_settings(self) -> bool:
-        """설정 저장"""
+        """설정 저장 (메모리에만)"""
         try:
             # ConfigManager의 ui_config 객체를 직접 업데이트
             self.config_manager.ui_config.theme = self.theme_combo.currentText()
@@ -193,13 +209,53 @@ class BasicSettingsTab(BaseSettingsTab):
                 "playback_visible": self.playback_dock_cb.isChecked()
             }
 
-            # config dict 업데이트만 수행 (DB 저장은 settings_dialog에서 일괄 처리)
-            logger.debug("Basic settings prepared")
+            # config dict도 업데이트
+            self.config_manager.config["ui"] = {
+                "theme": self.theme_combo.currentText(),
+                "show_status_bar": self.status_bar_cb.isChecked(),
+                "fullscreen_on_start": self.fullscreen_cb.isChecked(),
+                "fullscreen_auto_hide_enabled": self.auto_hide_enabled_cb.isChecked(),
+                "fullscreen_auto_hide_delay_seconds": self.auto_hide_delay_spin.value(),
+                "dock_state": {
+                    "camera_visible": self.camera_dock_cb.isChecked(),
+                    "recording_visible": self.recording_dock_cb.isChecked(),
+                    "playback_visible": self.playback_dock_cb.isChecked()
+                },
+                # window_state는 유지
+                "window_state": self.config_manager.config.get("ui", {}).get("window_state", {})
+            }
+
+            logger.debug("Basic settings saved to memory")
             return True
 
         except Exception as e:
             logger.error(f"Failed to save basic settings: {e}")
             return False
+
+    def _save_section_to_db(self) -> bool:
+        """UI 섹션을 DB에 저장"""
+        try:
+            from dataclasses import asdict
+            # UI 설정만 DB에 저장
+            self.config_manager.db_manager.save_ui_config(asdict(self.config_manager.ui_config))
+            logger.info("UI settings saved to DB")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save UI settings to DB: {e}")
+            return False
+
+    def _update_original_data(self):
+        """현재 데이터를 원본으로 갱신"""
+        self._store_original_data({
+            "theme": self.theme_combo.currentText(),
+            "show_status_bar": self.status_bar_cb.isChecked(),
+            "fullscreen_on_start": self.fullscreen_cb.isChecked(),
+            "fullscreen_auto_hide_enabled": self.auto_hide_enabled_cb.isChecked(),
+            "fullscreen_auto_hide_delay_seconds": self.auto_hide_delay_spin.value(),
+            "camera_visible": self.camera_dock_cb.isChecked(),
+            "recording_visible": self.recording_dock_cb.isChecked(),
+            "playback_visible": self.playback_dock_cb.isChecked(),
+        })
 
     def validate_settings(self) -> tuple[bool, str]:
         """설정 검증"""

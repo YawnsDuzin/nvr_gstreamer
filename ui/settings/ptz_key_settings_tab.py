@@ -25,6 +25,7 @@ class PTZKeySettingsTab(BaseSettingsTab):
 
     def __init__(self, config_manager: ConfigManager, parent=None):
         super().__init__(config_manager, parent)
+        self._section_name = "ptz_keys"  # 이 탭이 관리하는 섹션
         self.key_edits = {}  # 키 이름 -> KeySequenceEdit 매핑
         self._setup_ui()
         self.load_settings()
@@ -218,29 +219,56 @@ class PTZKeySettingsTab(BaseSettingsTab):
                 "ptz_keys": ptz_keys.copy()
             })
 
+            # 로드 완료 후 변경사항 플래그 초기화
+            self.mark_as_saved()
             logger.debug("PTZKeySettingsTab settings loaded")
 
         except Exception as e:
             logger.error(f"Failed to load PTZ key settings: {e}")
 
     def save_settings(self) -> bool:
-        """설정 저장"""
+        """설정 저장 (메모리에만)"""
         try:
-            config = self.config_manager.config
-
-            if "ptz_keys" not in config:
-                config["ptz_keys"] = {}
+            # config dict 업데이트
+            if "ptz_keys" not in self.config_manager.config:
+                self.config_manager.config["ptz_keys"] = {}
 
             # 키 값 저장
             for key_name, key_edit in self.key_edits.items():
-                config["ptz_keys"][key_name] = key_edit.get_key()
+                self.config_manager.config["ptz_keys"][key_name] = key_edit.get_key()
 
-            logger.debug("PTZ key settings prepared")
+            logger.debug("PTZ key settings saved to memory")
             return True
 
         except Exception as e:
             logger.error(f"Failed to save PTZ key settings: {e}")
             return False
+
+    def _save_section_to_db(self) -> bool:
+        """ptz_keys 섹션을 DB에 저장"""
+        try:
+            # ptz_keys 데이터 준비
+            ptz_keys_data = {}
+            for key_name, key_edit in self.key_edits.items():
+                ptz_keys_data[key_name] = key_edit.get_key()
+
+            # DB에 저장
+            self.config_manager.db_manager.save_ptz_keys(ptz_keys_data)
+            logger.info("PTZ keys settings saved to DB")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save PTZ keys to DB: {e}")
+            return False
+
+    def _update_original_data(self):
+        """현재 데이터를 원본으로 갱신"""
+        current_keys = {}
+        for key_name, key_edit in self.key_edits.items():
+            current_keys[key_name] = key_edit.get_key()
+
+        self._store_original_data({
+            "ptz_keys": current_keys
+        })
 
     def validate_settings(self) -> tuple[bool, str]:
         """설정 검증"""

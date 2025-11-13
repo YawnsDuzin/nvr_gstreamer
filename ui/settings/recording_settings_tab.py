@@ -26,6 +26,7 @@ class RecordingSettingsTab(BaseSettingsTab):
 
     def __init__(self, config_manager: ConfigManager, parent=None):
         super().__init__(config_manager, parent)
+        self._section_name = "recording"  # 이 탭이 관리하는 섹션
         self._setup_ui()
         self.load_settings()
 
@@ -143,13 +144,15 @@ class RecordingSettingsTab(BaseSettingsTab):
                 "rotation_minutes": rotation_minutes,
             })
 
+            # 로드 완료 후 변경사항 플래그 초기화
+            self.mark_as_saved()
             logger.debug("RecordingSettingsTab settings loaded")
 
         except Exception as e:
             logger.error(f"Failed to load recording settings: {e}")
 
     def save_settings(self) -> bool:
-        """설정 저장"""
+        """설정 저장 (메모리에만)"""
         try:
             config = self.config_manager.config
 
@@ -163,12 +166,35 @@ class RecordingSettingsTab(BaseSettingsTab):
             config["recording"]["fragment_duration_ms"] = self.fragment_duration_spin.value()
             config["recording"]["rotation_minutes"] = self.rotation_minutes_spin.value()
 
-            logger.debug("Recording settings prepared")
+            # ConfigManager의 recording_config 속성도 업데이트
+            self.config_manager.recording_config = config["recording"]
+
+            logger.debug("Recording settings saved to memory")
             return True
 
         except Exception as e:
             logger.error(f"Failed to save recording settings: {e}")
             return False
+
+    def _save_section_to_db(self) -> bool:
+        """녹화 섹션을 DB에 저장"""
+        try:
+            # recording 섹션만 DB에 저장
+            self.config_manager.db_manager.save_recording_config(self.config_manager.config["recording"])
+            logger.info("Recording settings saved to DB")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save recording settings to DB: {e}")
+            return False
+
+    def _update_original_data(self):
+        """현재 데이터를 원본으로 갱신"""
+        self._store_original_data({
+            "file_format": self.file_format_combo.currentText(),
+            "codec": self.codec_combo.currentText(),
+            "fragment_duration_ms": self.fragment_duration_spin.value(),
+            "rotation_minutes": self.rotation_minutes_spin.value(),
+        })
 
     def validate_settings(self) -> tuple[bool, str]:
         """설정 검증 (recording_path는 storage 탭에서 검증)"""

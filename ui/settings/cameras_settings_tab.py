@@ -24,6 +24,7 @@ class CamerasSettingsTab(BaseSettingsTab):
 
     def __init__(self, config_manager: ConfigManager, parent=None):
         super().__init__(config_manager, parent)
+        self._section_name = "cameras"  # 이 탭이 관리하는 섹션
         self.current_camera_index = -1
         self.cameras_data = []  # 임시 카메라 데이터 저장
         self._setup_ui()
@@ -434,28 +435,54 @@ class CamerasSettingsTab(BaseSettingsTab):
                 "cameras": [cam.copy() for cam in cameras]
             })
 
+            # 로드 완료 후 변경사항 플래그 초기화
+            self.mark_as_saved()
             logger.debug("CamerasSettingsTab settings loaded")
 
         except Exception as e:
             logger.error(f"Failed to load camera settings: {e}")
 
     def save_settings(self) -> bool:
-        """설정 저장 (config dict만 업데이트, DB 저장은 settings_dialog에서 일괄 처리)"""
+        """설정 저장 (메모리에만)"""
         try:
             # Apply current camera changes first (without showing message)
             if self.current_camera_index >= 0:
                 self._apply_camera_changes(show_message=False)
 
-            # config dict 업데이트만 수행
-            config = self.config_manager.config
-            config["cameras"] = self.cameras_data
+            # config dict 업데이트
+            self.config_manager.config["cameras"] = self.cameras_data
 
-            logger.debug(f"Camera settings prepared: {len(self.cameras_data)} cameras")
+            # ConfigManager의 cameras 속성도 업데이트
+            from core.config import CameraConfigData
+            self.config_manager.cameras = [CameraConfigData(**cam) for cam in self.cameras_data]
+
+            logger.debug(f"Camera settings saved to memory: {len(self.cameras_data)} cameras")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to prepare camera settings: {e}")
+            logger.error(f"Failed to save camera settings: {e}")
             return False
+
+    def _save_section_to_db(self) -> bool:
+        """카메라 섹션을 DB에 저장"""
+        try:
+            # cameras 섹션만 DB에 저장
+            self.config_manager.db_manager.save_cameras(self.cameras_data)
+            logger.info(f"Cameras saved to DB: {len(self.cameras_data)} cameras")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save cameras to DB: {e}")
+            return False
+
+    def _update_original_data(self):
+        """현재 데이터를 원본으로 갱신"""
+        # Apply any pending changes
+        if self.current_camera_index >= 0:
+            self._apply_camera_changes(show_message=False)
+
+        self._store_original_data({
+            "cameras": [cam.copy() for cam in self.cameras_data]
+        })
 
     def validate_settings(self) -> tuple[bool, str]:
         """설정 검증"""
@@ -478,10 +505,26 @@ class CamerasSettingsTab(BaseSettingsTab):
     def has_changes(self) -> bool:
         """변경 사항이 있는지 확인"""
         try:
-            original = self._get_original_data()
-            current = {"cameras": self.cameras_data}
+            # 현재 편집 중인 카메라가 있으면 임시로 적용
+            if self.current_camera_index >= 0:
+                # 현재 입력 필드의 값을 임시로 저장
+                temp_camera = self.cameras_data[self.current_camera_index].copy()
+                self._apply_camera_changes(show_message=False)
 
-            return original != current
+                # 비교
+                original = self._get_original_data()
+                current = {"cameras": self.cameras_data}
+                has_changes = original != current
+
+                # 임시 저장한 값으로 복원 (UI에 영향 없이)
+                self.cameras_data[self.current_camera_index] = temp_camera
+
+                return has_changes
+            else:
+                # 선택된 카메라가 없으면 단순 비교
+                original = self._get_original_data()
+                current = {"cameras": self.cameras_data}
+                return original != current
 
         except Exception as e:
             logger.error(f"Failed to check changes: {e}")

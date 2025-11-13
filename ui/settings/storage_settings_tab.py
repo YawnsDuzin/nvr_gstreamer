@@ -26,6 +26,7 @@ class StorageSettingsTab(BaseSettingsTab):
 
     def __init__(self, config_manager: ConfigManager, parent=None):
         super().__init__(config_manager, parent)
+        self._section_name = "storage"  # 이 탭이 관리하는 섹션
         self._setup_ui()
         self.load_settings()
 
@@ -385,13 +386,15 @@ class StorageSettingsTab(BaseSettingsTab):
                 "delete_batch_delay_seconds": storage.get("delete_batch_delay_seconds", 1),
             })
 
+            # 로드 완료 후 변경사항 플래그 초기화
+            self.mark_as_saved()
             logger.debug("StorageSettingsTab settings loaded")
 
         except Exception as e:
             logger.error(f"Failed to load storage settings: {e}")
 
     def save_settings(self) -> bool:
-        """설정 저장"""
+        """설정 저장 (메모리에만)"""
         try:
             config = self.config_manager.config
 
@@ -413,12 +416,42 @@ class StorageSettingsTab(BaseSettingsTab):
             config["storage"]["delete_batch_size"] = self.delete_batch_size_spin.value()
             config["storage"]["delete_batch_delay_seconds"] = self.delete_batch_delay_spin.value()
 
-            logger.debug("Storage settings prepared")
+            # ConfigManager의 storage_config 속성도 업데이트
+            self.config_manager.storage_config = config["storage"]
+
+            logger.debug("Storage settings saved to memory")
             return True
 
         except Exception as e:
             logger.error(f"Failed to save storage settings: {e}")
             return False
+
+    def _save_section_to_db(self) -> bool:
+        """스토리지 섹션을 DB에 저장"""
+        try:
+            # storage 섹션만 DB에 저장
+            self.config_manager.db_manager.save_storage_config(self.config_manager.config["storage"])
+            logger.info("Storage settings saved to DB")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save storage settings to DB: {e}")
+            return False
+
+    def _update_original_data(self):
+        """현재 데이터를 원본으로 갱신"""
+        self._store_original_data({
+            "recording_path": self.recording_path_edit.text().strip(),
+            "auto_cleanup_enabled": self.auto_cleanup_cb.isChecked(),
+            "cleanup_interval_hours": self.cleanup_interval_spin.value(),
+            "cleanup_on_startup": self.cleanup_on_startup_cb.isChecked(),
+            "auto_delete_priority": self.delete_priority_combo.currentText(),
+            "min_free_space_gb": self.min_free_space_gb_spin.value(),
+            "min_free_space_percent": self.min_free_space_percent_spin.value(),
+            "cleanup_threshold_percent": self.cleanup_threshold_spin.value(),
+            "retention_days": self.retention_days_spin.value(),
+            "delete_batch_size": self.delete_batch_size_spin.value(),
+            "delete_batch_delay_seconds": self.delete_batch_delay_spin.value(),
+        })
 
     def validate_settings(self) -> tuple[bool, str]:
         """설정 검증"""

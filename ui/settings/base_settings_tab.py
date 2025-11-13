@@ -33,6 +33,8 @@ class BaseSettingsTab(QWidget, metaclass=CombinedMeta):
         super().__init__(parent)
         self.config_manager = config_manager
         self._original_data = {}  # 원본 데이터 (변경 감지용)
+        self._has_unsaved_changes = False  # 저장되지 않은 변경사항 플래그
+        self._section_name = None  # 설정 섹션 이름 (예: "ui", "cameras")
 
     @abstractmethod
     def load_settings(self):
@@ -45,11 +47,65 @@ class BaseSettingsTab(QWidget, metaclass=CombinedMeta):
     @abstractmethod
     def save_settings(self) -> bool:
         """
-        설정 저장
+        설정 저장 (메모리에만)
         서브클래스에서 반드시 구현해야 함
+
+        Note: 이 메서드는 ConfigManager의 메모리 객체만 업데이트합니다.
+              실제 DB 저장은 save_to_db()에서 처리합니다.
 
         Returns:
             bool: 저장 성공 여부
+        """
+        pass
+
+    def save_to_db(self) -> bool:
+        """
+        변경된 설정을 DB에 저장
+
+        Returns:
+            bool: DB 저장 성공 여부
+        """
+        # has_changes() 메서드를 사용하여 실제 변경 여부 확인
+        if not self.has_changes():
+            logger.debug(f"{self.__class__.__name__}: No changes to save")
+            return True
+
+        try:
+            # 먼저 메모리에 저장
+            if not self.save_settings():
+                return False
+
+            # 섹션별 DB 저장 (서브클래스에서 오버라이드 가능)
+            success = self._save_section_to_db()
+
+            if success:
+                # 저장 후 원본 데이터 갱신
+                self._update_original_data()
+                self._has_unsaved_changes = False
+                logger.info(f"{self.__class__.__name__}: Saved to DB successfully")
+
+            return success
+
+        except Exception as e:
+            logger.error(f"{self.__class__.__name__}: Failed to save to DB: {e}")
+            return False
+
+    def _save_section_to_db(self) -> bool:
+        """
+        해당 섹션을 DB에 저장
+        서브클래스에서 오버라이드하여 구현
+
+        Returns:
+            bool: 저장 성공 여부
+        """
+        # 기본 구현 - 서브클래스에서 오버라이드
+        logger.warning(f"{self.__class__.__name__}: _save_section_to_db not implemented")
+        return True
+
+    def _update_original_data(self):
+        """
+        현재 데이터를 원본으로 갱신 (Apply 후 호출)
+        서브클래스에서 오버라이드 필요
         """
         pass
 
@@ -72,9 +128,19 @@ class BaseSettingsTab(QWidget, metaclass=CombinedMeta):
         Returns:
             bool: 변경 사항 존재 여부
         """
-        # 기본 구현: 항상 False
-        # 서브클래스에서 필요시 오버라이드
-        return False
+        # 기본 구현: 플래그 확인
+        # 서브클래스에서 필요시 오버라이드하여 실시간 비교 가능
+        return self._has_unsaved_changes
+
+    def mark_as_changed(self):
+        """변경사항 발생 표시"""
+        self._has_unsaved_changes = True
+        logger.debug(f"{self.__class__.__name__}: Marked as changed")
+
+    def mark_as_saved(self):
+        """저장 완료 표시"""
+        self._has_unsaved_changes = False
+        logger.debug(f"{self.__class__.__name__}: Marked as saved")
 
     def _store_original_data(self, data: dict):
         """
@@ -83,7 +149,8 @@ class BaseSettingsTab(QWidget, metaclass=CombinedMeta):
         Args:
             data: 원본 데이터 딕셔너리
         """
-        self._original_data = data.copy()
+        import copy
+        self._original_data = copy.deepcopy(data)
 
     def _get_original_data(self) -> dict:
         """
@@ -92,7 +159,8 @@ class BaseSettingsTab(QWidget, metaclass=CombinedMeta):
         Returns:
             dict: 원본 데이터
         """
-        return self._original_data.copy()
+        import copy
+        return copy.deepcopy(self._original_data)
 
     def reset_to_original(self):
         """

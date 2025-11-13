@@ -27,6 +27,7 @@ class BackupSettingsTab(BaseSettingsTab):
 
     def __init__(self, config_manager: ConfigManager, parent=None):
         super().__init__(config_manager, parent)
+        self._section_name = "backup"  # 이 탭이 관리하는 섹션
         self._setup_ui()
         self.load_settings()
 
@@ -187,13 +188,15 @@ class BackupSettingsTab(BaseSettingsTab):
                 "delete_after_backup": delete_after,
             })
 
+            # 로드 완료 후 변경사항 플래그 초기화
+            self.mark_as_saved()
             logger.debug("BackupSettingsTab settings loaded")
 
         except Exception as e:
             logger.error(f"Failed to load backup settings: {e}")
 
     def save_settings(self) -> bool:
-        """설정 저장"""
+        """설정 저장 (메모리에만)"""
         try:
             config = self.config_manager.config
 
@@ -206,12 +209,34 @@ class BackupSettingsTab(BaseSettingsTab):
             config["backup"]["verification"] = self.verification_cb.isChecked()
             config["backup"]["delete_after_backup"] = self.delete_after_cb.isChecked()
 
-            logger.debug("Backup settings prepared")
+            # ConfigManager의 backup_config 속성도 업데이트
+            self.config_manager.backup_config = config["backup"]
+
+            logger.debug("Backup settings saved to memory")
             return True
 
         except Exception as e:
             logger.error(f"Failed to save backup settings: {e}")
             return False
+
+    def _save_section_to_db(self) -> bool:
+        """백업 섹션을 DB에 저장"""
+        try:
+            # backup 섹션만 DB에 저장
+            self.config_manager.db_manager.save_backup_config(self.config_manager.config["backup"])
+            logger.info("Backup settings saved to DB")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save backup settings to DB: {e}")
+            return False
+
+    def _update_original_data(self):
+        """현재 데이터를 원본으로 갱신"""
+        self._store_original_data({
+            "destination_path": self.destination_path_edit.text().strip(),
+            "verification": self.verification_cb.isChecked(),
+            "delete_after_backup": self.delete_after_cb.isChecked(),
+        })
 
     def validate_settings(self) -> tuple[bool, str]:
         """설정 검증"""

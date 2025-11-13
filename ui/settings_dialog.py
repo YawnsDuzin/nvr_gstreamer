@@ -183,61 +183,95 @@ class SettingsDialog(ThemedDialog):
 
         return True, ""
 
+    def _get_all_tabs(self) -> list:
+        """모든 탭 리스트 반환"""
+        tabs = []
+        if self.basic_tab:
+            tabs.append(("Basic", self.basic_tab))
+        if self.cameras_tab:
+            tabs.append(("Cameras", self.cameras_tab))
+        if self.streaming_tab:
+            tabs.append(("Streaming", self.streaming_tab))
+        if self.recording_tab:
+            tabs.append(("Recording", self.recording_tab))
+        if self.backup_tab:
+            tabs.append(("Backup", self.backup_tab))
+        if self.storage_tab:
+            tabs.append(("Storage", self.storage_tab))
+        if self.performance_tab:
+            tabs.append(("Performance", self.performance_tab))
+        if self.hotkey_tab:
+            tabs.append(("Hot Keys", self.hotkey_tab))
+        if self.ptz_key_tab:
+            tabs.append(("PTZ Keys", self.ptz_key_tab))
+        if self.logging_tab:
+            tabs.append(("Logging", self.logging_tab))
+        return tabs
+
     def _save_all_settings(self) -> bool:
         """
-        모든 설정 저장 (각 탭은 config dict만 업데이트, 마지막에 한 번만 DB 저장)
+        변경된 설정만 선택적으로 저장
 
         Returns:
             bool: 저장 성공 여부
         """
         try:
-            # 검증
-            valid, error_msg = self._validate_all_settings()
-            if not valid:
-                QMessageBox.warning(self, "Validation Error", error_msg)
-                logger.warning(f"Settings validation failed: {error_msg}")
-                return False
+            tabs = self._get_all_tabs()
 
-            # 각 탭의 save_settings() 호출 (config dict만 업데이트)
-            success = True
-            if self.basic_tab:
-                success &= self.basic_tab.save_settings()
-            if self.cameras_tab:
-                success &= self.cameras_tab.save_settings()
-            if self.streaming_tab:
-                success &= self.streaming_tab.save_settings()
-            if self.recording_tab:
-                success &= self.recording_tab.save_settings()
-            if self.backup_tab:
-                success &= self.backup_tab.save_settings()
-            if self.storage_tab:
-                success &= self.storage_tab.save_settings()
-            if self.performance_tab:
-                success &= self.performance_tab.save_settings()
-            if self.hotkey_tab:
-                success &= self.hotkey_tab.save_settings()
-            if self.ptz_key_tab:
-                success &= self.ptz_key_tab.save_settings()
-            if self.logging_tab:
-                success &= self.logging_tab.save_settings()
+            # 변경된 탭 찾기
+            changed_tabs = []
+            for tab_name, tab in tabs:
+                if tab.has_changes():
+                    changed_tabs.append((tab_name, tab))
+                    logger.debug(f"{tab_name} tab has changes")
 
-            if not success:
-                QMessageBox.warning(self, "Save Error", "Failed to prepare some settings")
-                logger.error("Failed to prepare some settings")
-                return False
-
-            # 모든 탭의 설정 준비 완료 후, 한 번만 DB 저장
-            logger.debug("Saving all settings to DB...")
-            db_save_success = self.config_manager.save_config(save_ui=True)
-
-            if db_save_success:
-                self.settings_changed.emit()
-                logger.info("All settings saved successfully to DB")
+            if not changed_tabs:
+                logger.info("No changes to save")
                 return True
-            else:
-                QMessageBox.warning(self, "Save Error", "Failed to save settings to database")
-                logger.error("Failed to save settings to database")
+
+            logger.info(f"Saving changes in {len(changed_tabs)} tabs: {[name for name, _ in changed_tabs]}")
+
+            # 변경된 탭만 검증
+            for tab_name, tab in changed_tabs:
+                valid, error_msg = tab.validate_settings()
+                if not valid:
+                    QMessageBox.warning(self, "Validation Error", f"{tab_name} Tab: {error_msg}")
+                    logger.warning(f"{tab_name} validation failed: {error_msg}")
+                    return False
+
+            # 변경된 탭만 메모리에 저장 및 DB에 저장
+            saved_count = 0
+            failed_tabs = []
+
+            for tab_name, tab in changed_tabs:
+                try:
+                    # save_to_db()는 내부적으로 save_settings()를 호출하고 DB에 저장
+                    if tab.save_to_db():
+                        saved_count += 1
+                        logger.success(f"✓ {tab_name} settings saved to DB")
+                    else:
+                        failed_tabs.append(tab_name)
+                        logger.error(f"✗ {tab_name} settings failed to save")
+                except Exception as e:
+                    failed_tabs.append(tab_name)
+                    logger.error(f"✗ {tab_name} settings error: {e}")
+
+            if failed_tabs:
+                QMessageBox.warning(
+                    self, "Save Error",
+                    f"Failed to save settings for: {', '.join(failed_tabs)}"
+                )
                 return False
+
+            # 모든 변경사항이 성공적으로 저장됨
+            self.settings_changed.emit()
+            logger.info(f"Successfully saved {saved_count} changed tab(s)")
+
+            # Apply 후 변경사항 플래그 리셋
+            for _, tab in changed_tabs:
+                tab.mark_as_saved()
+
+            return True
 
         except Exception as e:
             logger.error(f"Failed to save settings: {e}")

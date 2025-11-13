@@ -23,6 +23,7 @@ class HotKeySettingsTab(BaseSettingsTab):
 
     def __init__(self, config_manager: ConfigManager, parent=None):
         super().__init__(config_manager, parent)
+        self._section_name = "menu_keys"  # 이 탭이 관리하는 섹션
         self.key_edits = {}  # 키 이름 -> KeySequenceEdit 매핑
         self._setup_ui()
         self.load_settings()
@@ -179,29 +180,56 @@ class HotKeySettingsTab(BaseSettingsTab):
                 "menu_keys": menu_keys.copy()
             })
 
+            # 로드 완료 후 변경사항 플래그 초기화
+            self.mark_as_saved()
             logger.debug("HotKeySettingsTab settings loaded")
 
         except Exception as e:
             logger.error(f"Failed to load hotkey settings: {e}")
 
     def save_settings(self) -> bool:
-        """설정 저장"""
+        """설정 저장 (메모리에만)"""
         try:
-            config = self.config_manager.config
-
-            if "menu_keys" not in config:
-                config["menu_keys"] = {}
+            # config dict 업데이트
+            if "menu_keys" not in self.config_manager.config:
+                self.config_manager.config["menu_keys"] = {}
 
             # 키 값 저장
             for key_name, key_edit in self.key_edits.items():
-                config["menu_keys"][key_name] = key_edit.get_key()
+                self.config_manager.config["menu_keys"][key_name] = key_edit.get_key()
 
-            logger.debug("Hotkey settings prepared")
+            logger.debug("Hotkey settings saved to memory")
             return True
 
         except Exception as e:
             logger.error(f"Failed to save hotkey settings: {e}")
             return False
+
+    def _save_section_to_db(self) -> bool:
+        """menu_keys 섹션을 DB에 저장"""
+        try:
+            # menu_keys 데이터 준비
+            menu_keys_data = {}
+            for key_name, key_edit in self.key_edits.items():
+                menu_keys_data[key_name] = key_edit.get_key()
+
+            # DB에 저장
+            self.config_manager.db_manager.save_menu_keys(menu_keys_data)
+            logger.info("Menu keys settings saved to DB")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save menu keys to DB: {e}")
+            return False
+
+    def _update_original_data(self):
+        """현재 데이터를 원본으로 갱신"""
+        current_keys = {}
+        for key_name, key_edit in self.key_edits.items():
+            current_keys[key_name] = key_edit.get_key()
+
+        self._store_original_data({
+            "menu_keys": current_keys
+        })
 
     def validate_settings(self) -> tuple[bool, str]:
         """설정 검증"""

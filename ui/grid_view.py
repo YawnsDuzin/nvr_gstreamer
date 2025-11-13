@@ -263,7 +263,7 @@ class GridViewWidget(QWidget):
 
     def set_layout(self, rows: int, cols: int):
         """
-        Set grid layout
+        Set grid layout with widget reuse for uninterrupted streaming
 
         Args:
             rows: Number of rows
@@ -276,24 +276,35 @@ class GridViewWidget(QWidget):
             logger.info(f"Already in {rows}x{cols} layout, skipping")
             return
 
-        # Save current camera assignments (순서대로 저장)
-        saved_cameras = []
-        for channel in self.channels:
-            if channel.camera_id and channel.camera_id != f"cam_{channel.channel_index}":
-                saved_cameras.append({
-                    'camera_id': channel.camera_id,
-                    'camera_name': channel.camera_name,
-                    'is_connected': channel.is_connected
-                })
+        logger.info(f"Changing layout from {self.current_layout} to {rows}x{cols}")
 
-        logger.info(f"Saving {len(saved_cameras)} active camera assignments")
+        # 필요한 채널 수 계산
+        needed_channels = rows * cols
+        current_channels = len(self.channels)
 
-        # Clear existing channels
+        # 모든 채널을 일단 grid에서 제거 (위젯 삭제 X)
         for channel in self.channels:
             self.grid_layout.removeWidget(channel)
-            channel.setParent(None)
-            channel.deleteLater()
-        self.channels.clear()
+            channel.hide()
+
+        # 채널이 부족하면 추가 생성
+        if needed_channels > current_channels:
+            logger.info(f"Creating {needed_channels - current_channels} additional channels")
+            for i in range(current_channels, needed_channels):
+                channel = ChannelWidget(
+                    i,
+                    f"cam_{i}",
+                    f"Camera {i + 1}"
+                )
+                # Connect signals
+                channel.double_clicked.connect(self._on_channel_double_clicked)
+                channel.right_clicked.connect(self._on_channel_right_clicked)
+                self.channels.append(channel)
+
+        # 채널이 초과하면 숨김 처리 (삭제하지 않음)
+        elif needed_channels < current_channels:
+            logger.info(f"Hiding {current_channels - needed_channels} excess channels")
+            # 초과 채널은 이미 hide() 상태
 
         # Update layout
         self.current_layout = (rows, cols)
@@ -304,40 +315,22 @@ class GridViewWidget(QWidget):
             for layout_size, btn in self.layout_buttons.items():
                 btn.setChecked(layout_size == (rows, cols))
 
-        # Create new channels
+        # 필요한 채널만 재배치
         channel_index = 0
         for row in range(rows):
             for col in range(cols):
-                # 저장된 카메라를 순서대로 재할당
-                if channel_index < len(saved_cameras):
-                    camera_info = saved_cameras[channel_index]
-                    channel = ChannelWidget(
-                        channel_index,
-                        camera_info['camera_id'],
-                        camera_info['camera_name']
-                    )
-                    # 연결 상태는 일단 false로 설정 (재연결 필요)
-                    channel.set_connected(False)
-                    logger.debug(f"Restored camera {camera_info['camera_id']} to channel {channel_index}")
-                else:
-                    channel = ChannelWidget(
-                        channel_index,
-                        f"cam_{channel_index}",
-                        f"Camera {channel_index + 1}"
-                    )
+                if channel_index < needed_channels:
+                    channel = self.channels[channel_index]
+                    # 채널 인덱스 업데이트 (재배치 시 인덱스가 변경될 수 있음)
+                    channel.channel_index = channel_index
+                    self.grid_layout.addWidget(channel, row, col)
+                    channel.show()
+                    channel_index += 1
 
-                # Connect signals
-                channel.double_clicked.connect(self._on_channel_double_clicked)
-                channel.right_clicked.connect(self._on_channel_right_clicked)
-
-                self.grid_layout.addWidget(channel, row, col)
-                self.channels.append(channel)
-                channel_index += 1
-
-        # Emit layout changed signal with camera info for re-connection
+        # Emit layout changed signal (UI 업데이트용)
         self.layout_changed.emit((rows, cols))
 
-        logger.info(f"Grid layout changed to {rows}x{cols}, channels recreated with {len(saved_cameras)} cameras preserved")
+        logger.info(f"Grid layout changed to {rows}x{cols}, {needed_channels} channels active, window handles preserved")
 
     def _on_channel_double_clicked(self, channel_index: int):
         """Handle channel double-click"""

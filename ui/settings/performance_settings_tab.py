@@ -24,6 +24,7 @@ class PerformanceSettingsTab(BaseSettingsTab):
 
     def __init__(self, config_manager: ConfigManager, parent=None):
         super().__init__(config_manager, parent)
+        self._section_name = "performance"  # 이 탭이 관리하는 섹션
         self._setup_ui()
         self.load_settings()
 
@@ -139,14 +140,24 @@ class PerformanceSettingsTab(BaseSettingsTab):
         self.max_memory_spin.setValue(performance.get('max_memory_mb', 2048))
         self.max_temp_spin.setValue(performance.get('max_temp', 75))
 
+        # Store original data
+        self._store_original_data({
+            'alert_enabled': performance.get('alert_enabled', False),
+            'alert_warning_check_interval_seconds': performance.get('alert_warning_check_interval_seconds', 30),
+            'alert_critical_check_interval_seconds': performance.get('alert_critical_check_interval_seconds', 15),
+            'max_cpu_percent': performance.get('max_cpu_percent', 80),
+            'max_memory_mb': performance.get('max_memory_mb', 2048),
+            'max_temp': performance.get('max_temp', 75)
+        })
+
+        # 로드 완료 후 변경사항 플래그 초기화
+        self.mark_as_saved()
         logger.debug("Performance settings loaded")
 
     def save_settings(self) -> bool:
-        """설정 저장"""
+        """설정 저장 (메모리에만)"""
         try:
-            config = self.config_manager.config
-
-            # Performance 설정 업데이트
+            # config dict 업데이트
             performance_config = {
                 'alert_enabled': self.alert_enabled_cb.isChecked(),
                 'alert_warning_check_interval_seconds': self.warning_interval_spin.value(),
@@ -156,14 +167,46 @@ class PerformanceSettingsTab(BaseSettingsTab):
                 'max_temp': self.max_temp_spin.value()
             }
 
-            config['performance'] = performance_config
+            self.config_manager.config['performance'] = performance_config
 
-            logger.debug("Performance settings prepared")
+            logger.debug("Performance settings saved to memory")
             return True
 
         except Exception as e:
             logger.error(f"Failed to save performance settings: {e}")
             return False
+
+    def _save_section_to_db(self) -> bool:
+        """performance 섹션을 DB에 저장"""
+        try:
+            # performance 데이터 준비
+            performance_data = {
+                'alert_enabled': self.alert_enabled_cb.isChecked(),
+                'alert_warning_check_interval_seconds': self.warning_interval_spin.value(),
+                'alert_critical_check_interval_seconds': self.critical_interval_spin.value(),
+                'max_cpu_percent': self.max_cpu_spin.value(),
+                'max_memory_mb': self.max_memory_spin.value(),
+                'max_temp': self.max_temp_spin.value()
+            }
+
+            # DB에 저장
+            self.config_manager.db_manager.save_performance_config(performance_data)
+            logger.info("Performance settings saved to DB")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save performance settings to DB: {e}")
+            return False
+
+    def _update_original_data(self):
+        """현재 데이터를 원본으로 갱신"""
+        self._store_original_data({
+            'alert_enabled': self.alert_enabled_cb.isChecked(),
+            'alert_warning_check_interval_seconds': self.warning_interval_spin.value(),
+            'alert_critical_check_interval_seconds': self.critical_interval_spin.value(),
+            'max_cpu_percent': self.max_cpu_spin.value(),
+            'max_memory_mb': self.max_memory_spin.value(),
+            'max_temp': self.max_temp_spin.value()
+        })
 
     def validate_settings(self) -> tuple[bool, str]:
         """설정 유효성 검사"""
@@ -193,21 +236,19 @@ class PerformanceSettingsTab(BaseSettingsTab):
 
     def has_changes(self) -> bool:
         """변경사항 확인"""
-        config = self.config_manager.config
-        performance = config.get('performance', {})
+        try:
+            original = self._get_original_data()
+            current = {
+                'alert_enabled': self.alert_enabled_cb.isChecked(),
+                'alert_warning_check_interval_seconds': self.warning_interval_spin.value(),
+                'alert_critical_check_interval_seconds': self.critical_interval_spin.value(),
+                'max_cpu_percent': self.max_cpu_spin.value(),
+                'max_memory_mb': self.max_memory_spin.value(),
+                'max_temp': self.max_temp_spin.value()
+            }
 
-        # Check each field for changes
-        if self.alert_enabled_cb.isChecked() != performance.get('alert_enabled', False):
-            return True
-        if self.warning_interval_spin.value() != performance.get('alert_warning_check_interval_seconds', 30):
-            return True
-        if self.critical_interval_spin.value() != performance.get('alert_critical_check_interval_seconds', 15):
-            return True
-        if self.max_cpu_spin.value() != performance.get('max_cpu_percent', 80):
-            return True
-        if self.max_memory_spin.value() != performance.get('max_memory_mb', 2048):
-            return True
-        if self.max_temp_spin.value() != performance.get('max_temp', 75):
-            return True
+            return original != current
 
-        return False
+        except Exception as e:
+            logger.error(f"Failed to check changes: {e}")
+            return False

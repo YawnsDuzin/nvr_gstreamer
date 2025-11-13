@@ -199,8 +199,6 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app:
             stylesheet = self.theme_manager.get_application_stylesheet()
-            # 디버깅: 스타일시트 처음 100자 출력
-            logger.debug(f"Stylesheet preview (first 200 chars): {stylesheet[:200]}")
             app.setStyleSheet(stylesheet)
             logger.info(f"Applied theme to application: {theme}")
         else:
@@ -436,13 +434,11 @@ class MainWindow(QMainWindow):
         """이벤트 필터: 마우스 활동 감지 및 키보드 이벤트 가로채기"""
         # 키보드 이벤트 처리 (모든 모드에서 동작)
         if event.type() == QEvent.KeyPress:
-            logger.debug(f"eventFilter: KeyPress detected - calling keyPressEvent")
             # MainWindow의 keyPressEvent 직접 호출
             self.keyPressEvent(event)
             if event.isAccepted():
                 return True
         elif event.type() == QEvent.KeyRelease:
-            logger.debug(f"eventFilter: KeyRelease detected - calling keyReleaseEvent")
             # MainWindow의 keyReleaseEvent 직접 호출
             self.keyReleaseEvent(event)
             if event.isAccepted():
@@ -813,61 +809,49 @@ class MainWindow(QMainWindow):
             logger.error(f"✗ Camera {camera_id} not found in recording control widget")
 
     def _update_window_handles_after_layout_change(self):
-        """레이아웃 변경 후 윈도우 핸들 재할당 및 파이프라인 재연결"""
-        logger.info("Updating window handles after layout change...")
+        """레이아웃 변경 후 윈도우 핸들 업데이트 (파이프라인 중단 없음)"""
+        logger.info("Updating window handles after layout change (no pipeline restart)...")
 
-        # 먼저 카메라를 새 채널에 재할당
+        # 현재 활성 스트림 목록
         cameras = self.config_manager.get_enabled_cameras()
 
-        # 연결된 스트림 임시 저장
-        connected_streams = {}
-        for camera in cameras[:len(self.grid_view.channels)]:
+        # 카메라와 채널 매핑 업데이트
+        for i, camera in enumerate(cameras[:len(self.grid_view.channels)]):
+            channel = self.grid_view.get_channel(i)
+            if not channel:
+                continue
+
+            # 채널에 카메라 정보 업데이트
+            channel.update_camera_info(camera.camera_id, camera.name)
+
+            # 해당 카메라의 스트림 가져오기
             stream = self.camera_list.get_camera_stream(camera.camera_id)
             if stream and stream.is_connected():
-                connected_streams[camera.camera_id] = stream
-                logger.info(f"Temporarily storing connected stream: {camera.camera_id}")
+                # 연결 상태 유지
+                channel.set_connected(True)
 
-        # 모든 스트림 정지 (레이아웃 변경 중)
-        for camera_id, stream in connected_streams.items():
-            if stream.gst_pipeline:
-                logger.info(f"Stopping pipeline for layout change: {camera_id}")
-                stream.disconnect()
+                # 새 윈도우 핸들 가져오기
+                new_window_handle = channel.get_window_handle()
 
-        # UI 업데이트를 위해 QTimer 사용 (비동기 처리)
-        from PyQt5.QtCore import QTimer
+                if new_window_handle and stream.gst_pipeline and stream.gst_pipeline.video_sink:
+                    try:
+                        # 파이프라인 중단 없이 윈도우 핸들만 업데이트
+                        stream.gst_pipeline.video_sink.set_window_handle(int(new_window_handle))
+                        logger.success(f"✓ Updated window handle for {camera.camera_id} without interruption")
+                    except Exception as e:
+                        logger.warning(f"Failed to update window handle for {camera.camera_id}: {e}")
+                        # 실패 시 파이프라인 재시작 필요할 수 있음
+                        logger.info(f"Attempting pipeline restart for {camera.camera_id}")
+                        stream.disconnect()
+                        stream.window_handle = new_window_handle
+                        if stream.connect():
+                            channel.set_connected(True)
+                            logger.success(f"✓ Restarted {camera.camera_id} after handle update failure")
+                else:
+                    if not new_window_handle:
+                        logger.warning(f"No window handle available for channel {i}")
 
-        def reconnect_streams():
-            # 새 채널에 카메라 재할당 및 파이프라인 재시작
-            for i, camera in enumerate(cameras[:len(self.grid_view.channels)]):
-                channel = self.grid_view.get_channel(i)
-                if channel:
-                    # 채널에 카메라 정보 업데이트
-                    channel.update_camera_info(camera.camera_id, camera.name)
-
-                    # 이전에 연결되어 있던 스트림이면 재연결
-                    if camera.camera_id in connected_streams:
-                        stream = connected_streams[camera.camera_id]
-                        # 새 윈도우 핸들 가져오기
-                        new_window_handle = channel.get_window_handle()
-
-                        if new_window_handle:
-                            # 스트림에 윈도우 핸들 설정하고 재연결
-                            stream.window_handle = new_window_handle
-                            logger.info(f"Reconnecting camera {camera.camera_id} with new window handle")
-
-                            # 파이프라인 재시작
-                            if stream.connect():
-                                channel.set_connected(True)
-                                logger.success(f"✓ Reconnected {camera.camera_id} after layout change")
-                            else:
-                                logger.error(f"✗ Failed to reconnect {camera.camera_id} after layout change")
-                        else:
-                            logger.warning(f"No window handle available for {camera.camera_id}")
-
-            logger.success("Layout change completed - streams reconnected")
-
-        # 300ms 후에 재연결 시작 (위젯 생성 및 파이프라인 정리 완료 대기)
-        QTimer.singleShot(300, reconnect_streams)
+        logger.success("Layout change completed - pipelines maintained")
 
     def _load_ptz_keys(self):
         """PTZ 키 설정 로드"""
@@ -1399,7 +1383,6 @@ class MainWindow(QMainWindow):
 
         # 일반 문자 키 처리 (PTZ 키)
         key = event.text().upper()
-        logger.debug(f"KeyPressEvent: key='{key}', text='{event.text()}', key_code={event.key()}")
 
         # PTZ 키 액션 찾기
         ptz_action = None

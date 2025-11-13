@@ -73,6 +73,7 @@ class StreamingSettingsTab(BaseSettingsTab):
 
     def __init__(self, config_manager: ConfigManager, parent=None):
         super().__init__(config_manager, parent)
+        self._section_name = "streaming"  # 이 탭이 관리하는 섹션
         self._setup_ui()
         self.load_settings()
 
@@ -309,13 +310,15 @@ class StreamingSettingsTab(BaseSettingsTab):
                 "reconnect_delay_seconds": streaming.get("reconnect_delay_seconds", 5),
             })
 
+            # 로드 완료 후 변경사항 플래그 초기화
+            self.mark_as_saved()
             logger.debug("StreamingSettingsTab settings loaded")
 
         except Exception as e:
             logger.error(f"Failed to load streaming settings: {e}")
 
     def save_settings(self) -> bool:
-        """설정 저장"""
+        """설정 저장 (메모리에만)"""
         try:
             config = self.config_manager.config
 
@@ -350,12 +353,54 @@ class StreamingSettingsTab(BaseSettingsTab):
             config["streaming"]["max_reconnect_attempts"] = self.max_reconnect_spin.value()
             config["streaming"]["reconnect_delay_seconds"] = self.reconnect_delay_spin.value()
 
-            logger.debug("Streaming settings prepared")
+            # ConfigManager의 streaming_config 속성도 업데이트
+            self.config_manager.streaming_config = config["streaming"]
+
+            logger.debug("Streaming settings saved to memory")
             return True
 
         except Exception as e:
             logger.error(f"Failed to save streaming settings: {e}")
             return False
+
+    def _save_section_to_db(self) -> bool:
+        """스트리밍 섹션을 DB에 저장"""
+        try:
+            # streaming 섹션만 DB에 저장
+            self.config_manager.db_manager.save_streaming_config(self.config_manager.config["streaming"])
+            logger.info("Streaming settings saved to DB")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save streaming settings to DB: {e}")
+            return False
+
+    def _update_original_data(self):
+        """현재 데이터를 원본으로 갱신"""
+        # Get current decoder preference
+        decoder_pref = []
+        for i in range(self.decoder_list.count()):
+            decoder_pref.append(self.decoder_list.item(i).text())
+
+        self._store_original_data({
+            "default_layout": self.default_layout_combo.currentText(),
+            "show_timestamp": self.show_timestamp_cb.isChecked(),
+            "show_camera_name": self.show_camera_name_cb.isChecked(),
+            "osd_font_size": self.osd_font_size_spin.value(),
+            "osd_font_color": self.osd_font_color_btn.get_color(),
+            "osd_valignment": self.osd_valignment_combo.currentText(),
+            "osd_halignment": self.osd_halignment_combo.currentText(),
+            "osd_xpad": self.osd_xpad_spin.value(),
+            "osd_ypad": self.osd_ypad_spin.value(),
+            "use_hardware_acceleration": self.use_hw_accel_cb.isChecked(),
+            "decoder_preference": decoder_pref,
+            "buffer_size": self.buffer_size_spin.value(),
+            "latency_ms": self.latency_spin.value(),
+            "tcp_timeout": self.tcp_timeout_spin.value(),
+            "connection_timeout": self.connection_timeout_spin.value(),
+            "auto_reconnect": self.auto_reconnect_cb.isChecked(),
+            "max_reconnect_attempts": self.max_reconnect_spin.value(),
+            "reconnect_delay_seconds": self.reconnect_delay_spin.value(),
+        })
 
     def validate_settings(self) -> tuple[bool, str]:
         """설정 검증"""
