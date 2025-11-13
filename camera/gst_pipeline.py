@@ -1551,8 +1551,72 @@ class GstPipeline:
             logger.warning(f"[CONNECTION TEST] Exception during connection test: {e}")
             return False
 
+    def _should_auto_start_recording(self) -> tuple[bool, str]:
+        """
+        재연결 후 녹화 자동 시작 여부 판단
+
+        Returns:
+            tuple[bool, str]: (녹화 시작 여부, 판단 근거 메시지)
+        """
+        # Case 1: 연결 끊김으로 인해 녹화가 중지된 경우 → 녹화 재개
+        if self._recording_should_auto_resume:
+            return True, "was recording before disconnect"
+
+        # Case 2: 초기 연결 실패 후 첫 연결
+        # _ever_connected=False이고 _recording_should_auto_resume=False인 경우
+        # → recording_enabled_start 설정 확인
+        if not self._ever_connected and not self._recording_should_auto_resume:
+            try:
+                config = ConfigManager.get_instance()
+                cameras = config.config.get("cameras", [])
+                camera_config = next((cam for cam in cameras if cam.get("camera_id") == self.camera_id), None)
+
+                if camera_config:
+                    recording_enabled_start = camera_config.get("recording_enabled_start", False)
+                    if recording_enabled_start:
+                        return True, "recording_enabled_start=True in config"
+                    else:
+                        return False, "recording_enabled_start=False in config"
+            except Exception as e:
+                logger.warning(f"Failed to check recording_enabled_start config: {e}")
+                return False, f"config check failed: {e}"
+
+        # Case 3: 재연결이지만 녹화 안하고 있었음 → 녹화 시작 안함
+        return False, "was not recording before disconnect"
+
+    def _auto_start_recording_after_reconnect(self):
+        """
+        재연결 후 녹화 자동 시작 처리
+        녹화 시작 여부를 판단하고 필요 시 녹화 시작
+        """
+        should_start, reason = self._should_auto_start_recording()
+
+        if should_start:
+            logger.info(f"[RECONNECT] Will start recording: {reason}")
+
+            # 짧은 대기 (파이프라인 안정화)
+            time.sleep(1.0)
+
+            # 녹화 시작 시도
+            if self.start_recording():
+                logger.success("[RECONNECT] Recording started successfully!")
+                self._recording_should_auto_resume = False
+            else:
+                logger.warning("[RECONNECT] Failed to start recording, will retry via timer")
+                # 실패 시 녹화 재시도 타이머 시작
+                self._schedule_recording_retry()
+        else:
+            logger.debug(f"[RECONNECT] Not starting recording: {reason}")
+
     def _reconnect(self):
-        """재연결 수행 (중복 실행 방지)"""
+        """
+        재연결 수행 (단순화된 버전)
+
+        로직:
+        1. 카메라 네트워크 상태만 반복 체크 (_test_rtsp_connection)
+        2. 정상 확인되면 일반 연결 로직 재사용 (create_pipeline + start)
+        3. 녹화 자동 시작 여부 판단 및 처리
+        """
         # 이미 연결된 상태면 무시
         if self._is_playing:
             logger.debug(f"Pipeline already running for {self.camera_name}, skipping reconnect")
@@ -1561,76 +1625,34 @@ class GstPipeline:
 
         logger.info("[RECONNECT] Attempting to reconnect...")
 
-        # ✅ 연결 테스트 먼저 수행
+        # ✅ Step 1: 카메라 네트워크 상태만 반복 체크
         if not self._test_rtsp_connection(timeout=3):
-            logger.warning("[RECONNECT] RTSP connection test failed - camera not responding")
-            logger.info("[RECONNECT] Will retry later...")
+            logger.warning("[RECONNECT] Camera not responding - scheduling retry")
             # 재연결 타이머 재스케줄링
             self._schedule_reconnect()
             return
 
-        logger.info("[RECONNECT] RTSP connection test passed - proceeding with reconnection")
+        logger.info("[RECONNECT] Camera network OK - proceeding with connection")
 
-        # ✅ 파이프라인 재생성 (stop()에서 None으로 초기화했으므로)
+        # ✅ Step 2: 일반 연결 로직 재사용
+        # 파이프라인 재생성 (stop()에서 None으로 초기화했으므로)
         if not self.create_pipeline():
-            logger.error("Failed to create pipeline during reconnect")
-            # 재연결 타이머 재스케줄링
+            logger.error("[RECONNECT] Failed to create pipeline - scheduling retry")
             self._schedule_reconnect()
             return
 
-        success = self.start()
-
-        if success:
-            logger.success("Reconnected successfully")
-            self.retry_count = 0
-
-            # 녹화 자동 시작 판단
-            should_start_recording = False
-
-            # Case 1: 연결 끊김으로 인해 녹화가 중지된 경우 → 녹화 재개
-            if self._recording_should_auto_resume:
-                should_start_recording = True
-                logger.info("[RECONNECT] Will resume recording (was recording before disconnect)")
-
-            # Case 2: 초기 연결 실패 후 첫 연결
-            # _ever_connected=False이고 _recording_should_auto_resume=False인 경우
-            # → recording_enabled_start 설정 확인
-            elif not self._ever_connected and not self._recording_should_auto_resume:
-                try:
-                    config = ConfigManager.get_instance()
-                    cameras = config.config.get("cameras", [])
-                    camera_config = next((cam for cam in cameras if cam.get("camera_id") == self.camera_id), None)
-
-                    if camera_config:
-                        recording_enabled_start = camera_config.get("recording_enabled_start", False)
-                        if recording_enabled_start:
-                            should_start_recording = True
-                            logger.info(f"[RECONNECT] Initial connection - recording_enabled_start=True, will start recording")
-                        else:
-                            logger.info(f"[RECONNECT] Initial connection - recording_enabled_start=False, will not start recording")
-                except Exception as e:
-                    logger.warning(f"[RECONNECT] Failed to check recording_enabled_start config: {e}")
-            # Case 3: 재연결이지만 녹화 안하고 있었음 → 녹화 시작 안함
-            else:
-                logger.debug("[RECONNECT] Not starting recording (was not recording before)")
-
-            # 녹화 시작
-            if should_start_recording:
-                # 짧은 대기 (파이프라인 안정화)
-                time.sleep(1.0)
-
-                # 녹화 시작 시도
-                if self.start_recording():
-                    logger.success("[RECONNECT] Recording started successfully!")
-                    self._recording_should_auto_resume = False
-                else:
-                    logger.warning("[RECONNECT] Failed to start recording, will retry via timer")
-                    # 실패 시 녹화 재시도 타이머 시작
-                    self._schedule_recording_retry()
-        else:
-            logger.error("Reconnect failed")
-            # 재연결 타이머 재스케줄링
+        # 파이프라인 시작 (start() 메서드는 항상 동일한 로직 수행)
+        if not self.start():
+            logger.error("[RECONNECT] Failed to start pipeline - scheduling retry")
             self._schedule_reconnect()
+            return
+
+        # ✅ Step 3: 재연결 성공 - 녹화 자동 시작 처리
+        logger.success("[RECONNECT] Pipeline reconnected successfully")
+        self.retry_count = 0
+
+        # 녹화 자동 시작 여부 판단 및 처리
+        self._auto_start_recording_after_reconnect()
 
     
 
@@ -1707,22 +1729,17 @@ class GstPipeline:
 
 
     def start(self) -> bool:
-        """파이프라인 시작"""
+        """
+        파이프라인 시작
+
+        주의:
+        - 네트워크 연결 테스트는 이 메서드를 호출하기 전에 수행되어야 함
+        - 초기 연결: CameraStream.connect() → GstPipeline.start() (연결 실패 시 _reconnect() 모드로 전환)
+        - 재연결: _reconnect()에서 _test_rtsp_connection() 수행 후 이 메서드 호출
+        """
         if not self.pipeline:
             logger.error("Pipeline not created")
             return False
-
-        # 초기 시작 시에만 간단한 TCP 연결 테스트 수행
-        # (재연결은 _reconnect()에서 이미 테스트 수행)
-        if self.retry_count == 0:
-            logger.info("[CONNECTION TEST] Testing network connectivity before pipeline start...")
-            if not self._test_rtsp_connection(timeout=3):
-                logger.warning("[CONNECTION TEST] Camera network not reachable - scheduling retry")
-                # 재연결 스케줄링
-                self._schedule_reconnect()
-                return False
-
-            logger.success("[CONNECTION TEST] Network connectivity confirmed")
 
         try:
             logger.debug(f"Starting pipeline for {self.camera_name}")
