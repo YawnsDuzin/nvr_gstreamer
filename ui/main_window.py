@@ -750,9 +750,7 @@ class MainWindow(QMainWindow):
     def _auto_connect_cameras(self):
         """
         프로그램 시작 시 streaming_enabled_start=true인 카메라 자동 연결
-        camera_list_widget의 _connect_camera() 기능 재사용
-
-        Note: 녹화 자동 시작은 _on_camera_connected()에서 recording_enabled_start 설정을 확인하여 처리
+        초기 연결 실패 시에도 콜백을 등록하여 재연결 시 UI가 업데이트되도록 함
         """
         logger.info("Auto-connecting cameras with streaming_enabled_start=true...")
 
@@ -768,21 +766,126 @@ class MainWindow(QMainWindow):
                 # camera_list에서 해당 camera_item 찾기 및 선택
                 if camera.camera_id in self.camera_list.camera_items:
                     camera_item = self.camera_list.camera_items[camera.camera_id]
+                    stream = self.camera_list.get_camera_stream(camera.camera_id)
+
+                    if stream:
+                        # 콜백 먼저 등록 (연결 성공/실패와 상관없이)
+                        self._register_stream_callbacks(camera.camera_id, stream)
+                        logger.info(f"Callbacks registered for {camera.camera_id} (before connection attempt)")
 
                     # 아이템 선택 (camera_list_widget의 _connect_camera가 선택된 아이템 사용)
                     self.camera_list.list_widget.setCurrentItem(camera_item)
 
                     # camera_list_widget의 Connect 기능 재사용
-                    # 녹화 자동 시작은 _on_camera_connected()에서 처리
+                    # 연결 실패해도 나중에 GstPipeline이 재연결하면 콜백 호출됨
                     self.camera_list._connect_camera()
                     auto_connect_count += 1
                 else:
                     logger.warning(f"Camera {camera.camera_id} not found in camera list")
 
         if auto_connect_count > 0:
-            logger.info(f"Auto-connected {auto_connect_count} camera(s)")
+            logger.info(f"Auto-connect attempted for {auto_connect_count} camera(s)")
         else:
             logger.info("No cameras with streaming_enabled_start=true found")
+
+    def _register_stream_callbacks(self, camera_id: str, stream):
+        """
+        스트림 콜백 등록 (연결 상태와 상관없이 미리 등록)
+
+        초기 연결 실패 시에도 GstPipeline이 나중에 자동 재연결되면
+        콜백이 이미 등록되어 있어 UI가 정상 업데이트됨
+
+        Args:
+            camera_id: 카메라 ID
+            stream: CameraStream 인스턴스
+        """
+        if not stream:
+            logger.warning(f"Cannot register callbacks for {camera_id}: stream is None")
+            return
+
+        # GstPipeline이 생성될 때까지 대기 (최대 10초)
+        max_wait = 10  # 초
+        wait_interval = 0.5  # 초
+        waited = 0
+
+        while not stream.gst_pipeline and waited < max_wait:
+            logger.debug(f"Waiting for GstPipeline to be created for {camera_id}... ({waited:.1f}s)")
+            import time
+            time.sleep(wait_interval)
+            waited += wait_interval
+
+        if not stream.gst_pipeline:
+            logger.warning(f"GstPipeline not created for {camera_id} after {max_wait}s wait")
+            return
+
+        logger.info(f"Registering callbacks for {camera_id} (pipeline exists)")
+
+        # 1. 녹화 상태 콜백 등록
+        def on_recording_state_change(cam_id: str, is_recording: bool):
+            """파이프라인에서 녹화 상태 변경 시 UI 업데이트"""
+            logger.debug(f"[UI SYNC] Recording state callback: {cam_id} -> {is_recording}")
+
+            # Update Grid View (streaming UI)
+            for channel in self.grid_view.channels:
+                if channel.camera_id == cam_id:
+                    channel.set_recording(is_recording)
+                    logger.debug(f"[UI SYNC] Updated Grid View for {cam_id}: recording={is_recording}")
+                    break
+
+            # Update Recording Control Widget
+            self.recording_control.update_recording_status(cam_id, is_recording)
+
+            # Emit signal for recording control widget
+            if is_recording:
+                self.recording_control.recording_started.emit(cam_id)
+            else:
+                self.recording_control.recording_stopped.emit(cam_id)
+
+        stream.gst_pipeline.register_recording_callback(on_recording_state_change)
+        logger.debug(f"[UI SYNC] Registered recording callback for {camera_id}")
+
+        # 2. 연결 상태 콜백 등록
+        def on_connection_state_change(cam_id: str, is_connected: bool):
+            """파이프라인에서 연결 상태 변경 시 UI 업데이트"""
+            logger.debug(f"[CONNECTION SYNC] Connection state callback: {cam_id} -> {is_connected}")
+
+            # Update Grid View
+            for channel in self.grid_view.channels:
+                if channel.camera_id == cam_id:
+                    channel.set_connected(is_connected)
+                    logger.debug(f"[CONNECTION SYNC] Updated Grid View for {cam_id}: connected={is_connected}")
+                    break
+
+            # Update Recording Control Widget
+            if cam_id in self.recording_control.camera_items:
+                self.recording_control.camera_items[cam_id].set_connected(is_connected)
+                logger.debug(f"[CONNECTION SYNC] Updated RecordingStatusItem for {cam_id}: connected={is_connected}")
+
+            # 연결 성공 시 추가 처리
+            if is_connected:
+                # Window handle 설정
+                for channel in self.grid_view.channels:
+                    if channel.camera_id == cam_id:
+                        window_handle = channel.get_window_handle()
+                        if window_handle and stream.gst_pipeline and stream.gst_pipeline.video_sink:
+                            try:
+                                stream.gst_pipeline.video_sink.set_window_handle(int(window_handle))
+                                logger.info(f"Set window handle for camera {cam_id}: {window_handle}")
+                            except Exception as e:
+                                logger.warning(f"Failed to set window handle for {cam_id}: {e}")
+                        break
+
+                # 자동 녹화 시작 (recording_enabled_start 설정 확인)
+                camera_config = self.config_manager.get_camera(cam_id)
+                if camera_config and camera_config.recording_enabled_start:
+                    logger.info(f"Auto-recording enabled for {camera_config.name} ({cam_id})")
+                    # 파이프라인 안정화를 위해 500ms 지연 후 녹화 시작
+                    QTimer.singleShot(500, lambda: self._auto_start_recording(cam_id))
+
+        stream.gst_pipeline.register_connection_callback(on_connection_state_change)
+        logger.debug(f"[CONNECTION SYNC] Registered connection callback for {camera_id}")
+
+        logger.success(f"✓ All callbacks registered for {camera_id}")
 
     def _auto_start_recording(self, camera_id: str):
         """

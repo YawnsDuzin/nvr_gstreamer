@@ -58,10 +58,9 @@ class StreamVideoWidget(QWidget):
         self.name_label.setStyleSheet("""
             QLabel {
                 color: white;
-                background-color: rgba(0, 0, 0, 128);
+                background-color: transparent;
                 padding: 3px;
                 border-radius: 3px;
-                font-weight: bold;
             }
         """)
         header_layout.addWidget(self.name_label)
@@ -72,7 +71,7 @@ class StreamVideoWidget(QWidget):
         self.streaming_status_label.setStyleSheet("""
             QLabel {
                 color: #ff4444;
-                background-color: rgba(0, 0, 0, 128);
+                background-color: transparent;
                 padding: 3px;
                 border-radius: 3px;
             }
@@ -84,7 +83,7 @@ class StreamVideoWidget(QWidget):
         self.recording_status_label.setStyleSheet("""
             QLabel {
                 color: #cccccc;
-                background-color: rgba(0, 0, 0, 128);
+                background-color: transparent;
                 padding: 3px;
                 border-radius: 3px;
             }

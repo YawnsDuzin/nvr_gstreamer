@@ -108,6 +108,7 @@ class GstPipeline:
         self._max_recording_retry = 20  # 최대 재시도 횟수 (20회 = 약 2분)
         self._recording_retry_interval = 6.0  # 재시도 간격 (초)
         self._recording_should_auto_resume = False  # 자동 재개 플래그
+        self._ever_connected = False  # 최소 1번이라도 연결된 적 있는지 추적
 
         # 프레임 모니터링 (연결 끊김 조기 감지)
         self._last_frame_time = None  # 마지막 프레임 도착 시간
@@ -1465,11 +1466,6 @@ class GstPipeline:
 
     def _schedule_reconnect(self):
         """재연결 스케줄링 (지수 백오프, 중복 방지)"""
-        # 이미 재연결 타이머가 실행 중이면 무시
-        if self.reconnect_timer and self.reconnect_timer.is_alive():
-            logger.debug("Reconnect already scheduled, skipping duplicate")
-            return
-
         # 최대 재시도 횟수 초과 시 중단
         if self.retry_count >= self.max_retries:
             logger.error(f"[RECONNECT] Max retries ({self.max_retries}) reached for {self.camera_id}")
@@ -1482,6 +1478,11 @@ class GstPipeline:
             logger.critical(f"[RECONNECT] Failed to reconnect to {self.camera_name} after {self.max_retries} attempts")
 
             return
+
+        # 이전 타이머가 있으면 취소
+        if self.reconnect_timer and self.reconnect_timer.is_alive():
+            logger.debug("[RECONNECT] Cancelling previous reconnect timer")
+            self.reconnect_timer.cancel()
 
         # 지수 백오프: 5초 → 10초 → 20초 → 40초 → 60초 (최대)
         delay = min(5 * (2 ** self.retry_count), 60)
@@ -1497,7 +1498,7 @@ class GstPipeline:
     def _test_rtsp_connection(self, timeout=3):
         """
         RTSP 연결 가능 여부를 빠르게 테스트
-        GStreamer의 rtspsrc를 사용하여 DESCRIBE 요청 전송
+        TCP 소켓으로 네트워크 연결만 확인하여 부하 최소화
 
         Returns:
             bool: 연결 가능하면 True, 아니면 False
@@ -1505,32 +1506,46 @@ class GstPipeline:
         try:
             logger.debug(f"[CONNECTION TEST] Testing RTSP connection to {self.rtsp_url}")
 
-            # 간단한 파이프라인으로 RTSP 연결 테스트
-            test_pipeline = Gst.parse_launch(
-                f"rtspsrc location={self.rtsp_url} protocols=tcp timeout={timeout * 1000000} ! fakesink"
-            )
+            # RTSP URL에서 호스트와 포트 추출
+            import re
+            import socket
 
-            if not test_pipeline:
-                logger.warning("[CONNECTION TEST] Failed to create test pipeline")
+            # rtsp://username:password@host:port/path 형식 파싱
+            pattern = r'rtsp://(?:([^:@]+)(?::([^@]+))?@)?([^:/]+)(?::(\d+))?(/.*)?'
+            match = re.match(pattern, self.rtsp_url)
+
+            if not match:
+                logger.warning("[CONNECTION TEST] Failed to parse RTSP URL")
                 return False
 
-            # READY 상태로 전환 (RTSP DESCRIBE 요청 발생)
-            ret = test_pipeline.set_state(Gst.State.READY)
+            host = match.group(3)
+            port = int(match.group(4)) if match.group(4) else 554
 
-            if ret == Gst.StateChangeReturn.FAILURE:
-                logger.warning("[CONNECTION TEST] RTSP connection test failed")
-                test_pipeline.set_state(Gst.State.NULL)
+            logger.debug(f"[CONNECTION TEST] Checking TCP connection to {host}:{port}")
+
+            # TCP 소켓 연결 테스트
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(timeout)
+
+            try:
+                result = sock.connect_ex((host, port))
+                sock.close()
+
+                if result == 0:
+                    logger.success(f"[CONNECTION TEST] ✓ TCP connection successful to {host}:{port}")
+                    return True
+                else:
+                    logger.warning(f"[CONNECTION TEST] TCP connection failed to {host}:{port} (error: {result})")
+                    return False
+
+            except socket.timeout:
+                logger.warning(f"[CONNECTION TEST] Connection timed out after {timeout}s")
+                sock.close()
                 return False
-
-            # 짧은 대기 후 상태 확인
-            import time
-            time.sleep(0.5)
-
-            # 정리
-            test_pipeline.set_state(Gst.State.NULL)
-
-            logger.success("[CONNECTION TEST] ✓ RTSP connection test successful")
-            return True
+            except socket.error as e:
+                logger.warning(f"[CONNECTION TEST] Socket error: {e}")
+                sock.close()
+                return False
 
         except Exception as e:
             logger.warning(f"[CONNECTION TEST] Exception during connection test: {e}")
@@ -1569,19 +1584,47 @@ class GstPipeline:
             logger.success("Reconnected successfully")
             self.retry_count = 0
 
-            # 녹화 자동 재개 확인
-            if self._recording_should_auto_resume:
-                logger.info("[RECONNECT] Attempting to auto-resume recording...")
+            # 녹화 자동 시작 판단
+            should_start_recording = False
 
+            # Case 1: 연결 끊김으로 인해 녹화가 중지된 경우 → 녹화 재개
+            if self._recording_should_auto_resume:
+                should_start_recording = True
+                logger.info("[RECONNECT] Will resume recording (was recording before disconnect)")
+
+            # Case 2: 초기 연결 실패 후 첫 연결
+            # _ever_connected=False이고 _recording_should_auto_resume=False인 경우
+            # → recording_enabled_start 설정 확인
+            elif not self._ever_connected and not self._recording_should_auto_resume:
+                try:
+                    config = ConfigManager.get_instance()
+                    cameras = config.config.get("cameras", [])
+                    camera_config = next((cam for cam in cameras if cam.get("camera_id") == self.camera_id), None)
+
+                    if camera_config:
+                        recording_enabled_start = camera_config.get("recording_enabled_start", False)
+                        if recording_enabled_start:
+                            should_start_recording = True
+                            logger.info(f"[RECONNECT] Initial connection - recording_enabled_start=True, will start recording")
+                        else:
+                            logger.info(f"[RECONNECT] Initial connection - recording_enabled_start=False, will not start recording")
+                except Exception as e:
+                    logger.warning(f"[RECONNECT] Failed to check recording_enabled_start config: {e}")
+            # Case 3: 재연결이지만 녹화 안하고 있었음 → 녹화 시작 안함
+            else:
+                logger.debug("[RECONNECT] Not starting recording (was not recording before)")
+
+            # 녹화 시작
+            if should_start_recording:
                 # 짧은 대기 (파이프라인 안정화)
                 time.sleep(1.0)
 
-                # 녹화 시작 시도 
+                # 녹화 시작 시도
                 if self.start_recording():
-                    logger.success("[RECONNECT] Recording auto-resumed successfully!")
+                    logger.success("[RECONNECT] Recording started successfully!")
                     self._recording_should_auto_resume = False
                 else:
-                    logger.warning("[RECONNECT] Failed to auto-resume recording, will retry via timer")
+                    logger.warning("[RECONNECT] Failed to start recording, will retry via timer")
                     # 실패 시 녹화 재시도 타이머 시작
                     self._schedule_recording_retry()
         else:
@@ -1668,6 +1711,18 @@ class GstPipeline:
         if not self.pipeline:
             logger.error("Pipeline not created")
             return False
+
+        # 초기 시작 시에만 간단한 TCP 연결 테스트 수행
+        # (재연결은 _reconnect()에서 이미 테스트 수행)
+        if self.retry_count == 0:
+            logger.info("[CONNECTION TEST] Testing network connectivity before pipeline start...")
+            if not self._test_rtsp_connection(timeout=3):
+                logger.warning("[CONNECTION TEST] Camera network not reachable - scheduling retry")
+                # 재연결 스케줄링
+                self._schedule_reconnect()
+                return False
+
+            logger.success("[CONNECTION TEST] Network connectivity confirmed")
 
         try:
             logger.debug(f"Starting pipeline for {self.camera_name}")
@@ -1771,6 +1826,9 @@ class GstPipeline:
             # 연결 상태 콜백 호출 (UI 동기화)
             self._notify_connection_state_change(True)
 
+            # 연결 성공 플래그 설정 (초기 연결 실패 vs 재연결 구분용)
+            self._ever_connected = True
+
             return True
 
         except Exception as e:
@@ -1819,8 +1877,13 @@ class GstPipeline:
             if self._main_loop:
                 self._main_loop.quit()
 
+            # 현재 스레드가 pipeline 스레드가 아닌 경우에만 join
             if self._thread and self._thread.is_alive():
-                self._thread.join(timeout=2.0)
+                current_thread = threading.current_thread()
+                if current_thread != self._thread:
+                    self._thread.join(timeout=2.0)
+                else:
+                    logger.debug("[STOP] Skipping thread join (called from pipeline thread)")
 
             # ✅ 파이프라인 객체 및 엘리먼트 참조 초기화 (재생성 시 충돌 방지)
             self.pipeline = None

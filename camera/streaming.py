@@ -130,7 +130,8 @@ class CameraStream:
             return True
 
         except Exception as e:
-            logger.error(f"Failed to connect to camera {self.config.name}: {e}")
+            # 초기 연결 실패는 WARNING으로 처리 (GstPipeline이 자동 재연결 수행)
+            logger.warning(f"Failed to connect to camera {self.config.name}: {e}")
             self.status = StreamStatus.ERROR
             self._stats["last_error"] = str(e)
             self._handle_connection_error()
