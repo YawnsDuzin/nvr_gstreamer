@@ -17,7 +17,6 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from ui.camera_dialog import CameraDialog
 from ui.theme import ThemedWidget
 from core.config import ConfigManager, CameraConfigData
 from camera.streaming import CameraStream, CameraConfig
@@ -134,13 +133,6 @@ class CameraListWidget(ThemedWidget):
         self.connection_action.triggered.connect(self._toggle_connection)
         self.context_menu.addAction(self.connection_action)
 
-        self.context_menu.addSeparator()
-
-        # Edit
-        edit_action = QAction("Edit", self)
-        edit_action.triggered.connect(self._edit_camera)
-        self.context_menu.addAction(edit_action)
-
     def _setup_timer(self):
         """Setup status update timer"""
         self.update_timer = QTimer()
@@ -253,91 +245,6 @@ class CameraListWidget(ThemedWidget):
 
         # Show menu
         self.context_menu.exec_(self.list_widget.mapToGlobal(pos))
-
-    def _add_camera(self):
-        """Add new camera"""
-        dialog = CameraDialog(parent=self)
-        dialog.camera_saved.connect(self._on_camera_saved)
-        dialog.exec_()
-
-    def _on_camera_saved(self, camera_config: CameraConfig):
-        """Handle camera saved from dialog"""
-        # Convert to config data
-        config_data = CameraConfigData(
-            camera_id=camera_config.camera_id,
-            name=camera_config.name,
-            rtsp_url=camera_config.rtsp_url,
-            enabled=getattr(camera_config, 'enabled', True),
-            username=camera_config.username,
-            password=camera_config.password,
-            use_hardware_decode=camera_config.use_hardware_decode,
-            streaming_enabled_start=getattr(camera_config, 'streaming_enabled_start', False),
-            recording_enabled_start=getattr(camera_config, 'recording_enabled_start', False),
-            ptz_type=getattr(camera_config, 'ptz_type', None),
-            ptz_port=getattr(camera_config, 'ptz_port', None),
-            ptz_channel=getattr(camera_config, 'ptz_channel', None)
-        )
-
-        # Add to configuration
-        if self.config_manager.add_camera(config_data):
-            self.config_manager.save_config()
-            self._add_camera_item(config_data)
-            self.camera_added.emit(config_data)
-            self._update_status()
-        else:
-            QMessageBox.warning(self, "Error", "Failed to add camera")
-
-    def _edit_camera(self):
-        """Edit selected camera"""
-        current_item = self.list_widget.currentItem()
-        if not current_item:
-            return
-
-        camera_item = current_item
-        camera_config = camera_item.camera_config
-
-        # Convert to CameraConfig for dialog
-        config = CameraConfig(
-            camera_id=camera_config.camera_id,
-            name=camera_config.name,
-            rtsp_url=camera_config.rtsp_url,
-            username=camera_config.username,
-            password=camera_config.password,
-            use_hardware_decode=camera_config.use_hardware_decode,
-            streaming_enabled_start=camera_config.streaming_enabled_start,
-            recording_enabled_start=camera_config.recording_enabled_start,
-            ptz_type=camera_config.ptz_type,
-            ptz_port=camera_config.ptz_port,
-            ptz_channel=camera_config.ptz_channel
-        )
-
-        dialog = CameraDialog(camera_config=config, parent=self)
-
-        def on_updated(updated_config):
-            # Update configuration
-            self.config_manager.update_camera(
-                camera_config.camera_id,
-                name=updated_config.name,
-                rtsp_url=updated_config.rtsp_url,
-                username=updated_config.username,
-                password=updated_config.password,
-                use_hardware_decode=updated_config.use_hardware_decode,
-                streaming_enabled_start=getattr(updated_config, 'streaming_enabled_start', False),
-                recording_enabled_start=getattr(updated_config, 'recording_enabled_start', False),
-                ptz_type=getattr(updated_config, 'ptz_type', None),
-                ptz_port=getattr(updated_config, 'ptz_port', None),
-                ptz_channel=getattr(updated_config, 'ptz_channel', None)
-            )
-            self.config_manager.save_config()
-
-            # Update item
-            camera_item.camera_config = self.config_manager.get_camera(camera_config.camera_id)
-            camera_item.update_display()
-
-            self.camera_updated.emit(camera_item.camera_config)
-
-        dialog.camera_saved.connect(on_updated)
-        dialog.exec_()
 
     def _remove_camera(self):
         """Remove selected camera"""
@@ -579,6 +486,22 @@ class CameraListWidget(ThemedWidget):
                     row = self.list_widget.row(item)
                     self.list_widget.takeItem(row)
                     del self.camera_items[camera_id]
+
+        # ⭐ 중요: 설정 변경 시 항상 GridView 채널 재할당 및 RecordingControlWidget 재등록
+        # (카메라 추가/삭제/수정 모두 포함)
+        if self.main_window:
+            logger.info("Re-assigning cameras to channels and recording control after config change...")
+
+            # GridView 채널 재할당
+            self.main_window._auto_assign_cameras()
+
+            # RecordingControlWidget 재등록
+            self.main_window._populate_recording_control()
+
+            # 윈도우 핸들 재할당
+            self.main_window._assign_window_handles_to_streams()
+
+            logger.success("✓ Camera re-assignment completed")
 
         # 재연결 필요한 카메라 알림
         if reconnect_needed:

@@ -44,7 +44,6 @@ CREATE TABLE IF NOT EXISTS streaming (
     buffer_size INTEGER NOT NULL DEFAULT 10485760,
     latency_ms INTEGER NOT NULL DEFAULT 100,
     tcp_timeout INTEGER NOT NULL DEFAULT 10000,
-    keepalive_timeout INTEGER NOT NULL DEFAULT 5,
     connection_timeout INTEGER NOT NULL DEFAULT 10,
     auto_reconnect BOOLEAN NOT NULL DEFAULT 1,
     max_reconnect_attempts INTEGER NOT NULL DEFAULT 5,

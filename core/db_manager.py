@@ -437,7 +437,6 @@ class DBManager:
                         "buffer_size": data["buffer_size"],
                         "latency_ms": data["latency_ms"],
                         "tcp_timeout": data["tcp_timeout"],
-                        "keepalive_timeout": data["keepalive_timeout"],
                         "connection_timeout": data["connection_timeout"],
                         "auto_reconnect": bool(data["auto_reconnect"]),
                         "max_reconnect_attempts": data["max_reconnect_attempts"],
@@ -460,7 +459,6 @@ class DBManager:
                         "buffer_size": 10485760,
                         "latency_ms": 100,
                         "tcp_timeout": 10000,
-                        "keepalive_timeout": 5,
                         "connection_timeout": 10,
                         "auto_reconnect": True,
                         "max_reconnect_attempts": 5,
@@ -499,6 +497,7 @@ class DBManager:
                         "ptz_type": data.get("ptz_type"),
                         "ptz_port": data.get("ptz_port"),
                         "ptz_channel": data.get("ptz_channel"),
+                        "display_order": data.get("display_order", 0),
                         "video_transform": self._unflatten_video_transform(data),
                     }
                     cameras.append(camera)
@@ -953,7 +952,7 @@ class DBManager:
                             camera.get("ptz_type"),
                             camera.get("ptz_port"),
                             camera.get("ptz_channel"),
-                            idx,  # display_order
+                            camera.get("display_order", idx),  # display_order (fallback to idx)
                             flat_transform["video_transform_enabled"],
                             flat_transform["video_transform_flip"],
                             flat_transform["video_transform_rotation"],
@@ -991,7 +990,7 @@ class DBManager:
                             osd_font_size = ?, osd_font_color = ?, osd_valignment = ?, osd_halignment = ?,
                             osd_xpad = ?, osd_ypad = ?, use_hardware_acceleration = ?,
                             decoder_preference = ?, buffer_size = ?, latency_ms = ?, tcp_timeout = ?,
-                            keepalive_timeout = ?, connection_timeout = ?, auto_reconnect = ?,
+                            connection_timeout = ?, auto_reconnect = ?,
                             max_reconnect_attempts = ?, reconnect_delay_seconds = ?
                         WHERE streaming_idx = (SELECT MIN(streaming_idx) FROM streaming)
                         """,
@@ -1010,7 +1009,6 @@ class DBManager:
                             data.get("buffer_size", 10485760),
                             data.get("latency_ms", 100),
                             data.get("tcp_timeout", 10000),
-                            data.get("keepalive_timeout", 5),
                             data.get("connection_timeout", 10),
                             data.get("auto_reconnect", True),
                             data.get("max_reconnect_attempts", 5),
@@ -1025,9 +1023,9 @@ class DBManager:
                             osd_font_size, osd_font_color, osd_valignment, osd_halignment,
                             osd_xpad, osd_ypad, use_hardware_acceleration,
                             decoder_preference, buffer_size, latency_ms, tcp_timeout,
-                            keepalive_timeout, connection_timeout, auto_reconnect,
+                            connection_timeout, auto_reconnect,
                             max_reconnect_attempts, reconnect_delay_seconds
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             data.get("default_layout", "1x1"),
@@ -1044,7 +1042,6 @@ class DBManager:
                             data.get("buffer_size", 10485760),
                             data.get("latency_ms", 100),
                             data.get("tcp_timeout", 10000),
-                            data.get("keepalive_timeout", 5),
                             data.get("connection_timeout", 10),
                             data.get("auto_reconnect", True),
                             data.get("max_reconnect_attempts", 5),

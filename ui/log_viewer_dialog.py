@@ -62,6 +62,7 @@ class LogViewerDialog(ThemedDialog):
         # 상세 뷰
         detail_group = QGroupBox("Log Detail")
         detail_layout = QVBoxLayout()
+        detail_layout.setContentsMargins(10, 10, 10, 10)  # left, top, right, bottom
         self.detail_text = QTextEdit()
         self.detail_text.setReadOnly(True)
         self.detail_text.setFont(QFont("Consolas", 9))

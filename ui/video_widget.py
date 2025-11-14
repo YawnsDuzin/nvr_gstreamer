@@ -66,11 +66,11 @@ class StreamVideoWidget(QWidget):
         header_layout.addWidget(self.name_label)
         header_layout.addStretch()
 
-        # Streaming status indicator
-        self.streaming_status_label = QLabel("● Disconnected")
+        # Streaming status indicator (초기 상태: Disconnected - 흰색)
+        self.streaming_status_label = QLabel("⚪ Disconnected")
         self.streaming_status_label.setStyleSheet("""
             QLabel {
-                color: #ff4444;
+                color: #ffffff;
                 background-color: transparent;
                 padding: 3px;
                 border-radius: 3px;
@@ -78,11 +78,11 @@ class StreamVideoWidget(QWidget):
         """)
         header_layout.addWidget(self.streaming_status_label)
 
-        # Recording status indicator
-        self.recording_status_label = QLabel("⚫ Stop")
+        # Recording status indicator (초기 상태: Stop - 흰색)
+        self.recording_status_label = QLabel("⚪ Stop")
         self.recording_status_label.setStyleSheet("""
             QLabel {
-                color: #cccccc;
+                color: #ffffff;
                 background-color: transparent;
                 padding: 3px;
                 border-radius: 3px;
@@ -153,28 +153,34 @@ class StreamVideoWidget(QWidget):
         Args:
             connected: Connection status
         """
+        from core.enums import CameraStatus
+
         self.is_connected = connected
 
         if connected:
-            self.streaming_status_label.setText("● Connected")
-            self.streaming_status_label.setStyleSheet("""
-                QLabel {
-                    color: #44ff44;
+            # 연결됨 - 녹색 🟢
+            icon, color_hex, _ = CameraStatus.get_status_color(CameraStatus.CONNECTED)
+            self.streaming_status_label.setText(f"{icon} Connected")
+            self.streaming_status_label.setStyleSheet(f"""
+                QLabel {{
+                    color: {color_hex};
                     background-color: transparent;
                     padding: 3px;
                     border-radius: 3px;
-                }
+                }}
             """)
             self.stream_connected.emit(self.camera_id)
         else:
-            self.streaming_status_label.setText("● Disconnected")
-            self.streaming_status_label.setStyleSheet("""
-                QLabel {
-                    color: #cccccc;
+            # 연결 안됨 - 흰색 ⚪
+            icon, color_hex, _ = CameraStatus.get_status_color(CameraStatus.DISCONNECTED)
+            self.streaming_status_label.setText(f"{icon} Disconnected")
+            self.streaming_status_label.setStyleSheet(f"""
+                QLabel {{
+                    color: {color_hex};
                     background-color: transparent;
                     padding: 3px;
                     border-radius: 3px;
-                }
+                }}
             """)
             self.stream_disconnected.emit(self.camera_id)
 
@@ -185,14 +191,18 @@ class StreamVideoWidget(QWidget):
         Args:
             error_message: Error description
         """
-        self.streaming_status_label.setText("● Error")
-        self.streaming_status_label.setStyleSheet("""
-            QLabel {
-                color: #ffaa00;
+        from core.enums import CameraStatus
+
+        # 오류 - 빨간색 🔴
+        icon, color_hex, _ = CameraStatus.get_status_color(CameraStatus.ERROR)
+        self.streaming_status_label.setText(f"{icon} Error")
+        self.streaming_status_label.setStyleSheet(f"""
+            QLabel {{
+                color: {color_hex};
                 background-color: transparent;
                 padding: 3px;
                 border-radius: 3px;
-            }
+            }}
         """)
         self.stream_error.emit(self.camera_id, error_message)
 
@@ -215,25 +225,31 @@ class StreamVideoWidget(QWidget):
         Args:
             recording: Recording state
         """
+        from core.enums import RecordingStatus
+
         if recording:
-            self.recording_status_label.setText("● Rec")
-            self.recording_status_label.setStyleSheet("""
-                QLabel {
-                    color: #ff0000;
+            # 녹화 중 - 빨간색 🔴
+            icon, color_hex, _ = RecordingStatus.get_status_color(RecordingStatus.RECORDING)
+            self.recording_status_label.setText(f"{icon} Rec")
+            self.recording_status_label.setStyleSheet(f"""
+                QLabel {{
+                    color: {color_hex};
                     background-color: transparent;
                     padding: 3px;
                     border-radius: 3px;
-                }
+                }}
             """)
         else:
-            self.recording_status_label.setText("● Stop")
-            self.recording_status_label.setStyleSheet("""
-                QLabel {
-                    color: #cccccc;
+            # 녹화 중지 - 흰색 ⚪
+            icon, color_hex, _ = RecordingStatus.get_status_color(RecordingStatus.IDLE)
+            self.recording_status_label.setText(f"{icon} Stop")
+            self.recording_status_label.setStyleSheet(f"""
+                QLabel {{
+                    color: {color_hex};
                     background-color: transparent;
                     padding: 3px;
                     border-radius: 3px;
-                }
+                }}
             """)
 
     def clear_video(self):

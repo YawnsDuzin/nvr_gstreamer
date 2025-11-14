@@ -20,7 +20,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from ui.grid_view import GridViewWidget
 from ui.camera_list_widget import CameraListWidget
-from ui.camera_dialog import CameraDialog
 from ui.recording_control_widget import RecordingControlWidget
 from ui.playback_widget import PlaybackWidget
 from ui.theme import ThemeManager
@@ -1085,6 +1084,14 @@ class MainWindow(QMainWindow):
 
     def _populate_recording_control(self):
         """Populate recording control with cameras"""
+        # ⭐ 중요: 기존 카메라 목록을 모두 제거한 후 재등록
+        # (설정 변경 시 중복 추가 방지)
+        cameras_to_remove = list(self.recording_control.camera_items.keys())
+        for camera_id in cameras_to_remove:
+            self.recording_control.remove_camera(camera_id)
+            logger.debug(f"Removed camera from recording control: {camera_id}")
+
+        # 새로운 카메라 목록 추가
         cameras = self.config_manager.get_all_cameras()
         for camera in cameras:
             if hasattr(camera, 'rtsp_url'):
@@ -1125,10 +1132,6 @@ class MainWindow(QMainWindow):
         if camera_id in self.recording_control.camera_items:
             self.recording_control.camera_items[camera_id].set_recording(False)
             logger.debug(f"Updated recording control widget for {camera_id} (stopped)")
-
-    def _add_camera(self):
-        """Show add camera dialog"""
-        self.camera_list._add_camera()
 
     def _show_settings_dialog(self):
         """Show integrated settings dialog"""
@@ -1288,7 +1291,6 @@ class MainWindow(QMainWindow):
         shortcuts = """
         <b>Keyboard Shortcuts:</b><br><br>
         <b>General:</b><br>
-        Ctrl+N - Add Camera<br>
         Ctrl+Q - Exit<br>
         F11 - Toggle Fullscreen<br><br>
 

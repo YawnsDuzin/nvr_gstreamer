@@ -51,15 +51,10 @@ python _tests/test_config_preservation.py
 
 ### Recent Fixes (2025-11)
 - **PTZ Zoom Key Event Fix** (2025-11-12): Fixed keyPress event not reaching MainWindow by installing eventFilter on QApplication
-  - Problem: GridView and child widgets intercepted key events before MainWindow
-  - Solution: Installed eventFilter on QApplication instance to capture all keyboard events
-  - Related files: `ui/main_window.py`, `ui/grid_view.py`, `_doc/ptz_zoom_keypress_issue_analysis_20251112.md`
 - **Raspberry Pi X Window Fix** (2025-11-05): Window handle validation to prevent BadWindow errors
 - **Video Transform Case Fix** (2025-11-05): Case-insensitive handling for flip settings
 - **Performance Settings Tab** (2025-11-05): System monitoring configuration UI
-- **Async Delete Dialog** (2025-11-05): Multi-threaded file deletion with progress
-- **Configuration Path Migration** (2025-11-04): Recording path moved to storage section
-- **Backup Functionality** (2025-11-03): File backup with MD5 verification
+- **Configuration Database Migration** (2025-11-04): Migrated from JSON to SQLite (IT_RNVR.db)
 
 ## Commands
 
@@ -160,16 +155,16 @@ Instead of separate pipelines for streaming and recording (which duplicates deco
 
 ### Key Components
 
-1. **Core Business Logic** (`core/`) - Refactored (2025-10-28)
+1. **Core Business Logic** (`core/`)
    - `models.py`: Domain entities (Camera, Recording, StreamStatus, StorageInfo, SystemStatus)
      - PTZ camera support (ptz_type, ptz_port, ptz_channel fields)
    - `enums.py`: System-wide enums (CameraStatus, RecordingStatus, PipelineMode)
    - `exceptions.py`: Custom exception classes
-   - `config.py`: JSON configuration handler with **Singleton pattern** (see Configuration System section)
+   - `config.py`: SQLite database configuration handler with **Singleton pattern**
    - `storage.py`: Storage management with automatic cleanup and backup functionality
    - `system_monitor.py`: Resource monitoring and system health checks
 
-2. **Camera Management** (`camera/`) - Consolidated (2025-10-28)
+2. **Camera Management** (`camera/`)
    - `gst_pipeline.py`: Unified streaming+recording pipeline with valve control
      - Video transform support (flip, rotation)
      - Window handle validation for Raspberry Pi X Window compatibility
@@ -224,9 +219,9 @@ Mode switching happens at runtime using valve elements without service interrupt
 
 ## Important Notes
 
-### Configuration System (Updated: 2025-11)
-**CRITICAL**: Configuration management migrated to SQLite database:
-- **Format**: SQLite database (IT_RNVR.db) - migrated from JSON for better data integrity
+### Configuration System (Updated: 2025-11-04)
+**CRITICAL**: Configuration management uses SQLite database:
+- **Format**: SQLite database (`IT_RNVR.db`) - migrated from JSON for better data integrity
 - **Singleton Pattern**: ConfigManager uses singleton pattern - always use `ConfigManager.get_instance()`
 - **Auto-save**: UI state (window geometry, dock visibility) saved automatically on exit
 - **Database Tables**:
@@ -240,31 +235,28 @@ Mode switching happens at runtime using valve elements without service interrupt
   - `logging_config`: Comprehensive logging configuration (console, file, error, JSON logs)
   - `menu_keys`: Menu keyboard shortcuts (F1-F12, special keys)
   - `ptz_keys`: PTZ control keyboard shortcuts (zoom, pan, tilt)
-- **Recording Path Migration** (2025-11-04):
-  - Recording path moved from `recording.base_path` to `storage.recording_path`
-  - All code now uses `storage_config.get('recording_path')` pattern
-  - Settings UI: Recording path control moved from Recording tab to Storage tab
 - **Usage**:
   ```python
   # Correct - get singleton instance
   config = ConfigManager.get_instance()
 
-  # Access recording path (IMPORTANT: use storage section)
-  storage_config = config.config.get('storage', {})
+  # Access recording path (stored in storage_config table)
+  storage_config = config.get_storage_config()
   recording_path = storage_config.get('recording_path', './recordings')
 
   # Update UI state
   config.update_ui_window_state(x, y, width, height)
-  config.save_ui_config()  # Updates only 'ui' section in JSON
+  config.save_ui_config()
 
   # Access configuration sections
-  cameras = config.config.get("cameras", [])
-  backup_path = config.config.get("backup", {}).get("destination_path", "")
+  cameras = config.get_cameras()
+  backup_config = config.get_backup_config()
+  backup_path = backup_config.get('destination_path', '')
   ```
 
-### Core Module Usage (Updated: 2025-10-28)
+### Core Module Usage
 Business logic in core module:
-- **ConfigManager**: Singleton pattern configuration handler
+- **ConfigManager**: Singleton pattern configuration handler for SQLite database
 - **StorageService**: Automatic file cleanup based on age/space
 - **SystemMonitor**: CPU, memory, temperature monitoring with alert thresholds
 - **Usage**:
@@ -326,7 +318,7 @@ Critical for ensuring proper video display:
   - PTZ Controller created when camera is selected
   - Key mappings stored in `ptz_keys` database table (V=zoom_in, B=zoom_out, etc.)
 - **Menu Keys**: F1-F12 and special keys for menu actions, stored in `menu_keys` table
-- Related files: `ui/main_window.py` (eventFilter, keyPressEvent, keyReleaseEvent)
+- Related files: [ui/main_window.py](ui/main_window.py) (eventFilter, keyPressEvent, keyReleaseEvent)
 
 ## Development Workflow
 
@@ -338,7 +330,7 @@ When modifying the codebase:
 5. For recording changes, verify file rotation and directory structure
 6. For pipeline changes, test valve-based mode switching
 7. Run memory monitor to check for leaks: `python _tests/memory_monitor.py`
-8. Test configuration preservation with `python _tests/test_config_preservation.py`
+8. Test configuration persistence with `python _tests/test_config_preservation.py`
 
 ## Documentation
 
@@ -350,7 +342,7 @@ Detailed technical documentation is available in `_doc/`:
 - `camera_disconnect_error_analysis.md`: Network disconnection error recovery
 - `20251029_startup_flow.md`: Application startup sequence and initialization
 - `settings_dialog_implementation_plan.md`: Settings dialog architecture
-- `ptz_zoom_keypress_issue_analysis_20251112.md`: PTZ keyboard event handling fix (2025-11-12)
+- `ptz_zoom_keypress_issue_analysis_20251112.md`: PTZ keyboard event handling fix
 - `db_migration_complete.md`: JSON to SQLite database migration documentation
 
 ## Known Issues & Solutions
@@ -377,28 +369,13 @@ Detailed technical documentation is available in `_doc/`:
 # Related docs: _doc/recording_stop_affecting_streaming_fix.md
 ```
 
-### Resolved Issues
+### Common Issues
 
 #### Video Not Displaying
 ```python
 # Problem: Window handles not properly assigned
 # Solution: Check window handle assignment in main_window.py
 # Verify 500ms delay is present for handle assignment
-```
-
-#### Raspberry Pi X Window Error (Fixed: 2025-11-05)
-```python
-# Problem: "BadWindow (invalid Window parameter)" error on Raspberry Pi
-# Solution: Window handle validation added in gst_pipeline.py
-# Video output disabled if handle is invalid (headless mode)
-# Recording continues to function properly
-```
-
-#### Video Transform Not Working (Fixed: 2025-11-05)
-```python
-# Problem: Video flip/rotation settings not applied
-# Solution: Case sensitivity issue resolved
-# Fixed with .lower() normalization in cameras_settings_tab.py and gst_pipeline.py
 ```
 
 #### Recording Files 0MB or Not Created
@@ -411,29 +388,13 @@ Detailed technical documentation is available in `_doc/`:
 ```
 
 #### Recording Not Starting Automatically
-```json
-// Check IT_RNVR.json
-{
-  "cameras": [{
-    "recording_enabled_start": true  // Must be true for auto-recording on startup
-  }]
-}
+```python
+# Check camera configuration in database
+# recording_enabled_start must be True for auto-recording on startup
+camera_config = config.get_camera(camera_id)
+if camera_config.get('recording_enabled_start', False):
+    # Auto-recording enabled
 ```
-
-#### Backup Issues
-```json
-// Problem: Backup path not accessible or insufficient space
-// Solution: Check backup section in IT_RNVR.json
-{
-  "backup": {
-    "destination_path": "E:/backup",     // Verify path exists
-    "verification": true,                // MD5 hash verification
-    "delete_after_backup": false        // Delete source after successful backup
-  }
-}
-```
-
-### Performance Issues
 
 #### High CPU Usage
 ```bash
@@ -471,41 +432,15 @@ def _on_bus_message(self, bus, message):
 # Status tracking: DISCONNECTED → CONNECTING → CONNECTED → ERROR → RECONNECTING
 ```
 
-## Current Status
-
-### Working Features
-- Real-time RTSP streaming with low latency
-- Continuous recording with automatic file rotation via splitmuxsink
-- Auto-recording on camera connection (when `recording_enabled_start: true`)
-- Recording file backup with MD5 verification and progress tracking
-- Async file deletion with progress dialog
-- Network disconnection detection and automatic reconnection
-- File split on network reconnection (new recording file created)
-- Playback system with timeline navigation and speed control
-- Dockable UI widgets (Camera List, Recording Control, Playback)
-- JSON-based configuration with singleton pattern
-- UI state persistence (window geometry, dock visibility)
-- PTZ camera control support (HIK, ONVIF compatible)
-- Video transform (flip, rotation) with case-insensitive configuration
-- Hardware acceleration support (RPi OMX/V4L2)
-- Runtime pipeline mode switching via valves
-- Memory-efficient unified pipeline architecture
-- Automatic storage cleanup based on age and disk space
-- System resource monitoring with configurable alert thresholds
-- Comprehensive logging system with multiple output formats
-- Real-time log viewer dialog
-- Theme system with centralized management
-
-### Known Limitations
-- PyQt5/PyQt6 dependency mismatch in requirements.txt (code uses PyQt5)
-- GStreamer required on Windows (use mock_gi for testing without it)
-- Credentials stored in cleartext in IT_RNVR.json
-- Manual recording stop may produce unplayable files (see Active Issues)
-
-### Platform Support
+## Platform Support
 - **Primary**: Raspberry Pi (3, 4, Zero 2W)
 - **Secondary**: Linux (Ubuntu 20.04+, Debian 11+)
 - **Experimental**: Windows (requires GStreamer or mock)
+
+## Known Limitations
+- PyQt5/PyQt6 dependency mismatch in requirements.txt (code uses PyQt5)
+- GStreamer required on Windows (use mock_gi for testing without it)
+- Manual recording stop may produce unplayable files (see Active Issues)
 
 ## Korean Language and Git Requirements
 - 답변 및 설명은 한글로 작성한다. (All responses and explanations should be in Korean)

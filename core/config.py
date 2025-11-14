@@ -55,6 +55,7 @@ class CameraConfigData:
     ptz_type: Optional[str] = None  # PTZ 카메라 타입 (예: "HIK", "ONVIF")
     ptz_port: Optional[str] = None  # PTZ 제어 포트
     ptz_channel: Optional[str] = None  # PTZ 채널 번호
+    display_order: int = 0  # GridView 표시 순서
     video_transform: Optional[Dict[str, Any]] = None  # 영상 변환 설정
 
 
@@ -351,21 +352,22 @@ class ConfigManager:
 
     def get_enabled_cameras(self) -> List[CameraConfigData]:
         """
-        Get list of enabled cameras
+        Get list of enabled cameras sorted by display_order
 
         Returns:
-            List of enabled camera configurations
+            List of enabled camera configurations sorted by display_order
         """
-        return [c for c in self.cameras if c.enabled]
+        enabled_cameras = [c for c in self.cameras if c.enabled]
+        return sorted(enabled_cameras, key=lambda c: c.display_order)
 
     def get_all_cameras(self) -> List[CameraConfigData]:
         """
-        Get list of all cameras
+        Get list of all cameras sorted by display_order
 
         Returns:
-            List of all camera configurations
+            List of all camera configurations sorted by display_order
         """
-        return self.cameras
+        return sorted(self.cameras, key=lambda c: c.display_order)
 
     def get_logging_config(self) -> Dict[str, Any]:
         """

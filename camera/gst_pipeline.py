@@ -246,11 +246,9 @@ class GstPipeline:
             rtspsrc.set_property("do-rtsp-keep-alive", True)
 
             # timeout: keep-alive 간격 및 응답 타임아웃 (microseconds 단위)
-            # 기본값: 5초 (빠른 연결 끊김 감지를 위해)
-            # 값이 작을수록 빠르게 감지하지만, 네트워크 부하 증가
-            keepalive_timeout = streaming_config.get("keepalive_timeout", 5)
-            rtspsrc.set_property("timeout", keepalive_timeout * 1000000)  # microseconds
-            logger.debug(f"RTSP keep-alive enabled with {keepalive_timeout}s timeout")
+            # 5초로 고정 (빠른 연결 끊김 감지)
+            rtspsrc.set_property("timeout", 5 * 1000000)  # 5 seconds in microseconds
+            logger.debug("RTSP keep-alive enabled with 5s timeout")
 
             rtspsrc.set_property("retry", 5)
 

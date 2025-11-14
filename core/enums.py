@@ -14,6 +14,29 @@ class CameraStatus(Enum):
     ERROR = "error"
     RECONNECTING = "reconnecting"
 
+    @staticmethod
+    def get_status_color(status: 'CameraStatus'):
+        """
+        상태에 따른 색상 반환
+
+        Returns:
+            tuple: (icon, color_hex, color_name)
+                - 🟢 녹색 (#00ff00): 정상 연결 및 스트리밍 중
+                - 🟡 노란색 (#ffff00): 연결 시도 중
+                - 🔴 빨간색 (#ff0000): 연결 실패 또는 오류
+                - 🔵 파란색 (#0099ff): 재연결 시도 중
+                - ⚫ 회색 (#646464): 비활성화
+        """
+        color_map = {
+            CameraStatus.CONNECTED: ("🟢", "#00ff00", "green"),
+            CameraStatus.STREAMING: ("🟢", "#00ff00", "green"),
+            CameraStatus.CONNECTING: ("🟡", "#ffff00", "yellow"),
+            CameraStatus.ERROR: ("🔴", "#ff0000", "red"),
+            CameraStatus.RECONNECTING: ("🔵", "#0099ff", "blue"),
+            CameraStatus.DISCONNECTED: ("⚪", "#ffffff", "white"),
+        }
+        return color_map.get(status, ("⚪", "#ffffff", "white"))
+
 
 class RecordingStatus(Enum):
     """녹화 상태"""
@@ -23,6 +46,29 @@ class RecordingStatus(Enum):
     PAUSED = "paused"
     STOPPING = "stopping"
     ERROR = "error"
+
+    @staticmethod
+    def get_status_color(status: 'RecordingStatus'):
+        """
+        녹화 상태에 따른 색상 반환
+
+        Returns:
+            tuple: (icon, color_hex, color_name)
+                - 🔴 빨간색 (#ff0000): 녹화 중
+                - 🟡 노란색 (#ffff00): 준비 중 또는 중지 중
+                - 🔵 파란색 (#0099ff): 일시 정지
+                - 🟠 주황색 (#ff9900): 오류
+                - ⚪ 흰색 (#ffffff): 대기 중
+        """
+        color_map = {
+            RecordingStatus.RECORDING: ("🔴", "#ff0000", "red"),
+            RecordingStatus.PREPARING: ("🟡", "#ffff00", "yellow"),
+            RecordingStatus.STOPPING: ("🟡", "#ffff00", "yellow"),
+            RecordingStatus.PAUSED: ("🔵", "#0099ff", "blue"),
+            RecordingStatus.ERROR: ("🟠", "#ff9900", "orange"),
+            RecordingStatus.IDLE: ("⚪", "#ffffff", "white"),
+        }
+        return color_map.get(status, ("⚪", "#ffffff", "white"))
 
 
 class PipelineMode(Enum):

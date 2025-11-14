@@ -192,6 +192,22 @@ class CamerasSettingsTab(BaseSettingsTab):
         startup_group.setLayout(startup_layout)
         scroll_layout.addWidget(startup_group)
 
+        # Advanced Options Group
+        advanced_group = QGroupBox("Advanced Options")
+        advanced_form = QFormLayout()
+
+        self.motion_detection_cb = QCheckBox("Enable Motion Detection")
+        self.motion_detection_cb.setToolTip("Enable motion detection for this camera (future feature)")
+        advanced_form.addRow(self.motion_detection_cb)
+
+        self.display_order_edit = QLineEdit()
+        self.display_order_edit.setPlaceholderText("0")
+        self.display_order_edit.setToolTip("Display order in grid view (0 = first)")
+        advanced_form.addRow("Display Order:", self.display_order_edit)
+
+        advanced_group.setLayout(advanced_form)
+        scroll_layout.addWidget(advanced_group)
+
         scroll_layout.addStretch()
         scroll.setWidget(scroll_content)
         layout.addWidget(scroll)
@@ -214,6 +230,7 @@ class CamerasSettingsTab(BaseSettingsTab):
             self.ptz_type_combo, self.ptz_port_edit, self.ptz_channel_edit,
             self.transform_enabled_cb, self.flip_combo, self.rotation_combo,
             self.streaming_start_cb, self.recording_start_cb,
+            self.motion_detection_cb, self.display_order_edit,
             self.apply_camera_btn
         ]
 
@@ -256,7 +273,9 @@ class CamerasSettingsTab(BaseSettingsTab):
                 "rotation": 0
             },
             "streaming_enabled_start": False,
-            "recording_enabled_start": False
+            "recording_enabled_start": False,
+            "motion_detection": False,
+            "display_order": len(self.cameras_data)
         }
 
         self.cameras_data.append(new_camera)
@@ -355,6 +374,9 @@ class CamerasSettingsTab(BaseSettingsTab):
         self.streaming_start_cb.setChecked(camera.get("streaming_enabled_start", False))
         self.recording_start_cb.setChecked(camera.get("recording_enabled_start", False))
 
+        self.motion_detection_cb.setChecked(camera.get("motion_detection", False))
+        self.display_order_edit.setText(str(camera.get("display_order", 0)))
+
         logger.debug(f"Camera selected: {camera.get('camera_id')}")
 
     def _apply_camera_changes(self, show_message: bool = True):
@@ -407,6 +429,15 @@ class CamerasSettingsTab(BaseSettingsTab):
 
         camera["streaming_enabled_start"] = self.streaming_start_cb.isChecked()
         camera["recording_enabled_start"] = self.recording_start_cb.isChecked()
+
+        camera["motion_detection"] = self.motion_detection_cb.isChecked()
+
+        # Display order validation
+        try:
+            display_order = int(self.display_order_edit.text().strip() or "0")
+            camera["display_order"] = display_order
+        except ValueError:
+            camera["display_order"] = 0
 
         # Update list item
         self.camera_list.item(self.current_camera_index).setText(camera["name"])

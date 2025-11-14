@@ -34,20 +34,27 @@ class RecordingStatusItem(QListWidgetItem):
 
     def update_display(self):
         """표시 텍스트 업데이트"""
+        from core.enums import RecordingStatus, CameraStatus
+
         if not self.enabled:
             # 비활성화: ⚫ 검은 원과 동일한 색상
             status_icon = "⚫"
             status_text = "비활성화"
             color = QColor(100, 100, 100)  # 어두운 회색
         elif self.is_recording:
-            # 활성화 + 녹화중: 🔴 빨간 원과 동일한 색상
-            status_icon = "🔴"
+            # 녹화 중: 🔴 빨간색
+            status_icon, color_hex, _ = RecordingStatus.get_status_color(RecordingStatus.RECORDING)
             status_text = "녹화중"
-            color = QColor(255, 0, 0)  # 순수 빨간색
-        else:
-            # 활성화 + 대기중: ⚪ 흰 원과 동일한 색상
-            status_icon = "⚪"
+            color = QColor(color_hex)
+        elif self.is_connected:
+            # 연결됨 (녹화 대기): 🟢 녹색
+            status_icon, color_hex, _ = CameraStatus.get_status_color(CameraStatus.CONNECTED)
             status_text = "대기중"
+            color = QColor(color_hex)
+        else:
+            # 연결 안됨: ⚪ 흰색
+            status_icon = "⚪"
+            status_text = "연결안됨"
             color = QColor(255, 255, 255)  # 흰색
 
         display_text = f"{status_icon} {self.camera_name} ({self.camera_id}) [{status_text}]"
