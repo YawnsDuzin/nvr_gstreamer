@@ -196,7 +196,8 @@ class PlaybackControlWidget(ThemedWidget):
         self.video_widget = QWidget()
         self.video_widget.setObjectName("videoWidget")  # Set object name for styling
         self.video_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        # Background color will be set by main window theme
+        # 배경색을 검정색으로 설정
+        self.video_widget.setStyleSheet("QWidget#videoWidget { background-color: black; }")
         layout.addWidget(self.video_widget, stretch=1)  # stretch=1 로 남는 공간 모두 차지
 
         # 컨트롤 영역을 별도 위젯으로 묶기
@@ -210,7 +211,7 @@ class PlaybackControlWidget(ThemedWidget):
 
         self.position_label = QLabel("00:00")
         font = self.position_label.font()
-        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        font.setPointSize(10)  # 글씨 크기
         self.position_label.setFont(font)
         seek_layout.addWidget(self.position_label)
 
@@ -222,7 +223,7 @@ class PlaybackControlWidget(ThemedWidget):
 
         self.duration_label = QLabel("00:00")
         font = self.duration_label.font()
-        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        font.setPointSize(10)  # 글씨 크기
         self.duration_label.setFont(font)
         seek_layout.addWidget(self.duration_label)
 
@@ -235,12 +236,12 @@ class PlaybackControlWidget(ThemedWidget):
         # 재생 속도 선택
         speed_label = QLabel("속도:")
         font = speed_label.font()
-        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        font.setPointSize(10)  # 글씨 크기
         speed_label.setFont(font)
         control_layout.addWidget(speed_label)
         self.speed_combo = QComboBox()
         font = self.speed_combo.font()
-        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        font.setPointSize(10)  # 글씨 크기
         self.speed_combo.setFont(font)
         self.speed_combo.addItems(["0.5x", "1.0x", "1.5x", "2.0x", "4.0x"])
         self.speed_combo.setCurrentText("1.0x")
@@ -358,20 +359,20 @@ class RecordingListWidget(ThemedWidget):
         # 필터 섹션 (모두 한 줄로)
         filter_group = QGroupBox("필터")
         font = filter_group.font()
-        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        font.setPointSize(10)  # 글씨 크기
         filter_group.setFont(font)
         filter_layout = QHBoxLayout()
 
         # 카메라 선택
         camera_label = QLabel("카메라:")
         font = camera_label.font()
-        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        font.setPointSize(10)  # 글씨 크기
         camera_label.setFont(font)
         camera_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         filter_layout.addWidget(camera_label)
         self.camera_combo = QComboBox()
         font = self.camera_combo.font()
-        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        font.setPointSize(10)  # 글씨 크기
         self.camera_combo.setFont(font)
         self.camera_combo.addItem("전체")
         # 카메라 선택 변경 시 자동 새로고침 제거 (사용자가 수동으로 새로고침)
@@ -383,13 +384,13 @@ class RecordingListWidget(ThemedWidget):
         # 시작 날짜
         start_label = QLabel("시작:")
         font = start_label.font()
-        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        font.setPointSize(10)  # 글씨 크기
         start_label.setFont(font)
         start_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         filter_layout.addWidget(start_label)
         self.start_date = QDateEdit()
         font = self.start_date.font()
-        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        font.setPointSize(10)  # 글씨 크기
         self.start_date.setFont(font)
         self.start_date.setCalendarPopup(True)
         self.start_date.setDate(QDate.currentDate().addDays(-7))
@@ -403,13 +404,13 @@ class RecordingListWidget(ThemedWidget):
         # 종료 날짜
         end_label = QLabel("종료:")
         font = end_label.font()
-        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        font.setPointSize(10)  # 글씨 크기
         end_label.setFont(font)
         end_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         filter_layout.addWidget(end_label)
         self.end_date = QDateEdit()
         font = self.end_date.font()
-        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        font.setPointSize(10)  # 글씨 크기
         self.end_date.setFont(font)
         self.end_date.setCalendarPopup(True)
         self.end_date.setDate(QDate.currentDate())
@@ -423,14 +424,14 @@ class RecordingListWidget(ThemedWidget):
         # 비디오 변환 필터
         transform_label = QLabel("비디오 변환:")
         font = transform_label.font()
-        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        font.setPointSize(10)  # 글씨 크기
         transform_label.setFont(font)
         transform_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         filter_layout.addWidget(transform_label)
 
         self.flip_combo = QComboBox()
         font = self.flip_combo.font()
-        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        font.setPointSize(10)  # 글씨 크기
         self.flip_combo.setFont(font)
         self.flip_combo.addItems(["None", "Horizontal", "Vertical", "Both"])
         self.flip_combo.setToolTip("좌우/상하 반전")
@@ -438,7 +439,7 @@ class RecordingListWidget(ThemedWidget):
 
         self.rotation_combo = QComboBox()
         font = self.rotation_combo.font()
-        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        font.setPointSize(10)  # 글씨 크기
         self.rotation_combo.setFont(font)
         self.rotation_combo.addItems(["0°", "90°", "180°", "270°"])
         self.rotation_combo.setToolTip("회전")
@@ -449,7 +450,7 @@ class RecordingListWidget(ThemedWidget):
         # 새로고침 버튼 (우측 끝)
         self.refresh_button = QPushButton("새로고침")
         font = self.refresh_button.font()
-        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        font.setPointSize(10)  # 글씨 크기
         self.refresh_button.setFont(font)
         self.refresh_button.clicked.connect(self.refresh_list)
         filter_layout.addWidget(self.refresh_button)
@@ -457,7 +458,7 @@ class RecordingListWidget(ThemedWidget):
         # 스캔 상태 레이블
         self.scan_status_label = QLabel("")
         font = self.scan_status_label.font()
-        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        font.setPointSize(10)  # 글씨 크기
         self.scan_status_label.setFont(font)
         self.scan_status_label.setStyleSheet("color: #4CAF50;")  # bold 제거
         filter_layout.addWidget(self.scan_status_label)
@@ -468,7 +469,7 @@ class RecordingListWidget(ThemedWidget):
         # 파일 목록 테이블
         self.file_table = QTableWidget()
         font = self.file_table.font()
-        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        font.setPointSize(10)  # 글씨 크기
         self.file_table.setFont(font)
         self.file_table.setColumnCount(6)  # 체크박스 컬럼 추가
         self.file_table.setHorizontalHeaderLabels([
@@ -483,7 +484,7 @@ class RecordingListWidget(ThemedWidget):
         # 컬럼 너비 조정
         header = self.file_table.horizontalHeader()
         font = header.font()
-        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        font.setPointSize(10)  # 글씨 크기
         font.setBold(False)  # bold 제거
         header.setFont(font)
         header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # 선택 (체크박스)
@@ -502,7 +503,7 @@ class RecordingListWidget(ThemedWidget):
         # 전체 선택 버튼
         select_all_btn = QPushButton("전체 선택")
         font = select_all_btn.font()
-        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        font.setPointSize(10)  # 글씨 크기
         select_all_btn.setFont(font)
         select_all_btn.clicked.connect(self._select_all)
         button_layout.addWidget(select_all_btn)
@@ -510,7 +511,7 @@ class RecordingListWidget(ThemedWidget):
         # 전체 해제 버튼
         deselect_all_btn = QPushButton("전체 해제")
         font = deselect_all_btn.font()
-        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        font.setPointSize(10)  # 글씨 크기
         deselect_all_btn.setFont(font)
         deselect_all_btn.clicked.connect(self._deselect_all)
         button_layout.addWidget(deselect_all_btn)
@@ -520,7 +521,7 @@ class RecordingListWidget(ThemedWidget):
         # 백업 버튼
         self.backup_btn = QPushButton("백업")
         font = self.backup_btn.font()
-        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        font.setPointSize(10)  # 글씨 크기
         self.backup_btn.setFont(font)
         self.backup_btn.clicked.connect(self._backup_selected)
         # Theme color will be applied by ThemeManager - no hardcoded style
@@ -531,7 +532,7 @@ class RecordingListWidget(ThemedWidget):
         # 선택 삭제 버튼
         delete_btn = QPushButton("선택 삭제")
         font = delete_btn.font()
-        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        font.setPointSize(10)  # 글씨 크기
         delete_btn.setFont(font)
         delete_btn.clicked.connect(self._delete_selected)
         button_layout.addWidget(delete_btn)

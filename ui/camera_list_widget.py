@@ -94,14 +94,14 @@ class CameraListWidget(ThemedWidget):
         # Camera Streaming Status GroupBox
         status_group = QGroupBox("Camera Streaming Status")
         font = status_group.font()
-        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        font.setPointSize(10)  # 글씨 크기
         status_group.setFont(font)
         status_layout = QVBoxLayout()
 
         # Camera list
         self.list_widget = QListWidget()
         font = self.list_widget.font()
-        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        font.setPointSize(10)  # 글씨 크기
         self.list_widget.setFont(font)
         # Use theme from main window - no hardcoded style
         self.list_widget.itemClicked.connect(self._on_item_clicked)
@@ -116,7 +116,7 @@ class CameraListWidget(ThemedWidget):
         # Status bar
         self.status_label = QLabel("0 cameras configured")
         font = self.status_label.font()
-        font.setPointSize(11)  # 버튼과 동일한 폰트 크기
+        font.setPointSize(10)  # 글씨 크기
         self.status_label.setFont(font)
         # Use theme from main window - no hardcoded style
         self.status_label.setStyleSheet("padding: 5px;")  # Keep padding only
@@ -492,3 +492,122 @@ class CameraListWidget(ThemedWidget):
     def get_camera_stream(self, camera_id: str) -> CameraStream:
         """Get camera stream by ID"""
         return self.camera_streams.get(camera_id)
+
+    def update_camera_streams_config(self):
+        """
+        모든 CameraStream의 설정 업데이트 (효율적인 방법)
+
+        Settings에서 카메라 설정이 변경되었을 때 호출
+        기존 객체를 재사용하고 설정만 업데이트
+        """
+        logger.info("Updating camera stream configurations...")
+
+        # ConfigManager에서 최신 카메라 설정 가져오기
+        cameras = self.config_manager.get_all_cameras()
+        streaming_config = self.config_manager.get_streaming_config()
+
+        # 재연결이 필요한 카메라 추적
+        reconnect_needed = {}  # camera_id -> (was_connected, was_recording)
+
+        for camera in cameras:
+            camera_id = camera.camera_id
+
+            # 기존 스트림이 있는지 확인
+            if camera_id not in self.camera_streams:
+                # 새로운 카메라 추가된 경우 (Settings에서 Add한 경우)
+                logger.info(f"New camera detected: {camera_id}, creating CameraStream...")
+                self._add_camera_item(camera)
+                continue
+
+            stream = self.camera_streams[camera_id]
+
+            # 연결 상태 저장
+            was_connected = stream.is_connected()
+            was_recording = False
+
+            if stream.gst_pipeline:
+                was_recording = stream.gst_pipeline._is_recording
+
+            # 새로운 설정으로 업데이트
+            new_config = CameraConfig(
+                camera_id=camera.camera_id,
+                name=camera.name,
+                rtsp_url=camera.rtsp_url,  # ✅ 변경된 RTSP URL
+                username=camera.username,
+                password=camera.password,
+                use_hardware_decode=camera.use_hardware_decode,
+                reconnect_attempts=streaming_config.get("max_reconnect_attempts", 5),
+                reconnect_delay=streaming_config.get("reconnect_delay_seconds", 5),
+                streaming_enabled_start=camera.streaming_enabled_start,
+                recording_enabled_start=camera.recording_enabled_start,
+                ptz_type=camera.ptz_type,
+                ptz_port=camera.ptz_port,
+                ptz_channel=camera.ptz_channel
+            )
+
+            # ✅ 핵심: 설정만 업데이트 (객체 재생성 안 함)
+            needs_reconnect = stream.update_config(new_config)
+
+            # CameraListItem 업데이트
+            if camera_id in self.camera_items:
+                camera_item = self.camera_items[camera_id]
+                camera_item.camera_config = camera
+                camera_item.update_display()
+
+            # 재연결이 필요한 경우만 추적
+            if needs_reconnect and was_connected:
+                # 연결 해제 (새 URL로 재연결 필요)
+                logger.info(f"Disconnecting {camera_id} for reconnection with new URL...")
+                stream.disconnect()
+                reconnect_needed[camera_id] = (was_connected, was_recording)
+
+            logger.success(f"✓ Config updated for {camera_id}")
+
+        # 삭제된 카메라 제거 (Settings에서 Delete한 경우)
+        current_camera_ids = {cam.camera_id for cam in cameras}
+        for camera_id in list(self.camera_streams.keys()):
+            if camera_id not in current_camera_ids:
+                logger.info(f"Camera removed from config: {camera_id}, removing CameraStream...")
+                stream = self.camera_streams[camera_id]
+                if stream.is_connected():
+                    stream.disconnect()
+                del self.camera_streams[camera_id]
+
+                if camera_id in self.camera_items:
+                    # UI에서 제거
+                    item = self.camera_items[camera_id]
+                    row = self.list_widget.row(item)
+                    self.list_widget.takeItem(row)
+                    del self.camera_items[camera_id]
+
+        # 재연결 필요한 카메라 알림
+        if reconnect_needed:
+            msg_text = "카메라 설정이 변경되었습니다.\n\n"
+            msg_text += "다음 카메라의 연결이 해제되었습니다:\n"
+
+            for cam_id, (was_conn, was_rec) in reconnect_needed.items():
+                camera = self.config_manager.get_camera(cam_id)
+                camera_name = camera.name if camera else cam_id
+                msg_text += f"  • {camera_name}"
+
+                if was_rec:
+                    msg_text += " (녹화 중이었음)"
+
+                msg_text += "\n"
+
+            msg_text += "\n변경사항을 적용하려면 카메라를 다시 연결해주세요."
+
+            # MainWindow를 parent로 사용
+            parent = self.main_window if hasattr(self, 'main_window') and self.main_window else self
+            QMessageBox.information(
+                parent,
+                "카메라 설정 변경됨",
+                msg_text
+            )
+
+            logger.info(f"User notified: {len(reconnect_needed)} camera(s) need reconnection")
+
+        # 상태 업데이트
+        self._update_status()
+
+        logger.success(f"✓ All camera stream configs updated")

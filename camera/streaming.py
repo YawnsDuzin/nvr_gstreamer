@@ -66,6 +66,46 @@ class CameraStream:
         else:
             self.rtsp_url = self.config.rtsp_url
 
+    def update_config(self, new_config: Union[Camera, CameraConfig]) -> bool:
+        """
+        카메라 설정 업데이트 (연결을 유지한 채 설정만 변경)
+
+        RTSP URL, username, password 등이 변경되었을 때
+        기존 스트림 객체를 유지하면서 설정만 업데이트
+
+        Args:
+            new_config: 새로운 카메라 설정
+
+        Returns:
+            bool: 재연결이 필요한지 여부
+                - True: RTSP URL/인증 정보가 변경되어 재연결 필요
+                - False: 기타 설정만 변경되어 재연결 불필요
+        """
+        # 이전 설정 저장
+        old_rtsp_url = self.rtsp_url
+        old_camera_id = self.config.camera_id
+
+        # 새 설정 적용
+        self.config = new_config
+
+        # RTSP URL 재빌드
+        if hasattr(self.config, 'build_rtsp_url_with_auth'):
+            self.rtsp_url = self.config.build_rtsp_url_with_auth()
+        else:
+            self._build_rtsp_url()
+
+        # 재연결 필요 여부 판단
+        reconnect_needed = (old_rtsp_url != self.rtsp_url)
+
+        if reconnect_needed:
+            logger.info(f"Config updated for {new_config.camera_id}: RTSP URL changed, reconnection required")
+            logger.debug(f"  Old URL: {old_rtsp_url}")
+            logger.debug(f"  New URL: {self.rtsp_url}")
+        else:
+            logger.info(f"Config updated for {new_config.camera_id}: no reconnection needed")
+
+        return reconnect_needed
+
     def connect(self, frame_callback=None, window_handle=None, enable_recording=False) -> bool:
         """
         Connect to camera stream
